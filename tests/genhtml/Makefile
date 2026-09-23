@@ -7,10 +7,29 @@ include ../common.mak
 # List long-running tests first - so parallel execution picks them up as
 #   early as possible
 TESTS := \
-  simple errs insensitive synthesize \
-  relative lambda exception filter function \
-  full.sh zero.sh demangle.sh counts xplatform criteria \
-  scriptargs shellquote selectscript diffread lcovrc htmlgen
+  simple \
+  errs \
+  insensitive \
+  synthesize \
+  relative \
+  lambda \
+  exception \
+  filter \
+  function \
+  full.sh \
+  zero.sh \
+  demangle.sh \
+  counts \
+  xplatform \
+  criteria \
+  scriptargs \
+  shellquote \
+  selectscript \
+  diffread \
+  lcovrc \
+  htmlgen \
+  columns
+
 
 DISABLED := part1.sh part2.sh target.sh
 

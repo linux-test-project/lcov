@@ -11,7 +11,7 @@ NAME
 
 perl2lcov
  Translate Perl coverage data from ``Devel::Cover`` to lcov format
-	       
+
 SYNOPSIS
 --------
 
@@ -30,8 +30,8 @@ OPTIONS
 -------
 
 In addition to common options supported by other tools in the |ToolName| suite
-(*e.g.*, ``--comment``, ``--version-script``, ``--ignore-error``, ``--substitute``,
-``--exclude``, *etc.*), the tool options are:
+(*e.g.*, ``--comment``, ``--version-script``, ``--ignore-error``,
+``--substitute``, ``--exclude``, *etc.*), the tool options are:
 
 ``--output`` *filename*, ``-o`` *filename*
    The |ToolName| data will be written to the specified file. If this option is
@@ -43,7 +43,7 @@ In addition to common options supported by other tools in the |ToolName| suite
 
 See :manpage:`lcov(1)` and :manpage:`lcovrc(5)` for details of other supported
 options and configuration settings.
-   
+
 EXAMPLES
 --------
 
@@ -95,6 +95,8 @@ In that case, you can:
 
 - Exclude the offending code: see the ``--exclude``, ``--filter``, and
   ``--omit-lines`` sections in :manpage:`genhtml(1)`.
+
+``perl2lcov`` does not support MC/DC or call site coverage.
 
 AUTHOR
 ------

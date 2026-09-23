@@ -444,6 +444,20 @@ fi
 if ! grep -q -e 'Processing directory: .*\\' wshost.log ; then
     fail wshost "the directory hierarchy was not split on the separator"
 fi
+# ..from its first element:  a name joined to the current directory here starts
+#   with '/', which this host takes as a separator as well - so it is not a
+#   directory with an empty name, whose page would be the top level's own
+if grep -q -e 'Processing directory: \\' wshost.log ; then
+    fail wshost "a leading separator became a directory"
+fi
+# ..and the pages link to each other with URLs, whose separator is '/' on every
+#   host - even where the path names they are built from use '\'
+if grep -r -q -E -e '(href|src)="[^"]*\\' html_wshost ; then
+    fail wshost "a URL was written with the host's separator"
+fi
+if grep -r -q -E -e '(href|src)="/' html_wshost ; then
+    fail wshost "a link leads to the root of the web server"
+fi
 # ..and 'cross_platform_read' has nothing to say about any of it:  turning it
 #   off does not stop the normalization, because a host which takes both
 #   separators has to normalize.  It is not a no-op on a POSIX host:  there it

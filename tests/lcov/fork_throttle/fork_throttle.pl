@@ -73,10 +73,9 @@ lcovutil::set_info_callback(sub {
 $lcovutil::verbose = 1;
 
 # Room for four children, and a ceiling which one child already breaks:  then
-#   every decision from the third fork on is over the limit, and the run
-#   proceeds two children at a time.  (The first two forks are not throttled:
-#   the manager will not wait for a ceiling it cannot meet, so it always allows
-#   a second child - see 'throttle'.)
+#   every decision made while a child is running is over the limit, and the run
+#   proceeds one child at a time.  (The first fork is not throttled:  with
+#   nothing running there is nothing to wait for - see 'throttle'.)
 $lcovutil::maxParallelism = 4;
 $lcovutil::maxMemory      = 1;
 
@@ -86,7 +85,11 @@ sub run_manager
 
     my @queue = (0 .. $#$weights);
     my %merged;
-    my $mgr =
+    my %adj;
+    my @why;
+    my $peak = 0;
+    my $mgr;
+    $mgr =
         lcovutil::ForkManager->new(
         tempDir   => $tempdir,
         operation => 'throttle test',
@@ -102,13 +105,28 @@ sub run_manager
             # grow by an amount this unit's weight predicts, so that the
             #   parent can learn a rate from it
             my $ballast = 'x' x ($weights->[$unit] * $BYTES_PER_UNIT);
-            return ([$unit, length($ballast)], 0);
+            # ..and what the OOM killer thinks of us
+            my $adj;
+            if (open(my $h, '<', '/proc/self/oom_score_adj')) {
+                $adj = <$h>;
+                chomp($adj);
+                close($h);
+            }
+            return ([$unit, length($ballast), $adj], 0);
         },
         merge => sub {
             my ($unit, $id, $payload) = @_;
             $merged{$unit} = $payload->[1];
+            $adj{$unit}    = $payload->[2];
         },
-        requeue          => sub { push(@queue, $_[0]); },
+        postFork => sub {
+            my $n = $mgr->count();
+            $peak = $n if $n > $peak;
+        },
+        requeue => sub {
+            push(@why, $_[2]);
+            push(@queue, $_[0]);
+        },
         more             => sub { return scalar(@queue); },
         forkFailWhen     => sub { return "forking unit $_[0]"; },
         retryWhen        => sub { return "unit $_[0]->{id}"; },
@@ -117,7 +135,7 @@ sub run_manager
         memoryThrottle   => 1,
         %extra);
     $mgr->run();
-    return ($mgr, \%merged);
+    return ($mgr, \%merged, $peak, \@why, \%adj);
 }
 
 # ----------------------------------------------------------------------
@@ -125,7 +143,7 @@ sub run_manager
 #   children which finish, and says so
 # ----------------------------------------------------------------------
 my @weights = (2, 4, 6, 8, 10, 12);
-my ($mgr, $merged) =
+my ($mgr, $merged, $peak, $why, $adj) =
     run_manager(\@weights,
                 unitWeight => sub { return $weights[$_[0]]; },
                 remaining  => sub { return 'some'; });
@@ -139,6 +157,17 @@ for (my $i = 0; $i <= $#weights; ++$i) {
 }
 check('each unit reported the work it did', $sizes);
 check('nothing is still reserved', 0 == scalar(keys(%{$mgr->{reserved}})));
+# over the ceiling, a second child is a second copy of us which the ceiling
+#   says there is no room for:  wait for the first instead
+check('over the ceiling, one child at a time', 1 == $peak);
+# the kernel kills the process with the highest score when memory runs out:  a
+#   child is a unit which is retried, the parent is the whole run
+if (-e '/proc/self/oom_score_adj') {
+    check('every child volunteered for the OOM killer',
+          6 == grep({ defined($_) && '1000' eq $_ } values(%$adj)));
+} else {
+    print("skipped: no /proc/self/oom_score_adj\n");
+}
 check('a rate was learned',
       $mgr->{learnedWeight} > 0 && $mgr->{learnedBytes} > 0);
 
@@ -191,6 +220,48 @@ check('every unit was merged without a ceiling',
       scalar(keys(%$merged)) == scalar(@flat));
 check('no memory constraint was reported',
       0 == scalar(grep(/memory constraint/, @messages)));
+
+# ----------------------------------------------------------------------
+# a child which the OS killed:  the unit is retried - and with fewer children,
+#   since running as many as we were is how it came to be killed.  A fork()
+#   which failed says nothing about memory, and does not change the limit.
+#   Either way the client is told why its unit came back.
+# ----------------------------------------------------------------------
+$lcovutil::ignore[$lcovutil::ERROR_FORK] = 1;
+$lcovutil::fork_fail_timeout = 0;
+
+@messages                = ();
+$lcovutil::forceForkFail = 1;
+($mgr, $merged, $peak, $why) = run_manager(\@flat);
+check('a unit whose fork failed was merged',
+      scalar(keys(%$merged)) == scalar(@flat));
+check('..and came back because the fork failed',
+      1 == @$why && 'fork' eq $why->[0]);
+check('..which does not lower the limit', !defined($mgr->{maxInFlight}));
+
+@messages                 = ();
+$lcovutil::forceChildKill = 1;
+($mgr, $merged, $peak, $why) = run_manager(\@flat);
+check('a unit whose child was killed was merged',
+      scalar(keys(%$merged)) == scalar(@flat));
+check('..and came back to be retried', 1 == @$why && 'retry' eq $why->[0]);
+check('..at half the parallelism, at most',
+      defined($mgr->{maxInFlight}) && $mgr->{maxInFlight} <= 2);
+check(
+    '..and said so',
+    1 ==
+        grep(
+        /throttle test: a child was killed for want of memory:  running at most [12] at once \(was 4\)/,
+        @messages));
+
+# a second kill with one child running cannot go lower than one
+@messages                 = ();
+$lcovutil::forceChildKill = 2;
+($mgr, $merged) = run_manager([1], maxInFlight => 1);
+check('the limit does not go below one',
+      1 == $mgr->{maxInFlight} && 1 == scalar(keys(%$merged)));
+check('..and a limit which did not change is not reported',
+      0 == grep(/want of memory/, @messages));
 
 rmtree($tempdir);
 

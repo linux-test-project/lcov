@@ -81,8 +81,8 @@ make_one_commit_repo() {
     d=$(mktemp -d)
     msg="${1:-initial commit}"
     git -C "$d" init --quiet
-    git -C "$d" config user.email "alice@example.com"
-    git -C "$d" config user.name  "Alice"
+    git -C "$d" config user.email "bertie.wooster@jeeves.co.uk"
+    git -C "$d" config user.name  "Bertie Wooster"
     printf 'int main(void) { return 0; }\n' > "$d/f.c"
     git -C "$d" add f.c
     GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
@@ -252,8 +252,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO11=$(mktemp -d)
 git -C "$REPO11" init --quiet
-git -C "$REPO11" config user.email "alice@example.com"
-git -C "$REPO11" config user.name  "Alice"
+git -C "$REPO11" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO11" config user.name  "Bertie Wooster"
 printf 'v1\n' > "$REPO11/f.c"
 git -C "$REPO11" add f.c
 GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
@@ -303,8 +303,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO13=$(mktemp -d)
 git -C "$REPO13" init --quiet
-git -C "$REPO13" config user.email "alice@example.com"
-git -C "$REPO13" config user.name  "Alice"
+git -C "$REPO13" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO13" config user.name  "Bertie Wooster"
 mkdir -p "$REPO13/sub"
 printf 'code\n' > "$REPO13/sub/g.c"
 git -C "$REPO13" add sub/g.c
@@ -534,8 +534,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO25=$(mktemp -d)
 git -C "$REPO25" init --quiet
-git -C "$REPO25" config user.email "alice@example.com"
-git -C "$REPO25" config user.name  "Alice"
+git -C "$REPO25" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO25" config user.name  "Bertie Wooster"
 # Create and commit a different file; leave g.c untracked
 printf 'other\n' > "$REPO25/other.c"
 git -C "$REPO25" add other.c
@@ -575,8 +575,8 @@ BASE26=$(mktemp -d)
 REPO26="$BASE26/my repo"
 mkdir "$REPO26"
 git -C "$REPO26" init --quiet
-git -C "$REPO26" config user.email "alice@example.com"
-git -C "$REPO26" config user.name  "Alice"
+git -C "$REPO26" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO26" config user.name  "Bertie Wooster"
 printf 'int main(void) { return 0; }\n' > "$REPO26/f.c"
 git -C "$REPO26" add f.c
 GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \

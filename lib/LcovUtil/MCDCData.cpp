@@ -328,19 +328,19 @@ LCOV_INLINE MCDC_Expression* MCDC_Block::expr(int32_t group_size, int32_t idx)
     std::vector<MCDC_Expression>* found = expressions(group_size);
     if (!found)
         throw std::out_of_range("expr: unknown group size " +
-                                std::to_string(group_size));
+                                mcdcKeyString(group_size));
     auto& vec = *found;
     if (idx < 0 || static_cast<std::size_t>(idx) >= vec.size())
         throw std::out_of_range("expr: invalid expression index " +
                                 std::to_string(idx) + " in group " +
-                                std::to_string(group_size));
+                                mcdcKeyString(group_size));
     return &vec[static_cast<std::size_t>(idx)];
 }
 
-LCOV_INLINE bool MCDC_Block::is_compatible(const MCDC_Block& you) const
+LCOV_INLINE int32_t MCDC_Block::incompatible_group(const MCDC_Block& you) const
 {
-    // Mirrors pure-Perl MCDC_Block::is_compatible, which compares the shared
-    // groups by EXPRESSION TEXT -- not by group count or group size.
+    // Mirrors pure-Perl MCDC_Block::incompatible_group, which compares the
+    // shared groups by EXPRESSION TEXT -- not by group count or group size.
     //
     // A group size present in only one of the two blocks is not a conflict:
     // merge() copies such a group in wholesale, so the blocks still describe
@@ -353,26 +353,26 @@ LCOV_INLINE bool MCDC_Block::is_compatible(const MCDC_Block& you) const
     // reject compatible blocks that merely carry an extra group, and accept
     // blocks whose shared expressions differ outright -- merging MC/DC records
     // that pure Perl rejects.
-    bool compatible = true;
+    //
+    // Of several conflicting groups, the one at the lowest location (then the
+    // smallest) is returned so the message does not depend on hash order.
+    int32_t conflict = 0;
     for_each_group([&](int32_t gs, const std::vector<MCDC_Expression>& mine) {
-        if (!compatible)
-            return;                    // already decided; nothing to undo
         const std::vector<MCDC_Expression>* yours = you.expressions(gs);
         if (!yours)
             return;
         // merge() walks the two lists index-wise, so unequal lengths leave my
         // trailing expressions with nothing to merge against.
-        if (mine.size() != yours->size()) {
-            compatible = false;
-            return;
-        }
-        for (std::size_t i = 0; i < mine.size(); ++i)
-            if (mine[i].expression() != (*yours)[i].expression()) {
-                compatible = false;
-                return;
-            }
+        bool differ = mine.size() != yours->size();
+        for (std::size_t i = 0; !differ && i < mine.size(); ++i)
+            differ = mine[i].expression() != (*yours)[i].expression();
+        if (differ &&
+            (0 == conflict ||
+             std::make_pair(mcdcKeyOffset(gs), mcdcKeySize(gs)) <
+                 std::make_pair(mcdcKeyOffset(conflict), mcdcKeySize(conflict))))
+            conflict = gs;
     });
-    return compatible;
+    return conflict;
 }
 
 LCOV_INLINE std::pair<int64_t, int64_t> MCDC_Block::totals(bool count_excluded) const
@@ -435,10 +435,10 @@ LCOV_INLINE int MCDC_Block::merge(const MCDC_Block& you, const std::string& file
                      * BOOT block installs report_error before any Perl caller
                      * can reach here. */
                     if (BranchDataCallbacks::report_error) {   // LCOV_EXCL_BR_LINE
-                        std::string loc = filename + ":" + std::to_string(line_) + ":";
+                        std::string loc = filename + ":" + std::to_string(mcdcKeyLine(gs, line_)) + ":";
                         std::string sense_str = sense ? "true" : "false";
                         std::string msg = loc + "mismatched 'unreachable' tag for MC/DC element " +
-                                         std::to_string(i + 1) + " of group " + std::to_string(gs) +
+                                         std::to_string(i + 1) + " of group " + std::to_string(mcdcKeySize(gs)) +
                                          " sense " + sense_str + ": '" +
                                          std::to_string(mine.is_excluded(sense)) + "' -> '" +
                                          std::to_string(yours.is_excluded(sense)) + "'.";
@@ -549,13 +549,16 @@ LCOV_INLINE int MCDC_Data::remove(int32_t line, bool check)
 // merged - the counts would be attributed to the wrong expressions.  Report it
 // through the same ignorable_error channel (message text matches pure Perl so
 // tests and user-visible output agree) and leave my block untouched.
-static void report_incompatible()
+static void report_incompatible(const std::string& filename, int32_t line, int32_t group)
 {
     /* Null arm precluded:  see BranchElement::merge -- the XS BOOT block installs
      * report_error before any Perl caller can reach here. */
     if (BranchDataCallbacks::report_error)   // LCOV_EXCL_BR_LINE
         BranchDataCallbacks::report_error(
-            LCOV_ERROR_INCONSISTENT, "cannot merge inconsistent MC/DC record");
+            LCOV_ERROR_INCONSISTENT,
+            filename + ":" + std::to_string(mcdcKeyLine(group, line)) +
+                ": cannot merge inconsistent MC/DC record: group " +
+                std::to_string(mcdcKeySize(group)));
 }
 
 LCOV_INLINE int MCDC_Data::union_with(const MCDC_Data& other, const std::string& filename)
@@ -574,7 +577,9 @@ LCOV_INLINE int MCDC_Data::union_with(const MCDC_Data& other, const std::string&
                 adjust_counts(f, h);
             }
             changed = 1;
-        } else if (it->second.is_compatible(block)) {
+        } else if (const int32_t gs = it->second.incompatible_group(block)) {
+            report_incompatible(filename, line, gs);
+        } else {
             // 'changed' is a boolean 'did anything change', not a count: see
             // the matching comment in pure-Perl MCDC_Data::union.
             if (rescan) {
@@ -588,8 +593,6 @@ LCOV_INLINE int MCDC_Data::union_with(const MCDC_Data& other, const std::string&
                 if (changedHere)
                     changed = 1;
             }
-        } else {
-            report_incompatible();
         }
     }
     if (rescan)
@@ -607,12 +610,11 @@ LCOV_INLINE int MCDC_Data::intersect_with(const MCDC_Data& other, const std::str
         if (it == other.data_.end()) {
             to_remove.push_back(line);
             changed = 1;
-        } else if (block.is_compatible(it->second)) {
+        } else if (const int32_t gs = block.incompatible_group(it->second)) {
+            report_incompatible(filename, line, gs);
+        } else if (block.merge(it->second, filename)) {
             // boolean, not a count - see union_with
-            if (block.merge(it->second, filename))
-                changed = 1;
-        } else {
-            report_incompatible();
+            changed = 1;
         }
     }
 

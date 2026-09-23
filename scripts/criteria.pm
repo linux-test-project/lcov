@@ -21,7 +21,7 @@
 #   This script is used as a genhtml "--criteria-script criteria" callback.
 #   It is called by genhtml at each level of hierarchy - but ignores all but
 #   the top level, and looks at line coverage and zero or more of function,
-#   branch, and MC/DC coverage.
+#   branch, MC/DC and callgraph coverage.
 #
 #   Format of the JSON input is:
 #     {"line":{"found":10,"hit:2,"UNC":2,..},"function":{...},"branch":{}"
@@ -35,7 +35,8 @@
 #   If passed the "--suppress" flag, this script will exit with status 0,
 #   even if the coverage criteria is not met.
 #     genhtml --criteria-script \
-#        'path/criteria --signoff [--function] [--branch] [--mcdc]' ....
+#        'path/criteria --signoff [--function] [--branch] [--mcdc]
+#         [--callgraph]' ....
 #
 #   It is not hard to envision much more complicated coverage criteria.
 
@@ -62,24 +63,30 @@ sub new
     my $function   = 0;
     my $branch     = 0;
     my $mcdc       = 0;
+    my $callgraph  = 0;
 
     if (!GetOptionsFromArray(\@_,
-                             ('signoff'  => \$signoff,
-                              'function' => \$function,
-                              'branch'   => \$branch,
-                              'mcdc'     => \$mcdc,)) ||
+                             ('signoff'   => \$signoff,
+                              'function'  => \$function,
+                              'branch'    => \$branch,
+                              'mcdc'      => \$mcdc,
+                              'callgraph' => \$callgraph,)) ||
         (!$standalone && @_)
     ) {
         print(STDERR "Error: unexpected option:\n  " .
                 join(' ', @options) .
-                "\nusage: name type json-string [--signoff] [--branch] [--mcdc] [--function]\n"
+                "\nusage: name type json-string [--signoff] [--branch] [--mcdc] [--function] [--callgraph]\n"
         );
         exit(1) if $standalone;
         return undef;
     }
     my @types = ('line');
-    foreach
-        my $t (['function', $function], ['MC/DC', $mcdc], ['branch', $branch]) {
+    # each name is the key genhtml uses in the JSON it passes us - see 'type2str'
+    #   in bin/genhtml - rather than the name of the option here
+    foreach my $t (['function', $function],
+                   ['MC/DC', $mcdc],
+                   ['branch', $branch],
+                   ['callgraph', $callgraph]) {
         push(@types, $t->[0]) if $t->[1];
     }
     my $self = [$signoff, \@types];

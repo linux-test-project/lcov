@@ -57,6 +57,10 @@ FN:1,myfunc1
 FN:2,_Z7myfunc2v
 FN:3,__Z7myfunc3v
 DA:1,1
+FNF:3
+FNH:0
+LF:1
+LH:1
 end_of_record
 EOF
         touch "${SOURCE}"
@@ -64,7 +68,11 @@ EOF
 
 function run() {
     export LCOV_SHOW_LOCATION=1
-        local CMDLINE="${COVER} ${GENHTML} --ignore unmapped,unmapped,category,category,source,source ${INFO} -o ${OUTDIR} $*"
+        # 'empty,empty' because the tests/lcovrc used here turns branch coverage
+        #  on and this fixture has only line and function data;  doubled so the
+        #  warning is suppressed too, since the check below insists stderr is
+        #  silent
+        local CMDLINE="${COVER} ${GENHTML} --ignore unmapped,unmapped,category,category,source,source,empty,empty ${INFO} -o ${OUTDIR} $*"
 
         rm -rf "${OUTDIR}"
 

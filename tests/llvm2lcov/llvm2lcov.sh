@@ -262,7 +262,7 @@ if [ "${LLVM_VER[0]}" -ge 21 ] ; then
         fi
     fi
     # check that MC/DC entries have right <expressions>
-    N=`grep -c "MCDC:40,2,[tf],0,1,'i <= 0' in 'BOOL(i > 0) ||        i <= 0)'" test.info`
+    N=`grep -c "MCDC:40,2,[tf],0,1,'i <= 0' in 'BOOL(i > 0) ||        i <= 0'" test.info`
     if [ 2 != "$N" ] ; then
         echo "did not find expected MC/DC entries on line 40"
         if [ 0 == $KEEP_GOING ] ; then

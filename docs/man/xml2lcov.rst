@@ -33,7 +33,8 @@ Two input schemas are read:
   which is what Cobertura writes, and what the Python ``Coverage.py`` module
   writes with ``coverage xml``. The root element is ``coverage``.
 
-- The JaCoCo report schema (https://www.jacoco.org/jacoco/trunk/coverage/report.dtd),
+- The JaCoCo report schema
+  (https://www.jacoco.org/jacoco/trunk/coverage/report.dtd),
   which is what ``java -jar jacococli.jar report --xml`` writes. The root
   element is ``report``.
 

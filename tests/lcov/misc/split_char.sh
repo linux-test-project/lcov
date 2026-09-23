@@ -27,7 +27,7 @@ set +x
 #   alternation with the same delimiter.  Those are deliberately regexps - the
 #   default RTL list is 'v|vh|sv|vhdl?' - so they are not quoted; but an
 #   alternation which does not compile is now reported when it is set rather
-#   than from inside 'is_language', at the first file name looked at.
+#   than from inside 'TraceFile::language', at the first file name looked at.
 #
 # The cases:
 #   1. the default ',' still splits a two-element list
@@ -54,6 +54,12 @@ fi
 if [ 'x' == "x$LCOV" ] ; then
         LCOV="$COVER $LCOV_TOOL"
 fi
+# The fixture below is line data only - what this test is about is how option
+#   lists are split, not which metrics the data has - and the tests/lcovrc in
+#   use here asks for function and branch coverage as well, which the read
+#   reports as missing.  Turned off rather than ignored:  an ignored message is
+#   still counted in the message summary, and case 1 checks that summary
+LCOV="$LCOV --no-function-coverage --no-branch-coverage"
 
 rm -f split_char.c split_char.info sc_*.log
 

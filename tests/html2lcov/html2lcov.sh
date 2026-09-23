@@ -643,14 +643,20 @@ cat > cur16a.info <<EOF
 TN:whitelist
 SF:$ACPATH
 DA:1,1
+LF:1
+LH:1
 end_of_record
 SF:big.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 EOF
 cat > cur16b.info <<'EOF'
 SF:c.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 EOF
 $COVER $HTML2LCOV_TOOL rpt --source-directory src2 -o out16 \
@@ -682,12 +688,18 @@ cp src2/a.c src_partial/a.c
 cat > cur17.info <<'EOF'
 SF:a.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 SF:big.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 SF:ghost.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 EOF
 $COVER $HTML2LCOV_TOOL rpt --source-directory src_partial -o out17 \
@@ -720,12 +732,18 @@ cp src/sub/b.c src_mm/deep/nested/b.c
 cat > cur18.info <<'EOF'
 SF:a.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 SF:other/b.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 SF:deep/nested/b.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 EOF
 # do NOT ignore 'mismatch':  it is an ignorable_warning (non-fatal), and its
@@ -828,9 +846,13 @@ cat > cur21.info <<EOF
 TN:whitelist
 SF:$ACPATH
 DA:1,1
+LF:1
+LH:1
 end_of_record
 SF:newmod.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 EOF
 $COVER $HTML2LCOV_TOOL rpt --source-directory src2 -o out21 \
@@ -1001,9 +1023,13 @@ cat > mr_build/multiroot.info <<'EOF'
 SF:mr1/one.c
 DA:1,1
 DA:2,1
+LF:2
+LH:2
 end_of_record
 SF:mr2/two.c
 DA:1,1
+LF:1
+LH:1
 end_of_record
 EOF
 ( cd mr_build &&
@@ -1074,10 +1100,14 @@ done
       echo "SF:`pwd`/$f"
       n=`wc -l < $f`
       k=1
+      hit=0
       while [ $k -le $n ] ; do
           echo "DA:$k,$(( $k % 3 ))"
+          [ 0 != $(( $k % 3 )) ] && hit=$(( $hit + 1 ))
           k=$(( $k + 1 ))
       done
+      echo "LF:$n"
+      echo "LH:$hit"
       echo end_of_record
   done ) > par_build/par.info
 $COVER $GENHTML_TOOL par_build/par.info -o par_build/rpt_par --save \
@@ -1293,9 +1323,13 @@ EOF
     ( echo "SF:`pwd`/dup_build/one_root/one.c"
       echo "DA:1,1"
       echo "DA:2,1"
+      echo "LF:2"
+      echo "LH:2"
       echo "end_of_record"
       echo "SF:$OTHER_ROOT/two_root/two.c"
       echo "DA:1,1"
+      echo "LF:1"
+      echo "LH:1"
       echo "end_of_record" ) > dup_build/dup.info
     $COVER $GENHTML_TOOL dup_build/dup.info -o dup_build/rpt_dup --save \
         --ignore empty,inconsistent,unused > genhtml_dup.log 2>&1

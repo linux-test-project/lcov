@@ -309,20 +309,28 @@ and only the branch data is pessimistic.
             if count != 0:
                 print("Warning: " + message % (count))
 
-        if self._args.version and self._versionScript is None:
+        versionArg = self._args.version if self._args.version and self._versionScript is None else []
+        rcOpt = self._args.rc if hasattr(self._args, 'rc') and self._args.rc else None
+        
+        if rcOpt or versionArg:
             # find the 'lcov' that is part of my release - should be adjacent
             # to this script
             lcov = os.path.join(os.path.split(posix_path(sys.argv[0]))[0], 'lcov')
+
             cmd = [
                 lcov,
                 "-a", self._args.output,
                 "-o", self._args.output,
-                "--version-script", self._args.version,
+                *(["--version-script", versionArg] if versionArg else []),
                 *(["--checksum"] if self._args.checksum else []),
                 "--rc", "compute_file_version=1",
-                "--branch-coverage",
+                '--rc', "branch_coverage=1",
                 "--ignore", "inconsistent",
             ]
+            if rcOpt:
+                for rc in rcOpt:
+                    cmd.extend(['--rc', rc])
+
             # '--no-function-coverage' tells that 'lcov' to throw away the
             #   function data in the file it is reading - so it is only right
             #   when the caller has none to lose.  py2lcov derives its function

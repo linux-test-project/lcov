@@ -9,7 +9,8 @@ NAME
 ----
 
 spreadsheet.py
- Convert |ToolName| profile data to Excel spreadsheet for performance analysis and comparison
+ Convert |ToolName| profile data to Excel spreadsheet for performance analysis
+ and comparison
 
 
 SYNOPSIS
@@ -114,7 +115,8 @@ Adjust sensitivity for outlier detection:
 
 ::
 
-    $ spreadsheet.py --threshold 10 --low 1.0 --high 1.5 -o sensitive.xlsx data.json
+    $ spreadsheet.py --threshold 10 --low 1.0 --high 1.5 \
+        -o sensitive.xlsx data.json
 
 Generating Profile Data
 -----------------------

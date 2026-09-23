@@ -4,8 +4,9 @@
 |TOOL_NAME| Callback Scripts
 ============================
 
-This section documents the callback scripts provided with |TOOL_NAME| for integration
-with version control systems, coverage criteria checking, and report customization.
+This section documents the callback scripts provided with |TOOL_NAME| for
+integration with version control systems, coverage criteria checking, and report
+customization.
 
 Note that these are intended as examples of possible callback implementations -
 but the intent is that users may want or need to write their own in order
@@ -20,16 +21,16 @@ to support specific requirements and/or development environments.
 Annotate Scripts: ``--annotate-script`` option
 ==============================================
 
-These scripts extract file annotation data (author, date, version) for age/ownership
-tracking in differential coverage reports.
+These scripts extract file annotation data (author, date, version) for
+age/ownership tracking in differential coverage reports.
 
 .. _gitblame:
 
 gitblame.pm
 -----------
 
-Run ``git blame`` for a file and format the result to match the diffcov(1) 
-annotation specification.
+Run ``git blame`` for a file and format the result to match the annotation
+specification of the ``--annotate-script`` option in :manpage:`genhtml(1)`.
 
 ::
 
@@ -84,8 +85,8 @@ as a module.
 p4annotate.pm
 -------------
 
-Run ``p4 annotate`` for a file and format the result to match the diffcov(1)
-annotation specification.
+Run ``p4 annotate`` for a file and format the result to match the annotation
+specification of the ``--annotate-script`` option in :manpage:`genhtml(1)`.
 
 ::
 
@@ -119,7 +120,7 @@ annotation specification.
 Note that ``p4annotate`` is a stand-alone executable which does the same thing
 as ``p4annotate.pm`` - except that it is called as an executable rather than
 as a module.
-   
+
 
 Version Scripts: ``--version-script`` option
 ============================================
@@ -229,7 +230,7 @@ Use Perforce commands to determine file versions.
 Note that ``getp4version`` is a stand-alone executable which does the same thing
 as ``P4version.pm`` - except that it is called as an executable rather than
 as a module.
-   
+
 
 Diff Scripts: ``--diff-file`` option
 ====================================
@@ -312,7 +313,8 @@ Sample criteria script that checks "UNC + LBC + UIC == 0".
 
 ::
 
-    genhtml --criteria-script 'criteria.pm [--signoff] [--function] [--branch] [--mcdc]'
+    genhtml --criteria-script \
+        'criteria.pm [--signoff] [--function] [--branch] [--mcdc]'
 
 **Options:**
 
@@ -331,7 +333,7 @@ Sample criteria script that checks "UNC + LBC + UIC == 0".
 Note that ``criteria`` is a stand-alone executable which does the same thing
 as ``criteria.pm`` - except that it is called as an executable rather than
 as a module.
-   
+
 
 .. _threshold:
 
@@ -342,7 +344,8 @@ Check that coverage exceeds specified thresholds.
 
 ::
 
-    genhtml --criteria-script 'threshold.pm,--line,85,--branch,70,--function,100'
+    genhtml --criteria-script \
+        'threshold.pm,--line,85,--branch,70,--function,100'
 
 **Options:**
 
@@ -397,8 +400,8 @@ owned by your team and do not want to look at the entire project.
    Character to separate list arguments.
 
 
-Find source files - in nontrivial build environment:  ``--resolve-script`` option
-=================================================================================
+Find source files - in nontrivial build environment: ``--resolve-script`` option
+================================================================================
 
 .. _resolve:
 
@@ -505,7 +508,8 @@ Performance monitoring and optimization
 spreadsheet.py
 --------------
 
-Generate Excel spreadsheets from |TOOL_NAME| profile data for performance analysis.
+Generate Excel spreadsheets from |TOOL_NAME| profile data for performance
+analysis.
 
 ::
 
@@ -612,9 +616,9 @@ that it is called as an executable rather than a module.
 
 **Output:**
 
-Returns version information (revision number or \"@head\") for files in the depot,
-or modification time for files not in depot. If ``--md5`` is specified, includes
-MD5 checksum.
+Returns version information (revision number or \"@head\") for files in the
+depot, or modification time for files not in depot. If ``--md5`` is specified,
+includes MD5 checksum.
 
 .. _get_signature:
 
@@ -653,4 +657,5 @@ Henry Cox <henry.cox@mediatek.com>
 SEE ALSO
 ========
 
-:manpage:`genhtml(1)`, :manpage:`lcov(1)`, :manpage:`geninfo(1)`, :manpage:`llvm2lcov(1)`, :manpage:`perl2lcov(1)`
+:manpage:`genhtml(1)`, :manpage:`lcov(1)`, :manpage:`geninfo(1)`,
+:manpage:`llvm2lcov(1)`, :manpage:`perl2lcov(1)`

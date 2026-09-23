@@ -83,8 +83,8 @@ make_git_repo() {
     local d
     d=$(mktemp -d)
     git -C "$d" init --quiet
-    git -C "$d" config user.email "alice@mediatek.com"
-    git -C "$d" config user.name  "Alice"
+    git -C "$d" config user.email "bertie.wooster@jeeves.co.uk"
+    git -C "$d" config user.name  "Bertie Wooster"
     echo "$d"
 }
 
@@ -129,7 +129,7 @@ fi
 # -----------------------------------------------------------------------
 TMP3=$(mktemp)
 echo "x" > "$TMP3"
-OUTPUT=$($GITBLAME example.com extra_arg "$TMP3" 2>&1)
+OUTPUT=$($GITBLAME jeeves.co.uk extra_arg "$TMP3" 2>&1)
 RC=$?
 rm -f "$TMP3"
 if [ $RC -eq 0 ] ; then
@@ -194,9 +194,9 @@ rm -rf "$REPO6"
 if [ $RC -ne 0 ] ; then
     fail "Test 6 basic: expected exit 0, got $RC"
 else
-    # Each line: <hash>|alice@mediatek.com;alice@mediatek.com|2023-05-15T10:00:00-08:00|line N
+    # Each line: <hash>|bertie.wooster@jeeves.co.uk;bertie.wooster@jeeves.co.uk|2023-05-15T10:00:00-08:00|line N
     LINES=$(echo "$OUTPUT" | wc -l)
-    MATCH=$(echo "$OUTPUT" | grep -c '|alice@mediatek\.com;alice@mediatek\.com|2023-05-15T10:00:00-08:00|line ')
+    MATCH=$(echo "$OUTPUT" | grep -c '|bertie\.wooster@jeeves\.co\.uk;bertie\.wooster@jeeves\.co\.uk|2023-05-15T10:00:00-08:00|line ')
     if [ "$LINES" -ne 3 ] || [ "$MATCH" -ne 3 ] ; then
         fail "Test 6 basic: unexpected output (got $MATCH/3 matching lines of $LINES total):
 $OUTPUT"
@@ -227,10 +227,10 @@ fi
 
 # -----------------------------------------------------------------------
 # Test 8: "dot" / "at" substitution in email field
-#   Email "alice dot jones at example dot com" -> "alice.jones@example.com"
+#   Email "bertie dot wooster at jeeves dot co dot uk" -> "bertie.wooster@jeeves.co.uk"
 # -----------------------------------------------------------------------
 REPO8=$(make_git_repo)
-git -C "$REPO8" config user.email "alice dot jones at example dot com"
+git -C "$REPO8" config user.email "bertie dot wooster at jeeves dot co dot uk"
 printf 'test line\n' > "$REPO8/dots.c"
 git -C "$REPO8" add dots.c
 fixed_commit "$REPO8" "dot-at email" "2024-03-01 12:00:00 +0000"
@@ -240,39 +240,39 @@ RC=$?
 rm -rf "$REPO8"
 if [ $RC -ne 0 ] ; then
     fail "Test 8 dot/at: expected exit 0, got $RC"
-elif ! echo "$OUTPUT" | grep -q 'alice\.jones@example\.com' ; then
-    fail "Test 8 dot/at: expected 'alice.jones@example.com', got: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -q 'bertie\.wooster@jeeves\.co\.uk' ; then
+    fail "Test 8 dot/at: expected 'bertie.wooster@jeeves.co.uk', got: $OUTPUT"
 else
     pass "Test 8: 'dot'/'at' substitution in email produces correct address"
 fi
 
 # -----------------------------------------------------------------------
 # Test 9: domain filtering
-#   internal user (alice@mediatek.com) -> abbreviated to "alice"
-#   external user (bob@other.org)      -> replaced with "External"
+#   internal user (bertie.wooster@jeeves.co.uk) -> abbreviated to "bertie.wooster"
+#   external user (uncle.fred@ickenham.uk)      -> replaced with "External"
 # -----------------------------------------------------------------------
 REPO9=$(make_git_repo)
-printf 'alice line 1\nalice line 2\n' > "$REPO9/mixed.c"
+printf 'bertie line 1\nbertie line 2\n' > "$REPO9/mixed.c"
 git -C "$REPO9" add mixed.c
-fixed_commit "$REPO9" "alice commit" "2023-05-15 10:00:00 -0800"
+fixed_commit "$REPO9" "bertie commit" "2023-05-15 10:00:00 -0800"
 
-# Bob adds a line in a second commit
-git -C "$REPO9" config user.email "bob@other.org"
-git -C "$REPO9" config user.name  "Bob"
-printf 'alice line 1\nalice line 2\nbob line 3\n' > "$REPO9/mixed.c"
+# Fred adds a line in a second commit
+git -C "$REPO9" config user.email "uncle.fred@ickenham.uk"
+git -C "$REPO9" config user.name  "Uncle Fred"
+printf 'bertie line 1\nbertie line 2\nfred line 3\n' > "$REPO9/mixed.c"
 GIT_AUTHOR_DATE="2023-06-20 14:30:00 +0530" GIT_COMMITTER_DATE="2023-06-20 14:30:00 +0530" \
-    git -C "$REPO9" commit --quiet -a -m "bob adds line"
+    git -C "$REPO9" commit --quiet -a -m "fred adds line"
 
-OUTPUT=$($GITBLAME 'mediatek\.com' "$REPO9/mixed.c" 2>&1)
+OUTPUT=$($GITBLAME 'jeeves\.co\.uk' "$REPO9/mixed.c" 2>&1)
 RC=$?
 rm -rf "$REPO9"
 if [ $RC -ne 0 ] ; then
     fail "Test 9 domain: expected exit 0, got $RC"
 else
-    ALICE=$(echo "$OUTPUT" | grep -c '^[^|]*|alice;alice@mediatek\.com|')
-    EXTERNAL=$(echo "$OUTPUT" | grep -c '^[^|]*|External;bob@other\.org|')
-    if [ "$ALICE" -ne 2 ] ; then
-        fail "Test 9 domain: expected 2 alice lines, got $ALICE:
+    BERTIE=$(echo "$OUTPUT" | grep -c '^[^|]*|bertie\.wooster;bertie\.wooster@jeeves\.co\.uk|')
+    EXTERNAL=$(echo "$OUTPUT" | grep -c '^[^|]*|External;uncle\.fred@ickenham\.uk|')
+    if [ "$BERTIE" -ne 2 ] ; then
+        fail "Test 9 domain: expected 2 bertie lines, got $BERTIE:
 $OUTPUT"
     elif [ "$EXTERNAL" -ne 1 ] ; then
         fail "Test 9 domain: expected 1 External line, got $EXTERNAL:
@@ -290,13 +290,13 @@ printf 'line one\nline two\n' > "$REPO10/abbrev.c"
 git -C "$REPO10" add abbrev.c
 fixed_commit "$REPO10" "abbrev test" "2024-01-10 08:00:00 +0000"
 
-OUTPUT=$($GITBLAME '--abbrev=s/\@mediatek\.com$//' "$REPO10/abbrev.c" 2>&1)
+OUTPUT=$($GITBLAME '--abbrev=s/\@jeeves\.co\.uk$//' "$REPO10/abbrev.c" 2>&1)
 RC=$?
 rm -rf "$REPO10"
 if [ $RC -ne 0 ] ; then
     fail "Test 10 --abbrev: expected exit 0, got $RC"
-elif ! echo "$OUTPUT" | grep -q '|alice;alice@mediatek\.com|' ; then
-    fail "Test 10 --abbrev: expected abbreviated 'alice' with full 'alice@mediatek.com', got:
+elif ! echo "$OUTPUT" | grep -q '|bertie\.wooster;bertie\.wooster@jeeves\.co\.uk|' ; then
+    fail "Test 10 --abbrev: expected abbreviated 'bertie.wooster' with full 'bertie.wooster@jeeves.co.uk', got:
 $OUTPUT"
 else
     pass "Test 10: --abbrev strips domain suffix from owner"
@@ -304,26 +304,26 @@ fi
 
 # -----------------------------------------------------------------------
 # Test 11: multiple --abbrev patterns applied in sequence
-#   Pattern 1: strip @mediatek.com -> "alice"
+#   Pattern 1: strip @jeeves.co.uk -> "bertie.wooster"
 #   Pattern 2: strip anything remaining -> no-op when pattern 1 matched
 # -----------------------------------------------------------------------
 REPO11=$(make_git_repo)
-git -C "$REPO11" config user.email "bob@other.org"
-git -C "$REPO11" config user.name  "Bob"
-printf 'bob line\n' > "$REPO11/multi.c"
+git -C "$REPO11" config user.email "uncle.fred@ickenham.uk"
+git -C "$REPO11" config user.name  "Uncle Fred"
+printf 'fred line\n' > "$REPO11/multi.c"
 git -C "$REPO11" add multi.c
 fixed_commit "$REPO11" "multi abbrev" "2024-01-10 08:00:00 +0000"
 
-# Pattern 1 won't match bob@other.org; pattern 2 changes to "External"
+# Pattern 1 won't match uncle.fred@ickenham.uk; pattern 2 changes to "External"
 OUTPUT=$($GITBLAME \
-    '--abbrev=s/\@mediatek\.com$//' \
+    '--abbrev=s/\@jeeves\.co\.uk$//' \
     '--abbrev=s/^[^@]+\@.+$/External/' \
     "$REPO11/multi.c" 2>&1)
 RC=$?
 rm -rf "$REPO11"
 if [ $RC -ne 0 ] ; then
     fail "Test 11 multi-abbrev: expected exit 0, got $RC"
-elif ! echo "$OUTPUT" | grep -q '|External;bob@other\.org|' ; then
+elif ! echo "$OUTPUT" | grep -q '|External;uncle\.fred@ickenham\.uk|' ; then
     fail "Test 11 multi-abbrev: expected 'External' owner, got:
 $OUTPUT"
 else
@@ -339,16 +339,16 @@ printf 'a\nb\nc\nd\ne\n' > "$REPO12/cached.c"
 git -C "$REPO12" add cached.c
 fixed_commit "$REPO12" "cache test" "2024-01-10 08:00:00 +0000"
 
-OUTPUT=$($GITBLAME '--abbrev=s/\@mediatek\.com$//' "$REPO12/cached.c" 2>&1)
+OUTPUT=$($GITBLAME '--abbrev=s/\@jeeves\.co\.uk$//' "$REPO12/cached.c" 2>&1)
 RC=$?
 rm -rf "$REPO12"
 if [ $RC -ne 0 ] ; then
     fail "Test 12 caching: expected exit 0, got $RC"
 else
-    # All 5 lines should have abbreviated owner "alice"
-    ALICE=$(echo "$OUTPUT" | grep -c '|alice;alice@mediatek\.com|')
-    if [ "$ALICE" -ne 5 ] ; then
-        fail "Test 12 caching: expected 5 alice lines, got $ALICE"
+    # All 5 lines should have abbreviated owner "bertie.wooster"
+    BERTIE=$(echo "$OUTPUT" | grep -c '|bertie\.wooster;bertie\.wooster@jeeves\.co\.uk|')
+    if [ "$BERTIE" -ne 5 ] ; then
+        fail "Test 12 caching: expected 5 bertie lines, got $BERTIE"
     else
         pass "Test 12: abbrev caching - all 5 lines have same abbreviated owner"
     fi
@@ -402,15 +402,15 @@ rm -f "$LOGFILE14"
 # Test 15: multi-author file - two distinct commit hashes and owners
 # -----------------------------------------------------------------------
 REPO15=$(make_git_repo)
-printf 'alice line 1\nalice line 2\n' > "$REPO15/two.c"
+printf 'bertie line 1\nbertie line 2\n' > "$REPO15/two.c"
 git -C "$REPO15" add two.c
-fixed_commit "$REPO15" "alice commit" "2023-01-01 09:00:00 +0000"
+fixed_commit "$REPO15" "bertie commit" "2023-01-01 09:00:00 +0000"
 
-git -C "$REPO15" config user.email "carol@mediatek.com"
-git -C "$REPO15" config user.name  "Carol"
-printf 'alice line 1\nalice line 2\ncarol line 3\n' > "$REPO15/two.c"
+git -C "$REPO15" config user.email "gussie.finknottle@blandings.uk"
+git -C "$REPO15" config user.name  "Gussie Fink-Nottle"
+printf 'bertie line 1\nbertie line 2\ngussie line 3\n' > "$REPO15/two.c"
 GIT_AUTHOR_DATE="2024-06-01 15:00:00 +0000" GIT_COMMITTER_DATE="2024-06-01 15:00:00 +0000" \
-    git -C "$REPO15" commit --quiet -a -m "carol adds line"
+    git -C "$REPO15" commit --quiet -a -m "gussie adds line"
 
 OUTPUT=$($GITBLAME "$REPO15/two.c" 2>&1)
 RC=$?
@@ -418,12 +418,12 @@ rm -rf "$REPO15"
 if [ $RC -ne 0 ] ; then
     fail "Test 15 multi-author: expected exit 0, got $RC"
 else
-    ALICE=$(echo "$OUTPUT" | grep -c 'alice@mediatek\.com')
-    CAROL=$(echo "$OUTPUT" | grep -c 'carol@mediatek\.com')
+    BERTIE=$(echo "$OUTPUT" | grep -c 'bertie\.wooster@jeeves\.co\.uk')
+    GUSSIE=$(echo "$OUTPUT" | grep -c 'gussie\.finknottle@blandings\.uk')
     # Extract unique hashes (field 1 before first |)
     HASHES=$(echo "$OUTPUT" | cut -d'|' -f1 | sort -u | wc -l)
-    if [ "$ALICE" -ne 2 ] || [ "$CAROL" -ne 1 ] ; then
-        fail "Test 15 multi-author: wrong owner counts (alice=$ALICE carol=$CAROL):
+    if [ "$BERTIE" -ne 2 ] || [ "$GUSSIE" -ne 1 ] ; then
+        fail "Test 15 multi-author: wrong owner counts (bertie=$BERTIE gussie=$GUSSIE):
 $OUTPUT"
     elif [ "$HASHES" -ne 2 ] ; then
         fail "Test 15 multi-author: expected 2 distinct commit hashes, got $HASHES"
@@ -618,8 +618,8 @@ BASE21=$(mktemp -d)
 REPO21="$BASE21/my repo"
 mkdir "$REPO21"
 git -C "$REPO21" init --quiet
-git -C "$REPO21" config user.email "alice@mediatek.com"
-git -C "$REPO21" config user.name  "Alice"
+git -C "$REPO21" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO21" config user.name  "Bertie Wooster"
 printf 'space line 1\nspace line 2\n' > "$REPO21/space.c"
 git -C "$REPO21" add space.c
 fixed_commit "$REPO21" "path with a space" "2024-04-01 08:00:00 +0000"
@@ -635,7 +635,7 @@ $OUTPUT"
 else
     # the commit's author and date, i.e. data only git could have supplied
     MATCH=$(echo "$OUTPUT" |
-            grep -c '|alice@mediatek\.com;alice@mediatek\.com|2024-04-01T08:00:00+00:00|space line ')
+            grep -c '|bertie\.wooster@jeeves\.co\.uk;bertie\.wooster@jeeves\.co\.uk|2024-04-01T08:00:00+00:00|space line ')
     if [ "$MATCH" -ne 2 ] ; then
         fail "Test 21 space-in-path: expected 2 annotated lines, got $MATCH:
 $OUTPUT"

@@ -12,12 +12,13 @@ include ../../common.mak
 # output names.
 #
 
-# xs7 is not one of those six:  it tests the loading of the extension rather
-# than the classes it provides, and so is the one part which has something to
-# check even when the extension is not built at all.
-TESTS := xs1.sh xs2.sh xs3.sh xs4.sh xs5.sh xs6.sh xs7.sh
+# xs7 tests the loading of the extension rather than the classes it provides,
+#   - is still a useful testcase even if we don't build XS
+# xs8 tests function related classed (FunctionAlias, FunctionEntry,
+# FunctionMap)
+TESTS := xs1.sh xs2.sh xs3.sh xs4.sh xs5.sh xs6.sh xs7.sh xs8.sh
 
 clean:
 	for t in $(TESTS) ; do ./$$t --clean ; done
 	rm -f *.log *.dat
-	rm -rf xs1.d xs2.d xs3.d xs4.d xs5.d xs6.d xs7.d
+	rm -rf xs1.d xs2.d xs3.d xs4.d xs5.d xs6.d xs7.d xs8.d

@@ -74,6 +74,39 @@ if [ 0 != $? ] ; then
     fi
 fi
 
+# the same directory named twice finds every file in it twice:  a 'usage'
+#  error, and when that is ignored, the second sighting is the one skipped
+$COVER $GENINFO_TOOL -o dup.info --initial --no-external a a 2>&1 | \
+    tee dup.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected an error for a directory named twice"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+$COVER $GENINFO_TOOL -o dup.info --initial --no-external a a \
+    --ignore usage 2>&1 | tee dup2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error for a directory named twice and ignored"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qE 'duplicate file a/a.gcno in both a and a \(skip latter\)' dup2.log
+if [ 0 != $? ] ; then
+    echo "Error:  missing 'duplicate file' message"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+COUNT=`grep -c SF: dup.info`
+if [ 1 != $COUNT ] ; then
+    echo "Error:  expected one section for the duplicated file, found $COUNT"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
 # old version of gcc doesn't encode path into .gcno file
 #  so the case-insensitive compare is not required.
 IFS='.' read -r -a VER <<< `${CC} -dumpversion`

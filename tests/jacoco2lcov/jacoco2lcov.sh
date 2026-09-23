@@ -93,8 +93,6 @@ restore_permissions()
 }
 
 restore_permissions
-chmod -R 755 noreadplugins nonexecjavahome noreadhome 2> /dev/null
-chmod 644 noread.jar noread.exec 2> /dev/null
 rm -rf *.info *.log *.xml *.jar *.exec plaindata src bin extra plugins emptyplugins \
     noclassplugin noreadplugins fakejava emptyhome jarhome libhome javahome \
     noreadhome pathbin nojavahome nonexecjavahome droot linkdir wintools \
@@ -1125,6 +1123,10 @@ if run windowshelp 0 --help ; then
     expect_log windowshelp '^Usage: jacoco2lcov '
     reject_log windowshelp 'S:'
 fi
+# done with the Windows-named link:  a ':' in a file name is not something
+#  everything which later walks this directory can cope with (upload-artifact
+#  refuses the whole upload)
+rm -f "$WINNAME"
 
 JACOCO2LCOV_TOOL=$SAVED_JACOCO2LCOV_TOOL
 COVER=$SAVED_COVER
@@ -1329,6 +1331,8 @@ if run winself 0 -o winself.info -s src -c bin -v \
     #   directory the script made for itself
     reject_log winself 'Z:'
 fi
+# ..and with this one - see "$WINNAME" above
+rm -f "$WINSELF"
 JACOCO2LCOV_TOOL=$SAVED_JACOCO2LCOV_TOOL
 COVER=$SAVED_COVER
 

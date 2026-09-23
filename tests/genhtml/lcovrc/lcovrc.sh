@@ -96,12 +96,12 @@ int hello(int a)
 EOF
 
 cat >src/hello.c.owners <<'EOF'
-alice
-bob
-carol
-dave
-alice
-bob
+bertie.wooster
+uncle.fred
+gussie.finknottle
+bingo.little
+bertie.wooster
+uncle.fred
 EOF
 
 cat >hello.info <<'EOF'

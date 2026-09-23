@@ -17,7 +17,8 @@ SYNOPSIS
 
 ::
 
-    llvm2lcov [--output filename] [--testname name] [options] json_file [json_file ...]
+    llvm2lcov [--output filename] [--testname name] [options]
+              json_file [json_file ...]
 
 DESCRIPTION
 -----------
@@ -26,7 +27,10 @@ DESCRIPTION
 ``llvm-cov export -format=text ...``) and translates it into LCOV ``.info``
 format.
 
-Note that LLVM supports two coverage data collection paths:  the one described in this page - based on profile data - and a *gcov path* - similar to that supported by ``gcc``.  See the LLVM documentation for more details about the ``gcov`` support in LLVM.
+Note that LLVM supports two coverage data collection paths:  the one described
+in this page - based on profile data - and a *gcov path* - similar to that
+supported by ``gcc``.  See the LLVM documentation for more details about the
+``gcov`` support in LLVM.
 
 MC/DC Coverage
 --------------
@@ -44,8 +48,9 @@ OPTIONS
 -------
 
 In addition to common options supported by other tools in the |ToolName| suite
-(*e.g.*, ``--comment``, ``--version-script``, ``--ignore-error``, ``--substitute``,
-``--exclude``, *etc.*), the tool provides the following options:
+(*e.g.*, ``--comment``, ``--version-script``, ``--ignore-error``,
+``--substitute``, ``--exclude``, *etc.*), the tool provides the following
+options:
 
 ``--output`` *filename*, ``-o`` *filename*
    The |ToolName| data will be written to the specified file. If this option is
@@ -61,6 +66,10 @@ In addition to common options supported by other tools in the |ToolName| suite
 ``--mcdc-coverage``
    Include MC/DC data in the output. Requires LLVM 18 or higher with MC/DC
    instrumentation enabled during compilation.
+
+``llvm2lcov`` does not support ``--callgraph-coverage``.
+``llvm-cov export`` does not report call graph information - so there is
+nothing to translate.
 
 See :manpage:`lcov(1)` and :manpage:`lcovrc(5)` for details of other options
 and configuration settings.
@@ -110,7 +119,8 @@ Executing the same example via ``gcov`` looks like:
     #   Note that the '--gcov-tool' option appears *twice*: once to name
     #   the tool and once to pass a tool option.  See the lcov man page
     #   for more information.
-    $ lcov --capture -d . --branch-coverage -o myExe.info --gcov-tool llvm-cov --gcov-tool gcov ...
+    $ lcov --capture -d . --branch-coverage -o myExe.info \
+        --gcov-tool llvm-cov --gcov-tool gcov ...
 
     # Generate HTML coverage report
     $ genhtml -o html_report myExe.info ...

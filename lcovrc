@@ -58,6 +58,13 @@ genhtml_med_limit = 75
 # genhtml_branch_hi_limit = 90
 # genhtml_branch_med_limit = 75
 
+# Specify callgraph coverage rate limits (in %) for classifying file entries
+# HI:  callgraph_hi_limit  <= rate <= 100                graph color: green
+# MED: callgraph_med_limit <= rate <  callgraph_hi_limit    graph color: orange
+# LO:                0  <= rate <  callgraph_med_limit   graph color: red
+# genhtml_callgraph_hi_limit = 90
+# genhtml_callgraph_med_limit = 75
+
 # Ignore some errors during geninfo/lcov/genhtml processing - comma-separated
 # string.  Same as using "--ignore-errors a,b,c" command line option.
 # See man pages for list of ignorable messages
@@ -106,6 +113,7 @@ max_message_count = 100
 #python_file_extensions = py
 
 # maximum number of lines to look at, when filtering bogus branch expressions
+# and when looking for multi-line statements
 #filter_lookahead = 5
 
 # if nonzero, bitwise operators '|', '&', '~' indicate conditional expressions
@@ -114,6 +122,14 @@ max_message_count = 100
 # if nonzero, '--filter blank' is applied to blank lines, regardless
 # of their hit count
 #filter_blank_aggressive = 1
+
+# if nonzero, the data of a statement which spans several lines is reported
+# on its leader - typically, the first line of the statement.
+# See man geninfo(1).
+#merge_continuation_lines = 1
+
+# if nonzero, do not check branch/line consistency on lines holding a lambda
+#ignore_lambda_consistency = 0
 
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12
@@ -184,6 +200,10 @@ genhtml_legend = 0
 # genhtml)
 genhtml_sort = 1
 
+# Order of the metric column groups in coverage tables.  A table sorted by a
+# metric shows that metric's columns first, then the others in this order.
+#genhtml_metric_column_order = line,mcdc,branch,function,callgraph
+
 # Display coverage idata in hierarchical directory structure rather than
 # top/directory/source
 #genhtml_hierarchical = 1
@@ -217,6 +237,15 @@ genhtml_desc_html=0
 
 # If set, suppress list of aliases in function detail table
 #suppress_function_aliases = 1
+
+# If set, do not show the alias groups of a function on the callers and
+#   callees pages - only its summary of unique call sites
+#suppress_alias_groups = 0
+
+# If set, show a summary block above the alias groups of a function on the
+#   callers and callees pages, and count its unique call sites in place of
+#   its groups in every callgraph count of the report
+#show_callgraph_summary = 1
 
 # If set, derive function end line from line coverpoint data - default ON
 #derive_function_end_line = 1
@@ -320,6 +349,39 @@ branch_coverage = 0
 
 # Specify if MC/DC coverage data should be collected, processed, and displayed
 mcdc_coverage = 0
+
+# Specify if callee (call site) data should be collected, processed, and
+# displayed.  Requires function_coverage
+callgraph_coverage = 0
+
+# Specify what a capture keeps when the compiler's callgraph info and gcov do
+# not describe the same calls in some function - e.g., for an inlined call
+# See discussion in man geninfo(1).
+# Default is to drop that function's callee data; set this option to retain
+# Retention does not suppress the error the disagreement raises - so you
+# likely also need '--ignore-errors inconsistent'
+#callgraph_partial_data = 1
+
+# Specify whether the aliases of a function which the callgraph cannot tell
+# apart - the same calls from the same places, and called from the same
+# places - are merged into one.  The merged alias names and their hit counts
+# are retained under the 'leader' - the shortest alias or the alphabetic first
+# if multiple aliases are the same length.
+# Default is to merge them.
+# See man lcovrc(5).
+#collapse_callgraph_alias = 0 # set to zero to NOT merge
+
+# Specify how many of the names an alias stands for genhtml lists in the
+# tooltip of its mark, the alias itself included:  0 lists all of them, and 1
+# lists none (no tooltip).
+# See man lcovrc(5).
+#genhtml_alias_list_length = 10
+
+# Specify whether genhtml selects a call site in the source view only when
+# the text at the site matches the callee name.
+# Default is to underline the identifier at the column anyway - which is
+# typically how a human reads the code.
+#strict_callee_match = 1
 
 # Ask lcov/genhtml/geninfo to return non-zero exit code if branch coverage is below
 # threshold
@@ -548,3 +610,12 @@ lcov_json_module = auto
 
 # override start of exclude region regexp
 #lcov_excl_exception_br_stop = LCOV_EXCL_EXCEPTION_BR_STOP
+
+# override callgraph exclusion regexp
+#lcov_excl_callgraph_line = LCOV_EXCL_CALLGRAPH_LINE
+
+# override start of callgraph exclude region regexp
+#lcov_excl_callgraph_start = LCOV_EXCL_CALLGRAPH_START
+
+# override end of callgraph exclude region regexp
+#lcov_excl_callgraph_stop = LCOV_EXCL_CALLGRAPH_STOP

@@ -838,6 +838,11 @@ if [ -n "$PYTHON" ] ; then
     else
         expect_log argv0_unmounted 'xml2lcovutil'
     fi
+    # done with the drive-lettered names:  a ':' in a file name is not
+    #   something everything which later walks this directory can cope with
+    #   (upload-artifact refuses the whole upload)
+    rm -f "$ARGV0/Z:\\bin\\py2lcov" "$ARGV0/Z:\\bin\\xml2lcov" \
+        "$ARGV0COPY/Z:\\bin\\py2lcov"
 fi
 
 # ----------------------------------------------------------------------

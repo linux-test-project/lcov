@@ -82,7 +82,8 @@ use lcovutil qw (define_errors parse_ignore_errors
                  parse_cov_filters summarize_cov_filters
                  $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
                  $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
-                 $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
+                 $EXCL_CALLGRAPH_START $EXCL_CALLGRAPH_STOP
+                 $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE $EXCL_CALLGRAPH_LINE
 
                  %excluded_files
                  warn_file_patterns
@@ -158,6 +159,8 @@ sub solve_relative_path($$);
 sub compute_internal_directories(@);
 sub read_gcov_header($);
 sub read_gcov_file($$$$$);
+sub attach_to_statements($$$$$$;$);
+sub block_graph($);
 sub my_info(@);
 set_info_callback(\&my_info);
 sub process_intermediate($$$$);
@@ -167,6 +170,19 @@ sub get_gcov_version();
 sub process_graphfile($$);
 sub filter_fn_name($$);
 sub filter_fn_name_list($$);
+sub demangle_name_list($);
+sub read_callgraph_info($);
+sub _cached_callgraph_info($);
+sub _parse_callgraph_info($);
+sub _pack_callgraph_info($);
+sub _unpack_callgraph_info($);
+sub read_declaration_file($$);
+sub declaration_is_pure($$);
+sub pure_declarations($$);
+sub arc_location($);
+sub some_locations($);
+sub pairing_file_key($);
+sub join_call_sites($$$);
 sub graph_error($$);
 sub graph_read(*$;$$);
 sub graph_skip(*$;$);
@@ -194,6 +210,24 @@ our $gcov_version;
 our $gcov_version_string;
 our $graph_file_extension = '.gcno';
 our $data_file_extension  = '.gcda';
+# Where join_call_sites() leaves its result:  a key in gcov's own per-file JSON
+# hash, holding the finished call sites of that file.  It travels with the file
+# data rather than beside it, so that renaming the file
+# (adjust_source_filenames) or dropping it (filter_source_files) takes the
+# file's call sites along with it
+our $callSiteKey = 'lcov_call_sites';
+# ..and where the linkage half of the same data goes:  the set of symbols this
+# translation unit defines with external linkage, keyed by mangled name, which
+# is the only spelling the callgraph info has.  One table per unit, shared by
+# every file of it - a symbol's linkage is a property of the symbol, and the
+# unit is the scope the compiler told us about it in
+our $externalKey = 'lcov_external_symbols';
+# ..and where the calls which could not be written as call sites go:  the set of
+# symbols called from a site this format cannot express, again keyed by mangled
+# name and again one table per unit.  A call gcov placed in a file it described
+# nothing else about is such a site - see join_call_sites() - and all that
+# survives it is that the callee was called from somewhere the report cannot name
+our $externalCallersKey = 'lcov_external_callers';
 our @data_directory;
 our $buildDirSearchPath;
 our $test_name = "";
@@ -394,6 +428,15 @@ if ($gcov_caps->{'hash-filenames'}) {
     push(@gcov_tool, "-p") if ($gcov_caps->{'preserve-paths'});
 }
 push(@gcov_tool, '-i') if $intermediate;
+# Read the JSON from gcov's stdout rather than from the '.gcov.json.gz' file it
+#   would otherwise write:  the same data, without compressing it only to
+#   decompress it again.  '--preserve' is asking for the file, so it gets it
+our $gcov_stdout =
+    ($intermediate &&
+     $gcov_caps->{'json-format'} &&
+     $gcov_caps->{stdout}        &&
+     !$lcovutil::preserve_intermediates);
+push(@gcov_tool, '--stdout') if $gcov_stdout;
 
 if ($lcovutil::mcdc_coverage) {
     if ($gcov_caps->{'conditions'}) {
@@ -406,6 +449,24 @@ if ($lcovutil::mcdc_coverage) {
     }
 }
 
+if ($lcovutil::callgraph_coverage &&
+    $gcov_version < (14 << 16)) {
+    # Callgraph coverage needs the compiler's static call graph and gcov's
+    #   count for each call it makes.  '-fcallgraph-info' is a gcc/10 feature,
+    #   but the counts are the per-line 'calls' entries of gcov's JSON format
+    #   version 2, which is gcov/14 - see join_call_sites.  An older gcov has
+    #   nothing to pair the edges with, so every one of them would be unpaired.
+    # Also need gcov's JSON format output and support for the '-b' flag.
+    #   Both must be present by this point - or we would have errored out
+    #   above.
+    $lcovutil::callgraph_coverage = 0;
+    my $msg =
+        "--callgraph-coverage requires gcov 14 or later for the call counts" .
+        " paired with '-fcallgraph-info' data (your version appears to be" .
+        " '$gcov_version_string').";
+    lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED, $msg);
+}
+
 # Determine compatibility modes
 parse_compat_modes($lcovutil::geninfo_opt_compat);
 
@@ -416,14 +477,16 @@ if ($no_markers) {
 } elsif (!@lcovutil::opt_filter) {
     # don't apply the backward-compatible options if user specifies any filters
     lcovutil::info(1,
-        "$lcovutil::tool_name:  applying '--filter region,branch_region' by default - see the '--no-markers' section in the man page for more information.\n"
+        "$lcovutil::tool_name:  applying '--filter region,branch_region,callgraph_region' by default - see the '--no-markers' section in the man page for more information.\n"
     );
     push(@lcovutil::opt_filter, "region");
     push(@lcovutil::opt_filter, "branch_region") if $br_coverage;
+    push(@lcovutil::opt_filter, "callgraph_region")
+        if $lcovutil::callgraph_coverage;
 } else {
     lcovutil::info(
-        "Note: 'region' and 'branch_region' filters are not applied by default when '--filter' is specified.  See the '--no-markers section in the man page for more information.\n"
-    ) unless grep({ /(region|branch_region)/ } @lcovutil::opt_filter);
+        "Note: 'region', 'branch_region' and 'callgraph_region' filters are not applied by default when '--filter' is specified.  See the '--no-markers section in the man page for more information.\n"
+    ) unless grep({ /region/ } @lcovutil::opt_filter);
 }
 parse_cov_filters(@lcovutil::opt_filter);
 
@@ -530,6 +593,9 @@ my $tempFileDir =
                        CLEANUP => !defined($lcovutil::preserve_intermediates));
 
 lcovutil::info("Writing temporary data to $tempFileDir\n");
+# ..and under it, the parsed callgraph info of the capture, keyed by the file's
+#   identity - see _cached_callgraph_info()
+my $callgraphCacheDir;
 # Do something
 my $processedFiles = 0;
 my $exit_code      = 0;
@@ -549,6 +615,9 @@ if (0 == $exit_code) {
         #  TraceFile::load which explicitly checks
         if ($single_file && defined($trace_data)) {
             $trace_data->applyFilters();
+            # ..and only now, with every object merged and filtered, is it known
+            #   whether this run captured any call site at all
+            $trace_data->dropUnmeasurableCallgraph();
             my $f = Time::HiRes::gettimeofday();
             $trace_data->add_comments(@lcovutil::comments);
             $trace_data->write_info_file($output_filename,
@@ -1039,7 +1108,7 @@ package main;
 # Die on error.
 #
 
-my $chunkSize;
+my $chunkSize;    # LCOV_UNREACHABLE_LINE - follows main's 'exit'
 
 sub _process_one_chunk($$$$)
 {
@@ -2077,6 +2146,175 @@ sub read_gcov_header($)
 }
 
 #
+# attach_to_statements(fileData, filename, lineMap, branchMap, mcdcMap, unexec
+#                      [, graph])
+#
+# Each branch block and MC/DC group gcov wrote on a line which has no line
+#   coverpoint in 'lineMap' must be in the middle of a multiline statement -
+#   so we associate it with a statement before it (i.e., the closest one
+#   above).  Move the block there.
+#   It keeps track of the line it was actually written from - see
+#   BranchBlock::locationOffset and MCDC_Block::groupKey.
+#   The statement is the one 'graph' names for the line (see block_graph),
+#   else the nearest statement before it:  the largest line number less
+#   than this one which contains a 'linecov' coverpoint.
+#   Data with no statement above, or too far away (see
+#   BranchBlock::MAX_LOCATION_OFFSET) is left where it is.
+# 'unexec' is a hash of the lines gcov marked as holding an unexecuted block
+#   -> their non-zero count.  An unexecuted block on a line which holds no
+#   branch is consistent if 'graph' says it is the target of an untaken
+#   branch.  If 'graph' does not know the line, it is consistent if the nearest
+#   statement before it holds branch data.  Otherwise the line's count is
+#   inconsistent:  set it to zero (see 'geninfo_unexecuted_blocks') or warn.
+#
+
+sub attach_to_statements($$$$$$;$)
+{
+    my ($fileData, $filename, $lineMap, $branchMap, $mcdcMap, $unexec, $graph)
+        = @_;
+    my @statement = sort { $a <=> $b } $lineMap->keylist();
+    # the greatest line in @statement which is less than 'line', or undef
+    my $before = sub {
+        my $line = shift;
+        my ($lo, $hi) = (0, scalar(@statement));
+        while ($lo < $hi) {
+            my $mid = ($lo + $hi) >> 1;
+            if ($statement[$mid] < $line) {
+                $lo = $mid + 1;
+            } else {
+                $hi = $mid;
+            }
+        }
+        return $lo ? $statement[$lo - 1] : undef;
+    };
+
+    my %orphan;
+    foreach my $map ($branchMap, $mcdcMap) {
+        next unless defined($map);
+        foreach my $line ($map->keylist()) {
+            $orphan{$line} = 1 unless defined($lineMap->value($line));
+        }
+    }
+    foreach my $line (sort { $a <=> $b } keys(%orphan)) {
+        my $to = &$before($line);
+        my $owner;
+        $owner = $graph->{anchor}->{$line} if defined($graph);
+        $to    = $owner
+            if (defined($owner) &&
+                TraceFile::_locationsFit($line, $owner, $branchMap, $mcdcMap));
+        next
+            unless (defined($to) &&
+                    TraceFile::_locationsFit($line, $to, $branchMap, $mcdcMap));
+        TraceFile::_moveBranches($branchMap, $line, $to)
+            if defined($branchMap);
+        TraceFile::_moveMCDC($fileData, $mcdcMap, $line, $to)
+            if defined($mcdcMap);
+        lcovutil::debug(1,
+                   "$filename:$line: attached branch/MC/DC data to line $to\n");
+    }
+
+    foreach my $line (sort { $a <=> $b } keys(%$unexec)) {
+        next
+            if (!defined($branchMap) ||
+                defined($branchMap->value($line)));
+        my $hit = $unexec->{$line};
+        if (defined($graph) && exists($graph->{explained}->{$line})) {
+            next if $graph->{explained}->{$line};
+        } else {
+            my $to = &$before($line);
+            next if (defined($to) && defined($branchMap->value($to)));
+        }
+        lcovutil::debug(
+            "$filename:$line: unexecuted block on non-branch line with count=$hit\n"
+        );
+        if ($lcovutil::opt_adjust_unexecuted_blocks) {
+            $lineMap->remove($line);
+            $lineMap->append($line, 0);
+        } elsif (lcovutil::warn_once(
+                                "unexecuted block", $ERROR_INCONSISTENT_DATA)) {
+            lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
+                "$filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
+            );
+        }
+    }
+}
+
+#
+# block_graph(lines)
+#
+# What the basic block ids of gcov's JSON 'lines' (format 2, gcc 14 and later)
+#   tell us about the lines attach_to_statements has to place.  Ids are numbered
+#   per function, so only a line which names its function is used.  Returns
+#   undef if no line has block ids, else a hash of
+#   'anchor' -> line with no count -> the greatest line before this one which
+#               has a count (i.e., a linecov count) and holds one of its
+#               blocks, or a branch to one of them.
+#               Its blocks are those it lists, and the sources of its branches
+#   'explained' -> line with a non-zero count, an unexecuted block and no
+#               branch -> 1 if one of its blocks is the target of an untaken
+#               branch, 0 if not.  A line some instance of which does not name
+#               its function or blocks is not in the hash
+#
+
+sub block_graph($)
+{
+    my $lines = shift;
+    my (%holder, %target, %untaken, %orphan, %marked, %unknown, $seen);
+    foreach my $d (@$lines) {
+        my $line = $d->{"line_number"};
+        next unless defined($line);
+        my $fn    = $d->{"function_name"};
+        my $count = $d->{"count"};
+        my $isMark =
+            (defined($count) &&
+             $count != 0 &&
+             $d->{"unexecuted_block"} &&
+             !@{$d->{"branches"}});
+        if (!defined($fn) || !exists($d->{"block_ids"})) {
+            $unknown{$line} = 1 if $isMark;
+            next;
+        }
+        $seen = 1;
+        my @ids = map({ "$fn\0$_" } @{$d->{"block_ids"}});
+        my @src;
+        foreach my $b (@{$d->{"branches"}}) {
+            next unless exists($b->{"destination_block_id"});
+            my $to = "$fn\0" . $b->{"destination_block_id"};
+            push(@{$target{$to}}, $line) if defined($count);
+            $untaken{$to} = 1 if (defined($b->{"count"}) && 0 == $b->{"count"});
+            push(@src, "$fn\0" . $b->{"source_block_id"})
+                if exists($b->{"source_block_id"});
+        }
+        if (defined($count)) {
+            push(@{$holder{$_}}, $line) foreach (@ids);
+            push(@{$marked{$line}}, \@ids) if $isMark;
+        } else {
+            push(@{$orphan{$line}}, @ids, @src);
+        }
+    }
+    return undef unless $seen;
+    my (%anchor, %explained);
+    while (my ($line, $ids) = each(%orphan)) {
+        my $best;
+        foreach my $id (@$ids) {
+            foreach my $m (@{$holder{$id} // []}, @{$target{$id} // []}) {
+                $best = $m if ($m < $line && (!defined($best) || $m > $best));
+            }
+        }
+        $anchor{$line} = $best if defined($best);
+    }
+    while (my ($line, $instances) = each(%marked)) {
+        next if exists($unknown{$line});
+        $explained{$line} =
+            (grep({ !grep({ $untaken{$_} } @$_) } @$instances)) ? 0 : 1;
+    }
+    return {
+            anchor    => \%anchor,
+            explained => \%explained
+    };
+}
+
+#
 # read_gcov_file(gcov_filename, gcda_filename, source_filename)
 #
 # Parse file GCOV_FILENAME (.gcov file format) and return the list:
@@ -2250,29 +2488,14 @@ sub read_gcov_file($$$$$)
 
         }
     }
-    if (defined($branchMap)) {
-        $branchMap->insertBlock($branchBlock, $branchLine)
-            if defined($branchBlock) && !$branchBlock->empty();
-        $branchMap->updateCounts();
-    }
-    foreach my $line (sort keys %hasUnexecBlock) {
-        my $hit = $hasUnexecBlock{$line};
-        die("unexpected 'unexec' count") unless $hit != 0;
-        next unless defined($branchMap->value($line));
-        lcovutil::debug(
-            "$source_filename:$line: unexecuted block on non-branch line with count=$hit\n"
-        );
-
-        if ($lcovutil::opt_adjust_unexecuted_blocks) {
-            $lineMap->remove($line);
-            $lineMap->append($line, 0);
-        } elsif (lcovutil::warn_once(
-                                "unexecuted block", $ERROR_INCONSISTENT_DATA)) {
-            lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
-                "$source_filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
-            );
-        }
-    }
+    $branchMap->insertBlock($branchBlock, $branchLine)
+        if (defined($branchMap) &&
+            defined($branchBlock) &&
+            !$branchBlock->empty());
+    attach_to_statements($fileData, $source_filename,
+                         $lineMap, $branchMap,
+                         undef, \%hasUnexecBlock);
+    $branchMap->updateCounts() if defined($branchMap);
     return ($lineMap, $branchMap, $functionMap);
 }
 
@@ -2313,18 +2536,23 @@ sub read_intermediate_text($$)
 # data:      source_filename -> file_data
 # file_data: GCOV JSON data for file
 #
-# Also store the value for current_working_directory to BASEDIR_REF.
+# GCOV_FILENAME is a reference to the JSON text itself if gcov wrote it to
+# stdout.  Also store the value for current_working_directory to BASEDIR_REF.
 #
 
 sub read_intermediate_json($$$)
 {
     my ($gcov_filename, $data, $basedir_ref) = @_;
     # intermediate JSON contains the demangled name
-    my $json = JsonSupport::load($gcov_filename);    # imported from lcovutil.pm
+    my $json =
+        ref($gcov_filename) ? JsonSupport::decode($$gcov_filename) :
+        JsonSupport::load($gcov_filename);    # imported from lcovutil.pm
     if (!defined($json) ||
         !exists($json->{"files"}) ||
         ref($json->{"files"}) ne "ARRAY") {
-        die("Unrecognized JSON output format in $gcov_filename\n");
+        my $name =
+            ref($gcov_filename) ? "gcov's standard output" : $gcov_filename;
+        die("Unrecognized JSON output format in $name\n");
     }
 
     $$basedir_ref = $json->{"current_working_directory"};
@@ -2392,13 +2620,16 @@ sub intermediate_text_to_info($)
         my $branch_num;
         my $branchBlock;
         my $branchLine = -1;
+        my %unexecBlock;    # see attach_to_statements
         for my $line (split(/\n/, $fileStr)) {
-            if ($line =~ /^lcount:(\d+),(\d+),?/) {
+            if ($line =~ /^lcount:(\d+),(\d+)(,(\d+))?/) {
                 # lcount:<line>,<count>
-                # lcount:<line>,<count>,<has_unexecuted_blocks>
+                # lcount:<line>,<count>,<has_unexecuted_blocks>  (gcc 8)
                 my $lineNo = $1;
                 my $hit    = $2;
                 $lineMap->append($lineNo, $hit);
+                $unexecBlock{$lineNo} += $hit
+                    if ($4 && $hit != 0);
 
                 # Intermediate text format does not provide
                 # branch numbers, and the same branch may appear
@@ -2446,6 +2677,8 @@ sub intermediate_text_to_info($)
         }
         $branchMap->insertBlock($branchBlock, $branchLine)
             if $branchBlock;
+        attach_to_statements($fileData, $filename, $lineMap, $branchMap,
+                             undef, \%unexecBlock);
         $branchMap->updateCounts();
         # now go through lines, functions, branches - append to test_name data
         $fileData->sum()->union($lineMap);
@@ -2507,6 +2740,1013 @@ sub recordOrMergeBlock
 
 package main;
 
+# Whether the declaration at one 'file:line' carries a 'pure' or 'const'
+# attribute.  Keyed by location and not by symbol:  one header declares the
+# same function for every object which includes it, and one process can be
+# asked about it more than once
+my %pureDeclaration;    # LCOV_UNREACHABLE_LINE - follows main's 'exit'
+
+# The lines of a file a node label points at, or [] if it cannot be read.
+# $ci_dir is where the callgraph info was found - the directory the
+# compiler ran in -  so a label's relative file name is relative to it.
+# gcov's file names use the same correspondence that join_call_sites() relies on
+sub read_declaration_file($$)
+{
+    my ($file, $ci_dir) = @_;
+    my $path = $file;
+    $path = File::Spec->catfile($ci_dir, $file)
+        if !File::Spec->file_name_is_absolute($path) && !-r $path;
+    my @lines;
+    if (open(my $handle, '<', $path)) {
+        @lines = <$handle>;
+        close($handle);
+    } else {
+        # Not an error:  the answer is "no attribute", which is what every
+        #   release before this one assumed for every declaration
+        lcovutil::debug(1, "cannot read declaration file '$path': $!\n");
+    }
+    return \@lines;
+}
+
+# Does the declaration at line $line - the one a node label pointed at - carry a
+# 'pure' or 'const' attribute?
+#
+# Read the declaration because the callgraph doesn't carry the attribute:  a
+# node label is 'name\nfile:line:col\n..'
+# It tells us where the declaration is on the build host - so we can go look.
+#
+# The location is the declarator, and an attribute can be on either side of it -
+# '__attribute__((pure)) int f(int);' as well as 'int f(int) __attribute__((pure));'
+# - and either can be on a line of its own.  So the logical declaration is read:
+# forward to the ';' which ends it or the '{' which starts a body, and back to
+# the ';', '{' or '}' which ended whatever came before.  A body is never read:
+# an attribute inside one belongs to something else.
+sub declaration_is_pure($$)
+{
+    my ($lines, $line) = @_;
+    return 0 if $line < 1 || $line > scalar(@$lines);
+    my $limit = 4;    # a declaration is not twenty lines long
+    my $text  = '';
+    for (my $i = $line - 2; $i >= 0 && $i >= $line - 1 - $limit; --$i) {
+        my $l = $lines->[$i];
+        if ($l =~ /^.*[;{}]([^;{}]*)$/) {
+            $text = $1 . $text;
+            last;
+        }
+        $text = $l . $text;
+    }
+    for (my $i = $line - 1; $i < scalar(@$lines) && $i < $line + $limit; ++$i) {
+        my $l = $lines->[$i];
+        if ($l =~ /^([^;{]*)[;{]/) {
+            $text .= $1;
+            last;
+        }
+        $text .= $l;
+    }
+    # glibc's own spelling, which is what 'atoi', 'strlen' and 'abs' are
+    #   declared with
+    return 1 if $text =~ /\b__attribute_(?:pure|const)__\b/;
+    # ..the C++11 and C23 spelling
+    return 1 if $text =~ /\[\[[^\]]*\bgnu::(?:pure|const)\b/;
+    # ..and the general one, which is a list:  '__attribute__((pure))',
+    #   '__attribute__((__pure__))', '__attribute__((pure, nonnull(1)))'.  Only
+    #   inside the attribute's own parentheses, so that the 'const' of a
+    #   'const char *' parameter - which is not an attribute and says nothing
+    #   about the call - cannot match
+    while ($text =~ /__attribute__\s*\(\((.*?)\)\)/gs) {
+        return 1 if $1 =~ /\b(?:__)?(?:pure|const)(?:__)?\b/;
+    }
+    return 0;
+}
+
+# Which of the symbols the callgraph info names are declared 'pure' or 'const',
+# given { file => { line => [symbol, ..] } } and the directory the callgraph
+# info was found in.  Reads each file at most once, and only if some line of it
+# is not already known.
+sub pure_declarations($$)
+{
+    my ($needed, $ci_dir) = @_;
+    my %pure;
+    foreach my $file (sort(keys(%$needed))) {
+        my $lines;
+        foreach my $line (sort({ $a <=> $b } keys(%{$needed->{$file}}))) {
+            my $key = "$file:$line";
+            if (!exists($pureDeclaration{$key})) {
+                $lines = read_declaration_file($file, $ci_dir)
+                    unless defined($lines);
+                $pureDeclaration{$key} = declaration_is_pure($lines, $line);
+            }
+            next unless $pureDeclaration{$key};
+            $pure{$_} = 1 foreach (@{$needed->{$file}->{$line}});
+        }
+    }
+    return \%pure;
+}
+
+# Parse a '-fcallgraph-info' file:  the static call graph of one translation
+# unit, which the compiler wrote beside the '.gcno' as '<base>.ci'.  It is VCG,
+# one 'node:' per function and one 'edge:' per call site:
+#
+#   node: { title: "_Z5multiR1S" label: "int multi(S&)\ncs.cpp:4:5\n.." }
+#   edge: { sourcename: "_Z5multiR1S" targetname: "_Z6freefnii" label: "cs.cpp:4:32" }
+#
+# This is the only place the callee of a call site can be had:  gcov reports
+# that a call happened and how often, but not what was called.
+#
+# Returns two things.  The edges, as
+# { caller_symbol => [ [callee_symbol, file, line, column], ... ] }, each list in
+# emission order - which is gimple order, and is the order gcov lists the same
+# calls in.  That correspondence is the entire basis of the join, so the lists
+# must not be sorted.
+#
+# Edges to a callee gcov cannot count are dropped here, for the same reason the
+# unlabelled ones are:  see the 'pure' filter at the end.
+#
+# ..and the linkage, as { symbol => 1 } for the symbols with external linkage,
+# read off the 'node:' titles:  a title is file-qualified exactly when the symbol
+# does NOT have external linkage, so a bare one asserts that it does.  That is
+# the one direction which can be asserted - "qualified" covers comdats (inline
+# functions, template instantiations) as well as static functions, so it does
+# not mean "file-local" - and a bare title always means external.  See
+# FunctionAlias::is_external and TraceFile::resolveCallSites for how it is used:
+# a call from a file which defines no function of that name must have gone to one
+# with external linkage, which is what distinguishes an unrelated same-named
+#  'static' in a third file from the definition actually called.
+#
+# The file is kept, and not just the line, because one caller's edges can span
+# more than one file:  a function body which '#include's a fragment has call
+# sites in the fragment, and a line number alone does not say which file it is a
+# line of.  The label spells the file exactly as gcov's own 'file' key does -
+# both are the name as given on the compile command line, relative to the same
+# directory - which is what lets join_call_sites() compare the two as strings.
+sub read_callgraph_info($)
+{
+    my $ci_file = shift;
+    my ($edges, $external, $declaredAt, $callee) =
+        @{_cached_callgraph_info($ci_file)};
+
+    # A call to a function declared 'pure' or 'const' is one gcov cannot count:
+    #   such a function has none of the effects a call is made for, so the
+    #   compiler gives the call no arc in the caller's CFG and gcov reports
+    #   nothing for it, while '-fcallgraph-info' lists the edge like any other.
+    #   glibc declares 'atoi', 'strlen', 'strcmp' and 'abs' that way, so this is
+    #   what ordinary C looks like rather than a corner case.
+    # There is no call for the report to count, so the edge is not a call site,
+    #   and dropping it makes the two sequences comparable again - the
+    #   same reason _parse_callgraph_info() drops the unlabelled edges.  It has
+    #   to happen *before* the pairing and not after:  two calls on one line,
+    #   one of them to a pure function, leave one arc, and an edge which stayed
+    #   would take the arc of the call which really made it (join_call_sites)
+    my %needed;
+    foreach my $symbol (keys(%$callee)) {
+        next unless exists($declaredAt->{$symbol});
+        my ($file, $line) = @{$declaredAt->{$symbol}};
+        push(@{$needed{$file}->{$line}}, $symbol);
+    }
+    my $pure = pure_declarations(\%needed, dirname($ci_file));
+    if (%$pure) {
+        my $dropped = 0;
+        foreach my $caller (keys(%$edges)) {
+            my @keep = grep({ !exists($pure->{$_->[0]}) } @{$edges->{$caller}});
+            next if scalar(@keep) == scalar(@{$edges->{$caller}});
+            $dropped += scalar(@{$edges->{$caller}}) - scalar(@keep);
+            # ..kept as an empty list rather than deleted, so that a caller
+            #   whose every call was to a pure function is still looked at:  an
+            #   arc gcov reports for it is then unexplained, and saying so is
+            #   join_call_sites' business
+            $edges->{$caller} = \@keep;
+        }
+        lcovutil::info(1,
+            "--callgraph-coverage: '$ci_file':  dropped $dropped call site(s) to "
+                . scalar(keys(%$pure))
+                . " function(s) declared 'pure' or 'const' (" .
+                some_locations([sort(keys(%$pure))]) .
+                ").  gcov reports no call for one of those, so there is no count to record.\n"
+        );
+    }
+
+    return ($edges, $external);
+}
+
+# What read_callgraph_info() gets out of the '.ci' file itself, before the
+#   'pure' filter, which reads the sources relative to the file's directory and
+#   so is not a property of the file:  [edges, linkage, declaration location of
+#   each symbol, the called symbols].
+# Kept for the rest of the capture when the file has more than one link.  A
+#   build which runs its tests in several copies of the object tree, each with
+#   its own '.gcda' next to a hard link of one '.gcno' and '.ci', asks for the
+#   same file once per copy - 17 times over, in the tree this was written for,
+#   where one '.ci' is half a gigabyte and takes four seconds to parse.  Loading
+#   the stored parse takes a fifth of that, and storing it under half, so a
+#   file with one link, which no second '.gcda' can share, is not stored at all.
+# The key is the inode, size and modification time:  a file changed during the
+#   capture is a different file, and a copy is a different file too, which only
+#   costs the parse.  Written under a temporary name and renamed, because the
+#   workers are separate processes and one may be reading while another stores
+sub _cached_callgraph_info($)
+{
+    my $ci_file = shift;
+    my ($dev, $ino, undef, $nlink, undef, undef, undef, $size, undef, $mtime) =
+        stat($ci_file);
+    return _parse_callgraph_info($ci_file)
+        unless defined($nlink) && $nlink > 1;
+
+    unless (defined($callgraphCacheDir)) {
+        $callgraphCacheDir = File::Spec->catdir("$tempFileDir", 'callgraph');
+        mkdir($callgraphCacheDir) unless -d $callgraphCacheDir;
+    }
+    my $cache = File::Spec->catfile($callgraphCacheDir,
+                                    join('_', 'ci', $dev, $ino, $size, $mtime));
+    if (-f $cache) {
+        lcovutil::info(1,
+                     "--callgraph-coverage: reusing the parse of '$ci_file'\n");
+        return _unpack_callgraph_info(Storable::retrieve($cache));
+    }
+    my $parsed = _parse_callgraph_info($ci_file);
+    my $tmp    = "$cache.$$";
+    if (eval { Storable::store(_pack_callgraph_info($parsed), $tmp) } &&
+        rename($tmp, $cache)) {
+        lcovutil::info(1,
+                     "--callgraph-coverage: keeping the parse of '$ci_file'\n");
+    } else {
+        # not worth failing the capture over:  the next copy just parses again
+        unlink($tmp);
+    }
+    return $parsed;
+}
+
+# The form a parse is stored in:  every string once, in a table, and everything
+#   else as packed indexes into it and packed numbers.  The titles and labels
+#   of a '.ci' repeat absolute paths and mangled names hundreds of thousands of
+#   times, so storing the parse as it is costs 40% of the size of the file, in
+#   a directory which is often a RAM disk, for every '.ci' of the capture at
+#   once;  this costs 5%, and loads faster too.  The caller's edges stay in
+#   their order, which join_call_sites() depends on
+sub _pack_callgraph_info($)
+{
+    my ($edges, $external, $declaredAt, $callee) = @{$_[0]};
+    my (%index, @string);
+    my $intern = sub {
+        my $s = shift;
+        return $index{$s} //= do { push(@string, $s); $#string };
+    };
+    # per caller:  the number of edges and the caller, then per edge:  the
+    #   callee, file, line and column
+    my @edge;
+    while (my ($caller, $list) = each(%$edges)) {
+        push(@edge, scalar(@$list), $intern->($caller));
+        push(@edge, $intern->($_->[0]), $intern->($_->[1]), $_->[2], $_->[3])
+            foreach (@$list);
+    }
+    my @declared;    # symbol, file, line
+    while (my ($symbol, $at) = each(%$declaredAt)) {
+        push(@declared, $intern->($symbol), $intern->($at->[0]), $at->[1]);
+    }
+    return [\@string,
+            pack('N*', @edge),
+            pack('N*', @declared),
+            pack('N*', map({ $intern->($_) } keys(%$external))),
+            pack('N*', map({ $intern->($_) } keys(%$callee)))
+    ];
+}
+
+sub _unpack_callgraph_info($)
+{
+    my ($string, $edge, $declared, $external, $callee) = @{$_[0]};
+    my (%edges, %external, %declaredAt, %callee);
+    my @edge = unpack('N*', $edge);
+    my $i    = 0;
+    while ($i < @edge) {
+        my ($n, $caller) = @edge[$i, $i + 1];
+        $i += 2;
+        my $list = $edges{$string->[$caller]} = [];
+        foreach (1 .. $n) {
+            push(@$list,
+                 [$string->[$edge[$i]],
+                  $string->[$edge[$i + 1]],
+                  $edge[$i + 2],
+                  $edge[$i + 3]
+                 ]);
+            $i += 4;
+        }
+    }
+    my @declared = unpack('N*', $declared);
+    for (my $j = 0; $j < @declared; $j += 3) {
+        $declaredAt{$string->[$declared[$j]]} =
+            [$string->[$declared[$j + 1]], $declared[$j + 2]];
+    }
+    $external{$string->[$_]} = 1 foreach (unpack('N*', $external));
+    $callee{$string->[$_]}   = 1 foreach (unpack('N*', $callee));
+    return [\%edges, \%external, \%declaredAt, \%callee];
+}
+
+# The parse itself:  one pass over the file, see read_callgraph_info() for the
+#   format and _cached_callgraph_info() for what is returned
+sub _parse_callgraph_info($)
+{
+    my $ci_file  = shift;
+    my $edges    = {};
+    my $external = {};
+    my %declaredAt;    # symbol => [file, line], from the node labels
+    my %callee;        # ..the ones which are called, which is all we ask about
+    my %fileKey;       # a label's file => its pairing_file_key()
+
+    open(my $handle, '<', $ci_file) or
+        die("cannot read callgraph info '$ci_file': $!\n");
+    while (my $line = <$handle>) {
+        if ($line =~ /^node:\s*\{\s*title:\s*"([^"]*)"/) {
+            my $title = $1;
+            # A mangled name never contains a colon, so a title which has one
+            #   is qualified and the symbol is not external.  A node for a
+            #   symbol this unit only *declares* - a callee defined elsewhere,
+            #   which the compiler marks 'shape : ellipse' - is bare too, and
+            #   saying it is external is equally true;  it names no function of
+            #   this unit, so nothing here has that name to record it against
+            my $colon = rindex($title, ':');
+            $external->{$title} = 1 if $colon < 0;
+            # ..and where the compiler saw it:  the second line of the label,
+            #   which is the declarator of a symbol this unit only declares and
+            #   the definition of one it defines.  '<built-in>' is neither and
+            #   has no text to read
+            if ($line =~ /\slabel:\s*"[^"\\]*\\n([^"\\:]+):(\d+):\d+/) {
+                $declaredAt{substr($title, $colon + 1)} = [$1, $2];
+            }
+            next;
+        }
+        next
+            unless $line =~
+            /^edge:\s*\{\s*sourcename:\s*"([^"]*)"\s+targetname:\s*"([^"]*)"(?:\s+label:\s*"([^"]*)")?/;
+        my ($caller, $callee, $label) = ($1, $2, $3);
+        # An edge with no 'label:' is not a call site in the source:
+        #   '_Unwind_Resume' is inserted by the compiler for exception cleanup,
+        #   and gcov reports no call for it either - so dropping it is what
+        #   makes the two sequences the same length
+        next unless defined($label) && $label =~ /^(.*):(\d+):(\d+)$/;
+        my ($file, $line_no, $column) = ($1, $2, $3);
+        # ..in the spelling gcov's side is compared to - see pairing_file_key()
+        $file = ($fileKey{$file} //= pairing_file_key($file));
+        # Local and comdat symbols are file-qualified - 'cs.cpp:_ZN1S1mEd' -
+        #   while gcov reports the bare symbol.  A mangled name never contains
+        #   a colon, so everything up to the last one is the qualification.
+        #   Found with rindex() and not a substitution:  the qualification is
+        #   an absolute path, and the substitution was a fifth of the parse
+        $caller = substr($caller, rindex($caller, ':') + 1);
+        # '_sub_I_'/'_sub_D_' are the generated static constructor and
+        #   destructor which call __gcov_init/__gcov_exit.  They are in no
+        #   source file, and gcov knows nothing about them
+        next if $caller =~ /^_sub_[ID]_/;
+        $callee = substr($callee, rindex($callee, ':') + 1);
+        $callee{$callee} = 1;
+        push(@{$edges->{$caller}}, [$callee, $file, $line_no, $column]);
+    }
+    close($handle);
+    return [$edges, $external, \%declaredAt, \%callee];
+}
+
+# Where one of gcov's call arcs is - used for messaging.
+# An arc is reported under every line its block was built from, so there can
+# be more than one, and which of them the call is really at is not known
+# when this is needed - so we report all of them.
+sub arc_location($)
+{
+    my $arc = shift;
+    return join('/', sort(keys(%{$arc->[1]})));
+}
+
+# The locations of the calls one side of the pairing has and the other does not,
+# for a message:  enough of them to find the code, not all of them.  A unit
+# built with inlining on can have hundreds, and the first few say as much as the
+# whole list does.
+sub some_locations($)
+{
+    my $at    = shift;
+    my $limit = 3;
+    return join(', ', @$at) if scalar(@$at) <= $limit;
+    return join(', ', @$at[0 .. $limit - 1]) . ', ...';
+}
+
+# The spelling of a file name the pairing compares:  '.' and 'dir/..' collapsed,
+# and repeated separators folded.  The callgraph info spells a file exactly as
+# the compile command line did, and gcov usually does too - but gcov collapses
+# 'dir/..' where it can see that 'dir' exists from where it runs, so a source
+# compiled as '/build/obj/../s.c' is '/build/s.c' to gcov and not to the
+# callgraph info, and none of its calls would pair.  Where gcov can see depends
+# on the directory it happens to run in, so rather than guess which spelling it
+# chose, both sides are compared in this one.  Lexical, which a symbolic link
+# 'dir' makes wrong about the file it names - but this is only ever a key, and
+# two different files of one unit collapsing onto one name is not a thing a
+# build does.  A leading '..' of a relative name has nothing to collapse into
+# and stays
+sub pairing_file_key($)
+{
+    my $path = shift;
+    my $sep  = $lcovutil::dirseparator_re;
+    # the common case, and nearly all of them:  nothing to collapse
+    return $path
+        unless $path =~ /(?:^|$sep)\.\.?(?:$sep|$)|$sep$sep/;
+    my $absolute = $path =~ /^$sep/;
+    my @kept;
+    foreach my $part (split(/$sep+/, $path)) {
+        next if $part eq '' || $part eq '.';
+        if ($part eq '..') {
+            if (@kept && $kept[-1] ne '..') {
+                pop(@kept);
+                next;
+            }
+            # '/..' is '/'
+            next if $absolute;
+        }
+        push(@kept, $part);
+    }
+    my $key = join($lcovutil::dirseparator, @kept);
+    return $absolute ? $lcovutil::dirseparator . $key : $key;
+}
+
+# Pair the callgraph info's edges against gcov's call data, and leave the result
+# on the file data of the file each site's *caller* is defined in, as
+#
+#   [ caller_name, line, column, ordinal, count, callee_name, site_file ]
+#
+# for intermediate_json_to_info to hang off the caller's FunctionEntry once that
+# exists.  'site_file' is the data of the file the call is written in, and is
+# undef when that is the file the caller is defined in - which is the ordinary
+# case.  See the site file below.
+#
+# The pairing is per caller function and by order:  the edge list and
+# gcov's 'calls' entries are both in gimple order, so order is the only sound
+# correspondence between the two.  The column is not - the compiler folds the
+# location of a call nested in an argument list onto the enclosing call, so
+# 'sum2(i ? y() : 0, w())' has two of its three edges at one column, and sorting
+# by column measurably assigns the wrong counts.  Order alone is not enough
+# either, because a call the two producers do not both know about shifts
+# everything after it, so the walk is forward-only and matched on the line each
+# side gives:  see the alignment below, which is where the two disagreeing is
+# turned into named calls with no count instead of a lost function.
+#
+# It is done over the whole translation unit and not per file, because the
+# callgraph info is per unit and one caller's sites can land in more than one of
+# its files;  and before source filtering, because the two sequences have to be
+# the two sequences the compiler and gcov actually emitted.
+sub join_call_sites($$$)
+{
+    my ($data, $edges, $ci_file) = @_;
+
+    # This is the pairing pass:  each call the callgraph info lists is matched
+    #   with the count gcov reports for it, so that a call site ends up with both
+    #   a callee and a count.  The 'pairing' entry of the documentation glossary
+    #   defines the term and names the three ways a call can fail to pair;  what
+    #   follows is how the match is computed and what is done about each failure
+    #
+    # The callgraph info only ever says 'mangled', while lcov names a function
+    #   by its demangled name under '--demangle-cpp'.  gcov gives both
+    #   spellings, so the join goes through the map from one to the other;
+    #   getting this wrong makes the metric silently empty
+    my %name;
+    # ..and where each caller is *defined*, which is the only file whose section
+    #   can hold its call sites:  an 'FNC:' record is keyed by the index of the
+    #   caller in the section it is written to.  A site written in some other
+    #   file still goes there, and names that other file - see the site file
+    #   below
+    my %callerFile;
+    # ..and which coverpoint each caller belongs to - its file and the line it
+    #   starts on - which is not the same question as which symbol it is:  two
+    #   symbols defined at one location are aliases of one function, and one
+    #   'FNL:' index answers for all of them.  The sites of every alias are
+    #   therefore written under that one index, which is why the ordinals below
+    #   are numbered per location and not per symbol
+    my %callerCoverpoint;
+    # ..and the callees of the sites that drop:  what is left of a site which
+    #   cannot be written is the fact that its callee was called from somewhere
+    #   unnameable, and that is a property of the callee - see
+    #   $externalCallersKey
+    my %externalCallers;
+    # ..and the files of the unit by the name the edges use for them, which is
+    #   gcov's name for them in the spelling pairing_file_key() gives both
+    my %fileData;
+    foreach my $file_data (values(%$data)) {
+        $fileData{pairing_file_key($file_data->{'file'})} = $file_data;
+        foreach my $d (@{$file_data->{'functions'}}) {
+            $name{$d->{'name'}} =
+                $lcovutil::demangle_cpp_cmd ? $d->{'demangled_name'} :
+                $d->{'name'};
+            $callerFile{$d->{'name'}} = $file_data;
+            $callerCoverpoint{$d->{'name'}} =
+                $file_data->{'file'} . ':' . $d->{'start_line'};
+        }
+    }
+    # ..and a callee defined in some other translation unit is not in that map
+    #   at all, so those are demangled here, in one batch.  Deliberately not
+    #   through filter_fn_name_list():  the callee is the last field of the
+    #   'FNC:' record and keeps its commas, exactly like the names in the map
+    #   above, and the two spellings have to agree or the callee side of the
+    #   report cannot resolve them
+    if ($lcovutil::demangle_cpp_cmd) {
+        my %external;
+        foreach my $edgeList (values(%$edges)) {
+            foreach my $e (@$edgeList) {
+                $external{$e->[0]} = 1 unless exists($name{$e->[0]});
+            }
+        }
+        my @symbols = sort(keys(%external));
+        if (@symbols) {
+            my @demangled = demangle_name_list(\@symbols);
+            $name{$symbols[$_]} = $demangled[$_] foreach (0 .. $#symbols);
+        }
+    }
+
+    # gcov reports calls line by line;  the sequence to pair against is all of
+    #   one function's calls in block order, which is gimple order
+    # 'source_block_id' is the block the call leaves from, and a block ends at
+    #   its call, so within one caller the block names the call arc.  It is not
+    #   unique across the unit - every caller numbers its own blocks - which is
+    #   why it is only ever looked up under a caller
+    # One arc is reported under *every* line its block was built from, so the
+    #   entry holds the set of them and not a line:  a call in an '#include'd
+    #   fragment is listed both at its line in the fragment and at a line of the
+    #   including file, and only the callgraph info says which of the two the
+    #   call is really at.  The pairing below reads the location from the edge
+    #   and uses this set to check it
+    my %calls;   # caller symbol => { block id => [count, {"file:line" => fd}] }
+    my %orphan;  # calls gcov could not attribute:  file => line => [ .. ]
+    foreach my $file (keys(%fileData)) {
+        my $file_data = $fileData{$file};
+        foreach my $d (@{$file_data->{'lines'}}) {
+            next unless exists($d->{'calls'}) && @{$d->{'calls'}};
+            my $lineNo = $d->{'line_number'};
+            if (!defined($d->{'function_name'})) {
+                # gcov names the function a line belongs to only when that
+                #   function is defined in the same file as the line, so a call
+                #   on a line which came from an '#include'd fragment has no
+                #   caller here.  Held rather than dropped:  the callgraph info
+                #   does know which function the line is in, and the pass below
+                #   asks it
+                foreach my $c (@{$d->{'calls'}}) {
+                    push(@{$orphan{$file}->{$lineNo}},
+                         [$c->{'source_block_id'}, $c->{'returned'},
+                          $file_data
+                         ]);
+                }
+                next;
+            }
+            foreach my $c (@{$d->{'calls'}}) {
+                my $entry =
+                    ($calls{$d->{'function_name'}}->{$c->{'source_block_id'}}
+                     ||= [$c->{'returned'}, {}]);
+                $entry->[1]->{"$file:$lineNo"} = $file_data;
+            }
+        }
+    }
+
+    # Attribute the orphans, which gcov cannot do but the callgraph info can:
+    #  an edge at the orphan's (file, line) names the function whose body that
+    #  line is in
+    my %edgeOwners;    # file => line => { caller symbol => number of edges }
+    foreach my $caller (keys(%$edges)) {
+        # ..only the ones gcov described - see the caller loop, below
+        next unless exists($callerFile{$caller});
+        foreach my $e (@{$edges->{$caller}}) {
+            my (undef, $file, $line) = @$e;
+            ++$edgeOwners{$file}->{$line}->{$caller};
+        }
+    }
+    # How many of a caller's arcs gcov reports at each "file:line" - see the
+    #   claim below.  Counted when a caller is first asked about, which is only
+    #   ever the owners of an orphaned line
+    my %arcsAt;    # caller symbol => { "file:line" => number of arcs }
+    my $spokenFor = sub {
+        my ($caller, $arc) = @_;
+        my $at = $arcsAt{$caller};
+        unless (defined($at)) {
+            $at = $arcsAt{$caller} = {};
+            foreach my $a (values(%{$calls{$caller}})) {
+                ++$at->{$_} foreach (keys(%{$a->[1]}));
+            }
+        }
+        foreach my $where (keys(%{$arc->[1]})) {
+            my $colon = rindex($where, ':');
+            my $edges = $edgeOwners{substr($where, 0, $colon)}
+                ->{substr($where, $colon + 1)}->{$caller} // 0;
+            return 1 if $edges >= $at->{$where};
+        }
+        return 0;
+    };
+    # What the pass decides is applied after it, so that every decision is
+    #   made against what gcov reported and none against what an earlier line
+    #   of this pass added:  the answer then does not depend on the order the
+    #   lines are visited in
+    # The claims, as [arc, "file:line", file data], and the arcs created, as
+    #   caller symbol => { block id => [count, {"file:line" => file data}] }
+    my @claims;
+    my %created;
+    my $unattributed = 0;
+    foreach my $file (keys(%orphan)) {
+        foreach my $line (keys(%{$orphan{$file}})) {
+            my @owners = keys(%{$edgeOwners{$file}->{$line} || {}});
+            # One entry per block:  a line inlined into many bodies (e.g., a
+            #   destructor in <bits/allocator.h>) repeats the same few blocks
+            #   thousands of times, and against the thousands of owners such a
+            #   line has, the pairs of the two were nearly all of the capture's
+            #   time.  The entries of one block are kept by count, which is what
+            #   the claim below asks, and the last is the one the sole owner
+            #   gets because it is the one whose assignment used to land last
+            # block => [last entry, number of entries, {count => entry}]
+            my %byBlock;
+            foreach my $o (@{$orphan{$file}->{$line}}) {
+                my $b = ($byBlock{$o->[0]} ||= [undef, 0, {}]);
+                $b->[0] = $o;
+                ++$b->[1];
+                $b->[2]->{$o->[1] // 0} = $o;
+            }
+            # First the arcs an owner already has:  this is the fragment's line
+            #   turning up as a second mapping of a call gcov did attribute, so
+            #   all it adds is that location - which is the one the edge names.
+            # The block id is not evidence of that on its own.  Every function
+            #   numbers its blocks from zero, and gcov folds every function's
+            #   arcs at one line into one record - all the instantiations of a
+            #   template in a header, for instance - with nothing to say which
+            #   function an arc came from, so an owner which has a block of that
+            #   number may have it by coincidence:  on one real unit, the
+            #   block id alone made thousands of claims whose count disagreed
+            #   with the owner's arc, and a quarter of a million where both
+            #   counts were 0, which says nothing either way.  So two things
+            #   are asked of it as well:
+            #     - the counts agree.  It is one arc reported under two lines,
+            #       so it cannot have two counts;
+            #     - the arc is not spoken for.  It is at some line of the owner
+            #       already, and if the owner has as many edges at that line as
+            #       gcov has arcs there, then every arc there is the call written
+            #       there - this one included - and none of them is a call written
+            #       in the fragment.  That is what a coincidence looks like:  the
+            #       owner's own call at its own line, which would be taken from
+            #       the edge it belongs to.
+            #   An arc which is not claimed is not lost:  it is the owner's own
+            #   call, which pairs at its own line as it did before, and the edge
+            #   at the fragment's line becomes one with no arc
+            my %claimed;
+            foreach my $caller (@owners) {
+                my $blocks = $calls{$caller};
+                next unless defined($blocks);
+                foreach my $block (grep({ exists($blocks->{$_}) }
+                                        keys(%byBlock))
+                ) {
+                    my $arc = $blocks->{$block};
+                    my $o   = $byBlock{$block}->[2]->{$arc->[0] // 0};
+                    next unless defined($o) && !&$spokenFor($caller, $arc);
+                    push(@claims, [$arc, "$file:$line", $o->[2]]);
+                    $claimed{$block} = 1;
+                }
+            }
+            # ..then the arcs gcov reported nowhere else, which are the caller's
+            #   calls that only the fragment holds.  Only when the line is in
+            #   the body of exactly one function:  a fragment '#include'd into
+            #   two bodies has an edge from each, nothing chooses between them,
+            #   and guessing would put a count on the wrong call.  Nor when that
+            #   one function has an arc of its own with this block id - which it
+            #   does not claim, or it would have been claimed above - because
+            #   the arc here is then not that function's.  Those stay orphaned,
+            #   and the length check below reports them
+            foreach my $block (keys(%byBlock)) {
+                next if $claimed{$block};
+                my ($o, $n) = @{$byBlock{$block}};
+                my (undef, $count, $file_data) = @$o;
+                if (1 != scalar(@owners) ||
+                    (exists($calls{$owners[0]}) &&
+                        exists($calls{$owners[0]}->{$block}))
+                ) {
+                    $unattributed += $n;
+                    next;
+                }
+                # one arc of the owner's may be reported under more than one of
+                #   the fragment's lines, which makes it one arc at all of them
+                my $arc = ($created{$owners[0]}->{$block} ||= [$count, {}]);
+                $arc->[1]->{"$file:$line"} = $file_data;
+            }
+        }
+    }
+    $_->[0]->[1]->{$_->[1]} = $_->[2] foreach (@claims);
+    foreach my $caller (keys(%created)) {
+        my $blocks = ($calls{$caller} ||= {});
+        $blocks->{$_} = $created{$caller}->{$_}
+            foreach (keys(%{$created{$caller}}));
+    }
+
+    # The ordinals handed out so far, keyed by coverpoint and location:  the
+    #   ordinal this callee has been given there, and the next unused one.
+    #   Outside the loop below because the namespace an ordinal numbers belongs
+    #   to the coverpoint and not to the symbol - see %callerCoverpoint - so the
+    #   aliases of one function must not each start over at zero.
+    # One ordinal per callee at a location, and so one site:  every arc which
+    #   leaves this place for this callee folds into it and adds its count.  The
+    #   ordinal is what distinguishes two *different* callees the compiler gave
+    #   one location ('sum2(i ? y() : 0, w())' puts the edge to 'w' and the edge
+    #   to 'sum2' at one column), which is the job it is here to do.
+    # A location is a line *and* a column, so this folds nothing the report could
+    #   have shown apart:  'freefn(x, 1) + freefn(x, 2)' calls one function twice
+    #   on one line at two columns, and those keep their own keys and their own
+    #   counts.  Only the same line and the same column merge, because a line, a
+    #   column and a callee is all a report can name a call by - it is what the
+    #   source view underlines and what a differential report categorizes - so
+    #   two records there would be two rows nothing could tell apart.
+    # The compiler generates more than one arc for one written call whenever the
+    #   call needs a cleanup path:  a local with a non-trivial destructor plus a
+    #   call which may throw gives two identical '.ci' edges at the closing
+    #   brace, and gcov counts them apart - the normal path with the calls it
+    #   made, the unwind path with zero.  Two coverpoints there would say that
+    #   half of a destructor call the tests executed 61770 times was missed, and
+    #   the report cannot even point at the one that was:  a location and a
+    #   callee is the finest thing it can name, which is exactly a call as it is
+    #   written.  So that is the coverpoint, and the '-fno-exceptions' build of
+    #   the same source measures the same number of calls as the default one.
+    # Folding is also what merging two inputs has always done with them - see
+    #   FunctionEntry::_resolveCallSite, which gives an incoming site the
+    #   ordinal its own call to that callee already has - so the two paths into a
+    #   report now agree.
+    my %ordinal;
+    my %nextOrdinal;
+    foreach my $caller (sort(keys(%$edges))) {
+        # A caller gcov said nothing about is not in this report:  a function
+        #   the optimizer removed outright, or one in a file gcov did not
+        #   describe.  There is nowhere to record its sites, and nothing
+        #   inconsistent about that
+        # The test is %callerFile and not %name:  under '--demangle', %name
+        #   also holds every callee gcov did not describe, and a symbol can be
+        #   both.  gcc 16 gives the complete-object constructor and destructor
+        #   (C1/D1) a callgraph node of their own, with one edge to the
+        #   base-object body (C2/D2), while gcov describes only that body
+        next unless exists($callerFile{$caller});
+        my $callerName = $name{$caller};
+        my @edgeList   = @{$edges->{$caller}};
+        my $blocks     = $calls{$caller} || {};
+        # block order is gimple order, which is the order the edges were emitted
+        #   in - that correspondence is the whole basis of the pairing
+        my @blockIds = sort({ $a <=> $b } keys(%$blocks));
+
+        # Align the two sequences forward only.  Each edge takes the first arc at
+        #   or after the cursor which gcov reports at the edge's own location,
+        #   and the cursor never goes back:  both sequences are in gimple order,
+        #   so an arc the walk steps over is behind every later edge as well.
+        # This is the positional zip of two sequences which agree - arc i is at
+        #   edge i's location, which is what the location says - and it degrades
+        #   one call at a time when they do not, instead of losing the function:
+        #     - an edge which finds no arc is a call the compiled code makes and
+        #       gcov produced no count for, which is what an inlined call is;
+        #     - an arc the walk steps over is a call gcov counted which the
+        #       callgraph info does not list, so its callee cannot be named and
+        #       there is nothing to record.
+        #   Neither is a guess:  the location is the evidence, and it is why the
+        #   walk is by location rather than by index.  What the walk cannot say
+        #   is which of several calls on one line lost its arc - it hands the
+        #   surviving arcs to the earlier edges, which is all a positional
+        #   pairing could do - and the voiding below is what is done about that
+        my @pairs;    # [edge, arc or undef], one per edge, in edge order
+        my $nextArc = 0;
+        my @missingAt;         # locations of the edges with no arc
+        my @missingCallees;    # ..and what they call, which is the other half
+        my @extraAt;           # locations of the arcs with no edge
+        foreach my $e (@edgeList) {
+            my (undef, $file, $line, $column) = @$e;
+            my $at = "$file:$line";
+            my $found;
+            for (my $j = $nextArc; $j <= $#blockIds; ++$j) {
+                next unless exists($blocks->{$blockIds[$j]}->[1]->{$at});
+                $found = $j;
+                last;
+            }
+            if (!defined($found)) {
+                push(@missingAt, "$at:$column");
+                push(@missingCallees, $e->[0]);
+                push(@pairs, [$e, undef]);
+                next;
+            }
+            push(@extraAt, arc_location($blocks->{$blockIds[$_]}))
+                foreach ($nextArc .. $found - 1);
+            $nextArc = $found + 1;
+            push(@pairs, [$e, $blocks->{$blockIds[$found]}]);
+        }
+        push(@extraAt, arc_location($blocks->{$blockIds[$_]}))
+            foreach ($nextArc .. $#blockIds);
+
+        # A line which has fewer arcs than it has edges cannot say which of its
+        #   calls the arcs it does have belong to, so none of them keeps a count.
+        #   The walk gave them to the earliest edges because nothing on the
+        #   caller's side distinguishes them, but that answer is not merely
+        #   arbitrary - from -O1 it is usually wrong.  gcov counts a call by the
+        #   edge which leaves the call other than normally, '-fipa-pure-const'
+        #   removes that edge for every callee it can prove nothrow, and which
+        #   callees those are has nothing to do with the order the calls are
+        #   written in.  Measured on a line calling two functions which ran 3 and
+        #   7 times:  one arc survives, and giving it to the earlier edge reports
+        #   7 calls to the function which was called 3 times.  An unknown count
+        #   says what is known;  a number that is off by a factor of two says
+        #   something false, and it is the number the user reads.
+        # Per line, because 'file:line' is the granularity the pairing matches
+        #   at:  a call on a line where the two sequences do agree is not in
+        #   doubt, and voiding it would throw away a count for nothing
+        my @ambiguousAt;    # locations of the sites voided by that rule
+        my %shortLine;      # "file:line" of every edge which found no arc
+        foreach my $pair (@pairs) {
+            $shortLine{$pair->[0]->[1] . ':' . $pair->[0]->[2]} = 1
+                unless defined($pair->[1]);
+        }
+        if (%shortLine) {
+            foreach my $pair (@pairs) {
+                next unless defined($pair->[1]);
+                my (undef, $file, $line, $column) = @{$pair->[0]};
+                next unless exists($shortLine{"$file:$line"});
+                push(@ambiguousAt, "$file:$line:$column");
+                $pair->[1] = undef;
+            }
+        }
+        my $missingArcs   = scalar(@missingAt);
+        my $extraArcs     = scalar(@extraAt);
+        my $ambiguousArcs = scalar(@ambiguousAt);
+
+        # The two do not describe the same function.  Reported whether or
+        #   not the data is kept, because a rate computed from a function whose
+        #   calls the two producers disagree about is not the rate the user
+        #   asked for - '--callgraph-partial-data' says what to keep, and
+        #   '--ignore-errors inconsistent' says whether to carry on;  the two are
+        #   independent on purpose
+        if ($missingArcs || $extraArcs) {
+            # A call gcov could not attribute to any function is the one the
+            #   callgraph info can usually repair, by naming the function the
+            #   line is in - so reaching here with $unattributed set means the
+            #   repair did not apply:  the line is in no edge, or in edges of
+            #   more than one caller, or its one caller has a call of that block
+            #   number already.  No optimization setting helps with that
+            # ..and the two directions of the mismatch have different causes and
+            #   so different advice, which is why they are said separately
+            my @why;
+            my $flags = 0;
+            if ($unattributed) {
+                push(@why,
+                    "$unattributed call site(s) in this unit are on lines gcov did not attribute to any function and the callgraph info does not attribute to exactly one; this may be due to a fragment '#include'd into more than one function body - or, where the one function it is in already has a call with the arc's block number, a line whose calls gcov reported together with other functions' calls, as it does for the instantiations of a template."
+                );
+                $flags |= 0x1;
+            } else {
+                if ($missingArcs) {
+                    push(@why,
+                        "Two optimizations remove the arc a call site's count comes from:  a call which was inlined is not in the caller's CFG at all, and '-fipa-pure-const' - on from -O1 - proves callees nothrow and deletes the exceptional edge which is the only thing gcov counts a call by.  Callgraph coverage wants -O0, or '-fno-inline -fno-ipa-pure-const'."
+                    );
+                    $flags |= 0x2;
+                    # ..and the other reason a call has no arc, which no
+                    #   optimization setting changes:  a callee declared 'pure'
+                    #   or 'const' is never counted (read_callgraph_info).  Such
+                    #   a call is dropped rather than reported, but only when
+                    #   the declaration the callgraph info points at is the one
+                    #   carrying the attribute - a function defined in this unit
+                    #   whose prototype in some header declares it 'pure' is
+                    #   declared there, and this is what that looks like
+                    my %seen;
+                    my @named =
+                        grep({ !$seen{$_}++ }
+                             map({ exists($name{$_}) ? $name{$_} : $_ }
+                                 @missingCallees));
+                    push(@why,
+                        "A call to a function declared 'pure' or 'const' has no arc either, whatever the optimization setting:  if one of these is declared that way somewhere other than where it is defined, add the attribute to the definition as well, or ignore this error.  The call(s) with no arc go to: "
+                            . some_locations(\@named)
+                            . '.');
+                }
+                if ($extraArcs) {
+                    push(@why,
+                        "A call the compiler generated rather than one the source makes - a copy, a conversion, an exception edge - is counted by gcov and has no edge in the callgraph info, so there is no callee to name it by."
+                    );
+                    $flags |= 0x4;
+                }
+            }
+            my $why =
+                lcovutil::warn_once($lcovutil::ERROR_INCONSISTENT_DATA,
+                                    "callgraph_$flags") ?
+                '  ' . join('  ', @why) :
+                '';
+            my @what;
+            push(@what,
+                "$missingArcs of the " .
+                    scalar(@edgeList) .
+                    " call site(s) callgraph info '$ci_file' lists have no call in gcov's data ("
+                    . some_locations(\@missingAt) . ')')
+                if $missingArcs;
+            push(@what,
+                 "$extraArcs of the " .
+                     scalar(@blockIds) .
+                     " call(s) gcov reports are not in the callgraph info (" .
+                     some_locations(\@extraAt) . ')')
+                if $extraArcs;
+            # ..and the sites which did pair but whose line's pairing cannot be
+            #   trusted, which is a consequence of the first clause and not a
+            #   third disagreement:  said so the user is not left wondering why
+            #   a call gcov clearly counted has no number
+            push(@what,
+                "$ambiguousArcs further site(s) are on a line with one of those and so cannot be distinguished ("
+                    . some_locations(\@ambiguousAt) . ')')
+                if $ambiguousArcs;
+            my $did =
+                $lcovutil::callgraph_partial_data ?
+                "keeping the site(s) which did pair and recording the rest with an unknown count ('-'), because '--callgraph-partial-data' is set"
+                :
+                "dropping this function's callee data - use '--callgraph-partial-data' to keep the site(s) which did pair";
+            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
+                                      "--callgraph-coverage: '$callerName':  " .
+                                          join(', and ', @what) .
+                                          " - $did.  $why");
+            next unless $lcovutil::callgraph_partial_data;
+        }
+        my @sites;
+        foreach my $pair (@pairs) {
+            my ($e, $arc) = @$pair;
+            my ($callee, $file, $line, $column) = @$e;
+            my ($count, $file_data);
+            if (defined($arc)) {
+                $count     = defined($arc->[0]) ? $arc->[0] : 0;
+                $file_data = $arc->[1]->{"$file:$line"};
+            } else {
+                # count of '-' means that the call is in the compiled code and
+                #   this capture has no count for it - either gcov didn't
+                #   produce one or the counts on its line could not be
+                #   distinguished (the voiding above).
+                #   In contrast, '0' (zero) would say the tests never made
+                #   the call -  which is a different claim and not what
+                #   this data appears to say - see FunctionEntry::SITE_COUNT
+                $count     = '-';
+                $file_data = $fileData{$file};
+            }
+            # A file gcov did not describe at all has no section, so there is no
+            #   name to write the location as and the site cannot be kept.  The
+            #   pairing above is still what keeps the caller's *other* sites, so
+            #   this is a per-site drop and not the function's
+            # The site is dropped, not the fact:  what cannot be written is the
+            #   location and count, and what can is that the callee has a caller
+            #   this report cannot name, which is exactly what
+            #   FunctionAlias::has_external_callers says - the edge, and the
+            #   calls it carried.  So this is not an error:  a call which was
+            #   made is in the callee's own execution count either way, and
+            #   now the edge and its count are in the callee's flag as well.
+            #   A callee defined in another translation unit is not in this
+            #   unit's table and so keeps no flag from here;  it needs none,
+            #   since its own count still holds the call and no site in the
+            #   report claims it
+            if (!defined($file_data)) {
+                $externalCallers{$callee} =
+                    exists($externalCallers{$callee}) ?
+                    lcovutil::add_site_count($externalCallers{$callee}, $count)
+                    :
+                    $count;
+                next;
+            }
+            # An 'FNC:' record is keyed by the caller's index in the section it
+            #   is written to, so every site goes to the section of the file the
+            #   caller is *defined* in.  When the call is written somewhere else
+            #   - which is every call in an '#include'd fragment, and every call
+            #   a different compilation unit makes to a function of this one -
+            #   the record names that other file, and the site carries its name
+            #   along to be turned into an index at write time.  See 'FNC:' in
+            #   geninfo(1)
+            # The file is carried as its data rather than as a name, because the
+            #   name it will be written under is not settled yet:  this runs
+            #   before adjust_source_filenames(), which rewrites the keys of
+            #   %$data and not the 'file' field of what they hold.
+            #   intermediate_json_to_info() turns it back into the final name
+            my $siteFile;
+            $siteFile = $file_data
+                if $callerFile{$caller} != $file_data;
+            # the ordinal distinguishes the callees the compiler gave one
+            #   location.  It is assigned in pairing order because that order
+            #   is a property of the compiled code, so two captures of the same
+            #   build agree on it
+            my $calleeName = exists($name{$callee}) ? $name{$callee} : $callee;
+            # ..in the coverpoint's namespace, and one per callee within it:  a
+            #   second arc to this callee from here is another way to reach the
+            #   one call which is written here, so it is the same site and its
+            #   count adds - see %ordinal.  The namespace is the coverpoint's
+            #   and not the symbol's, so an alias' call folds in here too
+            # ..and the file the call is written in is part of the location, so
+            #   it is part of the key:  two sites which share a line and column
+            #   but not a file are distinct sites and number their ordinals apart
+            my $at    = "$line:$column" . (defined($siteFile) ? ":$file" : '');
+            my $where = $callerCoverpoint{$caller} . " $at";
+            my $ordinalNo = $ordinal{$where}->{$calleeName};
+            if (!defined($ordinalNo)) {
+                $ordinalNo = $nextOrdinal{$where}++;
+                $ordinal{$where}->{$calleeName} = $ordinalNo;
+            }
+            my @site = ($callerName, $line, $column, $ordinalNo,
+                        $count, $calleeName, $siteFile);
+            # ..to the section of the file the caller is defined in, whether or
+            #   not that is the file the call is written in
+            push(@sites, [$callerFile{$caller}, \@site]);
+        }
+        foreach my $site (@sites) {
+            push(@{$site->[0]->{$callSiteKey}}, $site->[1]);
+        }
+    }
+    # The callees of the dropped sites, handed to every file of the unit the way
+    #   the linkage table is:  the flag is set where the callee is *defined*, and
+    #   which file of the unit that is is not known here
+    if (%externalCallers) {
+        $_->{$externalCallersKey} = \%externalCallers foreach (values(%$data));
+    }
+}
+
 sub intermediate_json_to_info($)
 {
     my $data = shift;
@@ -2516,6 +3756,14 @@ sub intermediate_json_to_info($)
     my $traceFile = TraceFile->new();
     lcovutil::debug(1,
           "called intermediate_json_to_info " . join(' ', keys(%$data)) . "\n");
+    # The name each file's section is written under, by the data it holds:  the
+    #   key of %$data and not its 'file' field, because the two differ once the
+    #   name has been adjusted (adjust_source_filenames).  Wanted by the call
+    #   sites which name the file they are written in - see join_call_sites()
+    my %sectionName;
+    while (my ($name, $fd) = each(%$data)) {
+        $sectionName{$fd} = $name;
+    }
     while (my ($filename, $file_data) = each(%$data)) {
         # note that we already substituted the source file name and handled
         # include/exclude directives - so no need to check here
@@ -2538,6 +3786,7 @@ sub intermediate_json_to_info($)
         $mcdcMap = $fileData->testcase_mcdc($test_name)
             if $lcovutil::mcdc_coverage;
         my $branchExprMap = ExprMap->new($filename);
+        my %unexecBlock;    # see attach_to_statements
 
         if (@lcovutil::extractVersionScript) {
             my $version = lcovutil::extractFileVersion($filename);
@@ -2547,6 +3796,12 @@ sub intermediate_json_to_info($)
 
         # Function data
         if ($lcovutil::func_coverage) {
+            # The set of symbols this translation unit defines with external
+            #   linkage, if the callgraph info said - see read_callgraph_info()
+            my $external = $file_data->{$externalKey};
+            # ..and the symbols of it which were called from a site this format
+            #   cannot express - see join_call_sites()
+            my $externalCallers = $file_data->{$externalCallersKey};
             for my $d (@{$file_data->{"functions"}}) {
                 my $start_line = $d->{"start_line"};
                 my $end_line;
@@ -2559,6 +3814,59 @@ sub intermediate_json_to_info($)
                     $functionMap->define_function($name, $start_line,
                                                   $end_line);
                 $func->addAlias($name, $count);
+                # ..and its linkage, when the callgraph info said so.  Keyed on
+                #   the mangled name, because that is the only spelling the
+                #   callgraph info has, while $name may have been demangled
+                $func->alias($name)->set_external()
+                    if defined($external) && exists($external->{$d->{"name"}});
+                # ..and, by the same key, that a call was made to it from a site
+                #   which has no record of its own, and how many
+                $func->alias($name)
+                    ->add_external_calls($externalCallers->{$d->{"name"}})
+                    if defined($externalCallers) &&
+                    exists($externalCallers->{$d->{"name"}});
+            }
+            # Callee data:  the sites were paired against the callgraph info
+            #   per translation unit, in join_call_sites(), because that is the
+            #   unit both halves of the pairing are written in.  What arrives
+            #   here is this file's finished list, and all that is left is to
+            #   hang each site off the FunctionEntry the loop above created
+            foreach my $site (@{$file_data->{$callSiteKey} || []}) {
+                my ($caller, $line, $column, $ordinal,
+                    $count, $callee, $siteFile) = @$site;
+                my $entry = $functionMap->findName($caller);
+                if (!defined($entry)) {
+                    # LCOV_UNREACHABLE_START
+                    # Unreachable, and kept only so that a future change to the
+                    #   pairing cannot turn it into a crash:  a site is only
+                    #   built for a caller gcov named as a function of some
+                    #   file of this unit, and join_call_sites() files it under
+                    #   the file that caller is defined in - which is the file
+                    #   the loop above has just defined it in
+                    lcovutil::debug(1,
+                        "$filename:$line: no function '$caller' for call to '$callee'\n"
+                    );
+                    next;
+                    # LCOV_UNREACHABLE_STOP
+                }
+                # $siteFile is the data of the file the call is *written* in, and
+                #   is undef when that is $filename - see join_call_sites().  A
+                #   file which was filtered out since has no name here and no
+                #   section either, so its 'file' field will do:  a site naming a
+                #   file the report does not hold becomes the callee's 'called
+                #   from outside' flag at write time - see _pruneUnwritableSites
+                if (defined($siteFile)) {
+                    $siteFile =
+                        exists($sectionName{$siteFile}) ?
+                        $sectionName{$siteFile} :
+                        $siteFile->{'file'};
+                }
+                # ..made by the alias the call is in.  Another alias' call to
+                #   the same callee from the same place is the same site (see
+                #   join_call_sites), and adds that alias to the ones which make
+                #   it - see FunctionEntry::SITE_ALIASES
+                $entry->addCallSite($line, $column, $ordinal,
+                                    $count, $callee, $siteFile, undef, $caller);
             }
         }
         foreach my $d (@{$file_data->{"lines"}}) {
@@ -2571,33 +3879,25 @@ sub intermediate_json_to_info($)
             $conditions = $d->{'conditions'}
                 if $lcovutil::mcdc_coverage && exists($d->{'conditions'});
 
-            next
-                if (!defined($line) || !defined($count));
+            next unless defined($line);
 
-            if (0 == scalar(@$branches) && $unexec && $count != 0) {
-                lcovutil::debug(
-                    "$filename:$line: unexecuted block on non-branch line with count=$count\n"
-                );
-                if ($lcovutil::opt_adjust_unexecuted_blocks) {
-                    $count = 0;
-                } elsif (lcovutil::warn_once("unexecuted block",
-                                             $ERROR_INCONSISTENT_DATA)
-                ) {
-                    lcovutil::ignorable_warning($ERROR_INCONSISTENT_DATA,
-                        "$filename:$line: unexecuted block on non-branch line with non-zero hit count.  Use \"geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero."
-                    );
-                }
+            # a line without a count has no line coverpoint, but its branch
+            #   and MC/DC data belongs to the previoius statement - see
+            #   attach_to_statements
+            if (defined($count)) {
+                $unexecBlock{$line} = $count
+                    if (0 == scalar(@$branches) && $unexec && $count != 0);
+
+                # just add the line - worry about filtering later
+                $lineMap->append($line, $count);
             }
-
-            # just add the line - worry about filtering later
-            $lineMap->append($line, $count);
 
             # Branch data
             if ($lcovutil::br_coverage) {
 
                 # there may be compiler-generated branch data on
                 #  the closing brace of the function...
-                $unexec = (defined($unexec) && $unexec && $count == 0);
+                $unexec = ($unexec && defined($count) && $count == 0);
 
                 # build a BranchEntry from this data - then either
                 #  - insert it into the map:
@@ -2688,6 +3988,13 @@ sub intermediate_json_to_info($)
                 $mcdcMap->close_mcdcBlock($mcdc);
             }
         }
+        attach_to_statements($fileData,
+                             $filename,
+                             $lineMap,
+                             $branchMap,
+                             $mcdcMap,
+                             \%unexecBlock,
+                             block_graph($file_data->{"lines"}));
         # update the branch counts in this file
         # now go through lines, functions, branches - append to test_name data
         $fileData->sum()->union($lineMap);
@@ -2784,6 +4091,9 @@ sub process_intermediate($$$$)
     my $base;
     my $json_basedir;
     my $json_format;
+    my $ci_file;               # the '-fcallgraph-info' data for this object
+    my $callgraph_info;
+    my $callgraph_external;    # ..and its node list's linkage half
 
     my $filename = defined($file) ? $file : $gcno_file;
     $file = solve_relative_path($cwd, $filename);
@@ -2833,6 +4143,35 @@ sub process_intermediate($$$$)
         }
     }
 
+    if ($lcovutil::callgraph_coverage) {
+        # The callgraph info the compiler wrote for this object:  same directory
+        #   and same basename as the '.gcno' geninfo already found, extension
+        #   '.ci'.  Read before gcov runs, so that a build which does not have
+        #   it can complain before spending a gcov invocation
+        my $graph_file = $is_graph ? $file : $gcno_file;
+        $graph_file = Cwd::abs_path($graph_file) if -l $graph_file;
+        my ($gdir, $gbase, undef) = split_filename($graph_file);
+        my $expected = File::Spec->catfile($gdir, "$gbase.ci");
+        if (-r $expected) {
+            $ci_file = $expected;
+            ($callgraph_info, $callgraph_external) =
+                read_callgraph_info($ci_file);
+        } else {
+            # The common case:  the object was not compiled with
+            #   '-fcallgraph-info', so there is no callee data to be had.
+            #   Complain once - not once per object - otherwise a build
+            #   compiled without the flag would issue many, many identical
+            #   messages.
+            if (lcovutil::warn_once($lcovutil::ERROR_UNSUPPORTED,
+                                    'callgraph_ci')
+            ) {
+                lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
+                    "--callgraph-coverage: no callgraph info for $graph_file (expected '$expected').  Recompile with '-fcallgraph-info=su,da'."
+                );
+            }
+        }
+    }
+
     # Change directory
     debug(2, "chdir to tempdir $tempdir\n");
     if (!chdir($tempdir)) {
@@ -2843,11 +4182,26 @@ sub process_intermediate($$$$)
     # Run gcov on data file
     debug("gcov: " . join(' ', @gcov_tool) . " $data_file\n");
     my $now = Time::HiRes::gettimeofday();
-    my ($out, $err, $rc) = system_no_output(1 + 2 + 4, @gcov_tool, $data_file);
+    my ($out, $err, $rc);
+    if ($gcov_stdout) {
+        # stdout is the JSON - read from a pipe, so that it is never written
+        #   anywhere - and its messages are on stderr
+        ($err, $rc) = Capture::Tiny::capture_stderr {
+            open(my $h, '-|', @gcov_tool, $data_file) or
+                return -1;
+            local $/;
+            $out = <$h>;
+            close($h);
+            return $?;
+        };
+    } else {
+        ($out, $err, $rc) = system_no_output(1 + 2 + 4, @gcov_tool, $data_file);
+    }
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{exec}{$filename} = $then - $now;
     print_gcov_warnings('stdout', $out, $is_graph, {$data_file => $file,})
-        if ('' ne $out &&
+        if (!$gcov_stdout &&
+            '' ne $out &&
             (0 != $rc ||
              $lcovutil::verbose > 1));
     debug(2, "chdir back to '$cwd'\n");
@@ -2885,15 +4239,18 @@ sub process_intermediate($$$$)
     # 'meson' build system likes to use "." as leading character in generated
     # files.  Seems an unfortunate decision.
     my $start = Time::HiRes::gettimeofday();
-    for my $gcov_filename (glob($gcovOutGlobPattern)) {
+    for my $gcov_filename ($gcov_stdout ? (\$out) : glob($gcovOutGlobPattern)) {
         eval {
-            if ($gcov_filename =~ /\.gcov\.json/) {
+            if (ref($gcov_filename) || $gcov_filename =~ /\.gcov\.json/) {
                 read_intermediate_json($gcov_filename, \%data, \$json_basedir);
                 $json_format = 1;
             } else {
                 read_intermediate_text($gcov_filename, \%data);
             }
-            if ($lcovutil::preserve_intermediates) {
+            if (ref($gcov_filename)) {
+                # the text is not needed once it is decoded
+                undef($out);
+            } elsif ($lcovutil::preserve_intermediates) {
                 File::Copy::move($gcov_filename, $fdir) or
                     die("cannot rename $gcov_filename: $!");
             } else {
@@ -2920,6 +4277,20 @@ sub process_intermediate($$$$)
         ignorable_warning($ERROR_GCOV,
                           "GCOV did not produce any data for $file");
         return;
+    }
+
+    # Pair the callgraph info against the call data gcov just produced, while
+    #   the data is still exactly what the compiler and gcov emitted:  the join
+    #   is by order, so it has to see both sequences whole, before any
+    #   file of this translation unit can be renamed or dropped
+    if (defined($callgraph_info) && $json_format) {
+        join_call_sites(\%data, $callgraph_info, $ci_file);
+        # ..and hand the linkage half to every file of the unit.  Not joined to
+        #   anything:  a symbol's linkage is a property of the symbol, so the
+        #   table is consulted by name when the function is defined, in
+        #   intermediate_json_to_info().  One table shared by all of them
+        #   because the compiler told us about the unit, not about the file
+        $_->{$externalKey} = $callgraph_external foreach (values(%data));
     }
 
     # Determine base directory
@@ -3186,12 +4557,16 @@ sub process_graphfile($$)
 
 # Demangle a whole list of function names in a single subprocess invocation
 # (chunked to stay under ARG_MAX) instead of forking the demangler once per
-# name.  Returns the transformed names in the same order as the input.
-sub filter_fn_name_list($$)
+# name.  Returns the demangled names in the same order as the input.
+# Separate from filter_fn_name_list() because callee symbols must not have the
+# delimiter substitution applied to them:  they are compared against the names
+# the JSON path takes verbatim from gcov's 'demangled_name', and the callee is
+# the last field of the 'FNC:' record, so a comma in it is not ambiguous.
+sub demangle_name_list($)
 {
-    my ($names, $demangle) = @_;
+    my $names = shift;
     my @out;
-    if ($demangle && @$names) {
+    if (@$names) {
         # c++filt (and compatible demanglers) accept the names as argv and
         # emit one demangled name per line, in order.  Chunk the argv so a
         # very long name list cannot overflow the command-line length limit.
@@ -3232,9 +4607,14 @@ sub filter_fn_name_list($$)
             scalar(@$names) .
             ' inputs')
             unless @out == @$names;
-    } else {
-        @out = @$names;
     }
+    return @out;
+}
+
+sub filter_fn_name_list($$)
+{
+    my ($names, $demangle) = @_;
+    my @out = $demangle ? demangle_name_list($names) : @$names;
     # Remove characters used internally as function name delimiters
     s/[,=]/_/g foreach @out;
 

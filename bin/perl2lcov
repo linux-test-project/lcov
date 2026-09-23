@@ -242,6 +242,11 @@ if (!lcovutil::parseOptions({}, \%options)) {
     print(STDERR "Use $lcovutil::tool_name --help to get usage information.\n");
     exit(1);
 }
+lcovutil::reject_callgraph_coverage(
+        'a Devel::Cover database records a per-subroutine count and no caller');
+lcovutil::reject_mcdc_coverage(
+    'Devel::Cover condition data is converted to branch coverage, and no MC/DC records are produced'
+);
 
 # translate windows paths, if necessary
 lcovutil::posix_paths(\$output_file, \@ARGV);
@@ -350,6 +355,18 @@ foreach my $db_path (@ARGV) {
         }
 
         foreach my $line ($stmts->items) {
+            if ($line <= 0) {
+                # a module loaded from the command line or PERL5OPT (e.g.
+                #   '-MFoo') is a 'use' which perl compiles at line 0 of the
+                #   main script - but a line which is not in the source may
+                #   also be a bug, so say so.  Skip the line if ignored.
+                lcovutil::ignorable_error($lcovutil::ERROR_RANGE,
+                     "\"$filename\": statement at invalid line number '$line'" .
+                         ' - possibly a module loaded via \'-M\' on the perl' .
+                         ' command line or PERL5OPT, which perl compiles at' .
+                         ' line 0 of the main script');
+                next;
+            }
             my $l         = $stmts->location($line);
             my $lineCount = $l->[0]->[0];
             $lineMap->append($line, $lineCount);

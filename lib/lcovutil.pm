@@ -45,7 +45,9 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      @file_subst_patterns subst_file_name
      @comments
 
-     $br_coverage $func_coverage $mcdc_coverage
+     $br_coverage $func_coverage $mcdc_coverage $callgraph_coverage
+     $callgraph_partial_data
+     @coverTypeFound @coverTypeInputTotal @coverType
      @cpp_demangle do_mangle_check $demangle_cpp_cmd
      get_overall_line rate
 
@@ -54,11 +56,12 @@ our @EXPORT_OK = qw($tool_name $tool_dir $lcov_version $lcov_url $VERSION
      $FILTER_LINE_CLOSE_BRACE $FILTER_BLANK_LINE $FILTER_LINE_RANGE
      $FILTER_TRIVIAL_FUNCTION $FILTER_DIRECTIVE
      $FILTER_MISSING_FILE $FILTER_INITIALIZER_LIST
-     $FILTER_EXCEPTION_BRANCH $FILTER_ORPHAN_BRANCH
+     $FILTER_EXCEPTION_BRANCH $FILTER_ORPHAN_BRANCH $FILTER_EXCLUDE_CALLGRAPH
      @cov_filter
      $EXCL_START $EXCL_STOP $EXCL_BR_START $EXCL_BR_STOP
      $EXCL_EXCEPTION_BR_START $EXCL_EXCEPTION_BR_STOP
-     $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE
+     $EXCL_CALLGRAPH_START $EXCL_CALLGRAPH_STOP
+     $EXCL_LINE $EXCL_BR_LINE $EXCL_EXCEPTION_LINE $EXCL_CALLGRAPH_LINE
      $UNREACHABLE_START $UNREACHABLE_STOP $UNREACHABLE_LINE
      @exclude_file_patterns @include_file_patterns %excluded_files
      @omit_line_patterns @exclude_function_patterns $case_insensitive
@@ -403,6 +406,163 @@ our $MAX_COUNT = 9223372036854775807;    # 0x7fffffffffffffff
 our $br_coverage   = 0;    # If set, generate branch coverage statistics
 our $mcdc_coverage = 0;    # MC/DC
 our $func_coverage = 1;    # If set, generate function coverage statistics
+# Callgraph coverage is a sub-metric of function coverage:  the data hangs off
+#   FunctionEntry and FunctionAlias, so it cannot be enabled unless function
+#   coverage is - see the check in parseOptions.
+our $callgraph_coverage = 0;    # call sites within each function
+
+# The coverpoint types a '.info' file may contain, as indexes into the two
+#   tables below.
+use constant {
+              COVER_TYPE_FUNCTION  => 0,
+              COVER_TYPE_BRANCH    => 1,
+              COVER_TYPE_MCDC      => 2,
+              COVER_TYPE_CALLGRAPH => 3,
+              COVER_TYPE_COUNT     => 4,
+};
+
+# Everything the per-type checks use, indexed by COVER_TYPE_ :  one row
+#   per type - one place to add new types.
+#     'name' is what the type is called in messages - and the label its summary
+#        row carries;  see 'summaryLabel' and '%coverTypeCoverpoint' below.
+#     'option' is the command line arg.
+#     'flag' is a ref rather than a value because the flag value isn't set
+#        until after the command line in parsed.
+#     'total' is this type's slot in the list 'TraceFile::count_totals' returns
+#     'have' is "does this report contain coverpoints of this type"
+#     'empty' overrides the generic "enabled but nothing found" message where
+#        there is something to say a about data coverage (see callgraph entry)
+#     'disable' says whether ignoring that error should turn the metric off.
+#     'count' is the '.info' tag corresponding to the total number of
+#        coverpoitns of the corresponding type, summed across all the files.
+#        This is before filtering or other modification - and enables us
+#        to distinguish the case that there were no coverpoints in the data
+#        from the case that the data was not collected (say, --branch coverage
+#        was disabled) from the case that there were no such coverpoints
+#        in the report, or that we removed/filtered all the points that
+#        used to exist.
+#        See 'checkEnabledMetric', '@lcovutil::coverTypeInputTotal' and
+#        '%recordDeclaresCoverType'.
+# See 'TraceFile::checkEmpty' and 'TraceFile::checkEnabledMetric'.
+our @coverType = (
+    {
+     name   => 'function',
+     option => '--function-coverage',
+     flag   => \$func_coverage,
+     total  => 3,
+     have   => sub { $_[1]->[3]->[0] != 0 },
+     # deliberately no 'count':  'FNF:0' says this file defines no functions.
+     #   This isn't too surprising -  e.g.  a header of macros, or a
+     #   '#include'd fragment - may not contain any functions.
+     #   A report with no functions at all what the check looks for.
+    },
+    {
+     name   => 'branch',
+     option => '--branch-coverage',
+     flag   => \$br_coverage,
+     total  => 2,
+     have   => sub { $_[1]->[2]->[0] != 0 },
+     count  => 'BRF',
+    },
+    {
+     name   => 'MC/DC',
+     option => '--mcdc-coverage',
+     flag   => \$mcdc_coverage,
+     total  => 4,
+     have   => sub { $_[1]->[4]->[0] != 0 },
+     count  => 'MCF',
+    },
+    {
+        name   => 'callgraph',
+        option => '--callgraph-coverage',
+        flag   => \$callgraph_coverage,
+        # the caller-side count:  the call sites my files contain, not the sites
+        #   which target the functions they define - see
+        #   'TraceInfo::callgraph_found'
+        total => 5,
+        # not count_totals' call-site slot:  a report all of whose calls cross
+        #   the boundary has no site and still has callgraph data - see
+        #   'TraceFile::hasCallgraphData'
+        have => sub { $_[0]->hasCallgraphData() },
+        # 'write_info' already wrote this one for a file whose calls were
+        #   counted and came to zero - to enable error checking
+        count => 'FNCF',
+        empty =>
+            "--callgraph-coverage is enabled but no call-site data was found in any input file.  Capture with 'geninfo --callgraph-coverage' on code compiled with -fcallgraph-info.",
+        # else every summary carries a 0/0 callee column for data which was
+        #   never measured
+        disable => 1,
+    });
+
+# The cover types whose coverpoint is not named after the type, keyed by the
+#   'name' above:  a report has lines, functions and branches, but it has one
+#   callgraph, whose coverpoints are callees, and one MC/DC metric, whose
+#   coverpoints are conditions.  Every other type is its own coverpoint, so it
+#   needs no row here - see 'coverpointName'.
+# 'summaryLabel' reads exactly that distinction, so this is the one table the
+#   tools which name a cover type to the user take their words from - 'lcov'
+#   ('TraceFile::print_summary'), 'genhtml' ('SummaryInfo::print_overall_rate'
+#   and the source view's coverpoint captions).  They printed two different
+#   labels for one metric while each kept a list of its own.
+our %coverTypeCoverpoint = ('MC/DC' => 'condition', 'callgraph' => 'callee');
+
+# Summary rows line their labels up under the widest one.
+our $summaryLabelWidth = length('source files');
+
+# Whether any '.info' file we read held a record of the corresponding type
+#   above - regardless of whether that type is enabled.  A record of a disabled
+#   type is dropped without being parsed but we want to keep track of
+#   whether we saw something or not
+#   See '%recordDispatch' and 'TraceFile::_read_info'.
+# Write-once (0 -> 1) and never cleared.
+#   Used to emit warning that user may have forgotten to add a flag
+our @coverTypeFound = (0) x COVER_TYPE_COUNT;
+
+# The sum of the corresponding type's count records - its 'count' tag in
+#   '@coverType' above - over every '.info' file read:  undef where no input
+#   contained the type (which is different from seeing zeros everywhere).
+# A zero total is a measurement.  It says the producer counted this type's
+#   coverpoints in those files and there weren't any: straight-line code has
+#   no branches, for example.
+#   A total which is not zero and has no surviving coverpoints means that the
+#   coverpoints were there and this run's filters removed them - which
+#   is likely not what the user expected, and what we want to complain about.
+# Only accumulated for the types which are enabled:  the count of a type nobody
+#   asked about is not consulted - see '%recordDeclaresCoverType'.
+# Kept apart from '@coverTypeFound' because they answer different questions:
+#   the report contains no such coverpoints (this check) vs
+#   'checkEmpty' which asks if there was data that the command line has
+#    discarded.
+our @coverTypeInputTotal = (undef) x COVER_TYPE_COUNT;
+
+sub inputCountedNone($)
+{
+    # Did the inputs count this type's coverpoints and find none?  The one
+    #   reading of '@coverTypeInputTotal' anybody wants:  an explicit zero, as
+    #   against a count nobody gave us (undef) and a count which was not zero.
+    my $covType = $_[0];
+    return defined($coverTypeInputTotal[$covType]) &&
+        0 == $coverTypeInputTotal[$covType];
+}
+
+# What geninfo does with a caller whose two halves of the join do not line up:
+#   0 (the default) drops that caller's callgraph data, 1 keeps the sites
+#   which did pair and records a call the compiler saw but gcov gave no arc
+#   for with an
+#   unknown count ('-').  Deliberately independent of '--ignore-errors
+#   inconsistent':  this is a policy on what data to keep, not on whether to
+#   report the problem, and both combinations are wanted
+our $callgraph_partial_data = 0;
+# How hard the source view tries to underline a call.  Either way it reads the
+#   identifier which starts at the column the compiler recorded and the one
+#   which ends just left of it - GCC's C++ front end points at the call's opening
+#   parenthesis - and takes whichever of the two spells one of the callees
+#   recorded at that site.  When neither does:  0 (the default) underlines the
+#   likelier of the two anyway, because in a C++ report most sites are calls
+#   whose source text is not the callee's name;  1 leaves the source text alone
+#   and names the site in the line's trailing comment instead.  See genhtml's
+#   _calleeSpliceSpan
+our $strict_callee_match = 0;
 
 # for external file filtering
 our @internal_dirs;
@@ -446,6 +606,14 @@ our $compute_file_version
 
 our $check_file_existence_before_callback = 1;
 our $check_data_consistency               = 1;
+# see '_continuationLineMerge', '_statementBranchMerge' and '_lambdaSuppressed'
+our $merge_continuation_lines  = 0;
+our $ignore_lambda_consistency = 0;
+# what '_continuationLineMerge' did:  the number of continuation line
+#   coverpoints it removed from the summary data, and the number of statement
+#   lines they were merged into - see 'summarize_cov_filters'
+our $continuation_lines_merged  = 0;
+our $continuation_merge_targets = 0;
 
 # Specify coverage rate default precision
 our $default_precision = 1;
@@ -583,6 +751,8 @@ our $FILTER_FUNCTION_ALIAS;
 our $FILTER_EXCLUDE_REGION;
 # region between LCOV EXCL_BR_START/STOP
 our $FILTER_EXCLUDE_BRANCH;
+# region between LCOV EXCL_CALLGRAPH_START/STOP
+our $FILTER_EXCLUDE_CALLGRAPH;
 # empty line
 our $FILTER_BLANK_LINE;
 # out of range line - beyond end of file
@@ -603,23 +773,29 @@ our $FILTER_EXCEPTION_BRANCH;
 our $FILTER_ORPHAN_BRANCH;
 # MC/DC with single expression is identical to branch
 our $FILTER_MCDC_SINGLE;
+# remove the call sites whose count this capture does not know
+our $FILTER_UNKNOWN_CALLEE_COUNT;
 our $FILTER_OMIT_PATTERNS;    # special/somewhat faked filter
 
-our %COVERAGE_FILTERS = ("branch"        => \$FILTER_BRANCH_NO_COND,
-                         'brace'         => \$FILTER_LINE_CLOSE_BRACE,
-                         'blank'         => \$FILTER_BLANK_LINE,
-                         'directive'     => \$FILTER_DIRECTIVE,
-                         'range'         => \$FILTER_LINE_RANGE,
-                         'line'          => \$FILTER_LINE,
-                         'initializer'   => \$FILTER_INITIALIZER_LIST,
-                         'function'      => \$FILTER_FUNCTION_ALIAS,
-                         'missing'       => \$FILTER_MISSING_FILE,
-                         'region'        => \$FILTER_EXCLUDE_REGION,
-                         'branch_region' => \$FILTER_EXCLUDE_BRANCH,
-                         'exception'     => \$FILTER_EXCEPTION_BRANCH,
-                         'orphan'        => \$FILTER_ORPHAN_BRANCH,
-                         'mcdc'          => \$FILTER_MCDC_SINGLE,
-                         "trivial"       => \$FILTER_TRIVIAL_FUNCTION,);
+our %COVERAGE_FILTERS = (
+                        "branch"               => \$FILTER_BRANCH_NO_COND,
+                        'brace'                => \$FILTER_LINE_CLOSE_BRACE,
+                        'blank'                => \$FILTER_BLANK_LINE,
+                        'directive'            => \$FILTER_DIRECTIVE,
+                        'range'                => \$FILTER_LINE_RANGE,
+                        'line'                 => \$FILTER_LINE,
+                        'initializer'          => \$FILTER_INITIALIZER_LIST,
+                        'function'             => \$FILTER_FUNCTION_ALIAS,
+                        'missing'              => \$FILTER_MISSING_FILE,
+                        'region'               => \$FILTER_EXCLUDE_REGION,
+                        'branch_region'        => \$FILTER_EXCLUDE_BRANCH,
+                        'callgraph_region'     => \$FILTER_EXCLUDE_CALLGRAPH,
+                        'exception'            => \$FILTER_EXCEPTION_BRANCH,
+                        'orphan'               => \$FILTER_ORPHAN_BRANCH,
+                        'mcdc'                 => \$FILTER_MCDC_SINGLE,
+                        "trivial"              => \$FILTER_TRIVIAL_FUNCTION,
+                        'unknown_callee_count' => \$FILTER_UNKNOWN_CALLEE_COUNT,
+);
 our @cov_filter;    # 'undef' if filter is not enabled,
                     # [line_count, coverpoint_count] histogram if
                     #   filter is enabled: number of applications
@@ -639,10 +815,14 @@ our $EXCL_BR_STOP  = "LCOV_EXCL_BR_STOP";
 # marker to exclude exception branches but keep other branches
 our $EXCL_EXCEPTION_BR_START = 'LCOV_EXCL_EXCEPTION_BR_START';
 our $EXCL_EXCEPTION_BR_STOP  = 'LCOV_EXCL_EXCEPTION_BR_STOP';
+# marker to exclude call sites but keep line, branch and function coverage
+our $EXCL_CALLGRAPH_START = 'LCOV_EXCL_CALLGRAPH_START';
+our $EXCL_CALLGRAPH_STOP  = 'LCOV_EXCL_CALLGRAPH_STOP';
 # exclude on this line
 our $EXCL_LINE           = 'LCOV_EXCL_LINE';
 our $EXCL_BR_LINE        = 'LCOV_EXCL_BR_LINE';
 our $EXCL_EXCEPTION_LINE = 'LCOV_EXCL_EXCEPTION_BR_LINE';
+our $EXCL_CALLGRAPH_LINE = 'LCOV_EXCL_CALLGRAPH_LINE';
 
 # should we ignore exclusion tags in the input .info file or not
 # by default: do not ignore
@@ -652,8 +832,12 @@ our $ignore_unreachable_flag = 0;
 our @exclude_file_patterns;
 our @include_file_patterns;
 our %excluded_files;
-our $case_insensitive                   = 0;
-our $exclude_exception_branch           = 0;
+our $case_insensitive         = 0;
+our $exclude_exception_branch = 0;
+# merge the aliases of one function which call and are called identically - see
+#   TraceFile::_collapseCallgraphAliases.  On by default:  the merged names and
+#   their counts are retained, so the merge does not lose function coverage
+our $collapse_callgraph_alias           = 1;
 our $derive_function_end_line           = 1;
 our $derive_function_end_line_all_files = 0;    # by default, C only
 our $trivial_function_threshold         = 5;
@@ -692,11 +876,29 @@ our @exclude_function_patterns;
 # need a pattern copy that we don't disable for function message suppressions
 our @suppress_function_patterns;
 
-our %languageExtensions = ('c'      => 'c|h|i|C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx',
-                           'rtl'    => 'v|vh|sv|vhdl?',
-                           'perl'   => 'pl|pm',
+our %languageExtensions = ('c'    => 'c|h|i|C|H|I|icc|cpp|cc|cxx|hh|hpp|hxx|xs',
+                           'rtl'  => 'v|vh|sv|vhdl?',
+                           'perl' => 'pl|pm',
                            'python' => 'py',
                            'java'   => 'java');
+# The languages of a file are held as the OR of these flags - see
+#   'TraceFile::language' - so a check for any of several languages is one '&'
+#   with the OR of their flags:  'TraceFile::is_language(IS_C | IS_JAVA, $f)'
+use constant {
+              IS_C      => 0x1,
+              IS_RTL    => 0x2,
+              IS_PERL   => 0x4,
+              IS_PYTHON => 0x8,
+              IS_JAVA   => 0x10,
+};
+# the languages whose statements 'ReadCurrentSource::statementSpan' finds
+use constant STATEMENT_LANGUAGES => IS_C | IS_JAVA | IS_PERL | IS_PYTHON;
+# language name (as in '%languageExtensions') -> flag
+our %languageFlag = ('c'      => IS_C,
+                     'rtl'    => IS_RTL,
+                     'perl'   => IS_PERL,
+                     'python' => IS_PYTHON,
+                     'java'   => IS_JAVA);
 
 our $info_file_pattern = '*.info';
 
@@ -728,7 +930,8 @@ our %dark_palette = ('COLOR_00' => "e4e4e4",
                      'COLOR_17' => "E5DBDB",
                      'COLOR_18' => "82E0AA",
                      'COLOR_19' => 'F9E79F',
-                     'COLOR_20' => 'EC7063',);
+                     'COLOR_20' => 'EC7063',
+                     'COLOR_21' => 'F2EEEE',);
 our %normal_palette = ('COLOR_00' => "000000",
                        'COLOR_01' => "00cb40",
                        'COLOR_02' => "284fa8",
@@ -750,6 +953,7 @@ our %normal_palette = ('COLOR_00' => "000000",
                        'COLOR_18' => "82E0AA",    # light green
                        'COLOR_19' => 'F9E79F',    # light yellow
                        'COLOR_20' => 'EC7063',    # lighter red
+                       'COLOR_21' => 'F2EEEE',    # paler grey than COLOR_17
 );
 
 our %tlaColor = ("UBC" => "#FDE007",
@@ -1165,7 +1369,6 @@ sub init_parallel_params()
         (defined($lcovutil::maxMemory) ||
             defined($lcovutil::memoryPercentage))
     ) {
-
         # need Memory::Process to enable the maxMemory feature
         my $cwd = Cwd::getcwd();
         #debug("init: CWD is $cwd\n");
@@ -1459,7 +1662,6 @@ sub save_profile($@)
 
         # only generate the extra data if profile enabled
         if ($html) {
-
             my $leader =
                 '<object data="https://www.w3.org/TR/PNG/iso_8859-1.txt" width="300" height="200">'
                 . "\n";
@@ -1533,8 +1735,8 @@ sub set_extensions
     die("unknown language '$type'") unless exists($languageExtensions{$type});
     # the extension list is used as a regexp alternation:  the
     #   default RTL list is 'v|vh|sv|vhdl?' - so check that what the user gave
-    #   us can be compiled here, rather than dying inside 'is_language' at the
-    #   first file whose name we look at
+    #   us can be compiled here, rather than dying inside 'TraceFile::language'
+    #   at the first file whose name we look at
     my $alternation = join('|', split($split_pattern, $str));
     unless (defined(eval { local $SIG{__DIE__}; qr/^\.($alternation)$/ })) {
         my $msg = $@;
@@ -1543,6 +1745,7 @@ sub set_extensions
         die("invalid ${type}_file_extensions '$str': $msg\n");
     }
     $languageExtensions{$type} = $alternation;
+    %TraceFile::languageCache = ();
 }
 
 sub do_mangle_check
@@ -1706,6 +1909,9 @@ my %rc_common = (
     "lcov_json_module"             => \$JsonSupport::rc_json_module,
     "branch_coverage"              => \$lcovutil::br_coverage,
     'mcdc_coverage'                => \$lcovutil::mcdc_coverage,
+    'callgraph_coverage'           => \$lcovutil::callgraph_coverage,
+    'callgraph_partial_data'       => \$lcovutil::callgraph_partial_data,
+    'strict_callee_match'          => \$lcovutil::strict_callee_match,
     "function_coverage"            => \$lcovutil::func_coverage,
     "lcov_excl_line"               => \$lcovutil::EXCL_LINE,
     "lcov_excl_br_line"            => \$lcovutil::EXCL_BR_LINE,
@@ -1716,6 +1922,9 @@ my %rc_common = (
     "lcov_excl_br_stop"            => \$lcovutil::EXCL_BR_STOP,
     "lcov_excl_exception_br_start" => \$lcovutil::EXCL_EXCEPTION_BR_START,
     "lcov_excl_exception_br_stop"  => \$lcovutil::EXCL_EXCEPTION_BR_STOP,
+    "lcov_excl_callgraph_line"     => \$lcovutil::EXCL_CALLGRAPH_LINE,
+    "lcov_excl_callgraph_start"    => \$lcovutil::EXCL_CALLGRAPH_START,
+    "lcov_excl_callgraph_stop"     => \$lcovutil::EXCL_CALLGRAPH_STOP,
     'lcov_unreachable_start'       => \$lcovutil::UNREACHABLE_START,
     'lcov_unreachable_stop'        => \$lcovutil::UNREACHABLE_STOP,
     'lcov_unreachable_line'        => \$lcovutil::UNREACHABLE_LINE,
@@ -1730,6 +1939,8 @@ my %rc_common = (
     'treat_warning_as_error'     => \$lcovutil::treat_warning_as_error,
     'warn_once_per_file'         => \$lcovutil::warn_once_per_file,
     'check_data_consistency'     => \$lcovutil::check_data_consistency,
+    'ignore_lambda_consistency'  => \$lcovutil::ignore_lambda_consistency,
+    'merge_continuation_lines'   => \$lcovutil::merge_continuation_lines,
     "rtl_file_extensions"        => \$rtlExtensions,
     "c_file_extensions"          => \$cExtensions,
     "perl_file_extensions"       => \$perlExtensions,
@@ -1757,6 +1968,7 @@ my %rc_common = (
     'build_directory'   => \@rc_build_dir,
 
     "no_exception_branch"      => \$lcovutil::exclude_exception_branch,
+    'collapse_callgraph_alias' => \$lcovutil::collapse_callgraph_alias,
     'filter'                   => \@rc_filter,
     'exclude'                  => \@rc_exclude_patterns,
     'include'                  => \@rc_include_patterns,
@@ -1839,11 +2051,18 @@ our %argCommon = (
             'comment=s'   => \@comments,
             'toolname=s'  => \$lcovutil::tool_name,
 
-            "function-coverage"    => \$lcovutil::func_coverage,
-            "branch-coverage"      => \$lcovutil::br_coverage,
-            'mcdc-coverage'        => \$lcovutil::mcdc_coverage,
-            "no-function-coverage" => \$rc_no_func_coverage,
-            "no-branch-coverage"   => \$rc_no_branch_coverage,
+            "function-coverage" => \$lcovutil::func_coverage,
+            "branch-coverage"   => \$lcovutil::br_coverage,
+            'mcdc-coverage'     => \$lcovutil::mcdc_coverage,
+            # 'callgraph' is spelled out as an alias rather than left to
+            #   Getopt's abbreviation, which stopped being unambiguous
+            #   when the second 'callgraph-*' option was added:  an exact
+            #   match wins over a prefix match, and '--callgraph' is the
+            #   spelling the documentation and the tests use
+            'callgraph-coverage|callgraph' => \$lcovutil::callgraph_coverage,
+            'callgraph-partial-data' => \$lcovutil::callgraph_partial_data,
+            "no-function-coverage"   => \$rc_no_func_coverage,
+            "no-branch-coverage"     => \$rc_no_branch_coverage,
 
             "fail-under-lines=s"    => \$fail_under_lines,
             "fail-under-branches=s" => \$fail_under_branches,
@@ -2196,6 +2415,36 @@ sub parseOptions
     # Determine which errors the user wants us to ignore
     parse_ignore_errors(@opt_ignore_errors);
 
+    # Callgraph coverage hangs off the function data, so it cannot be collected,
+    #   written or reported with function coverage turned off:  the combination
+    #   is a contradiction rather than a degraded mode.  Function coverage is
+    #   not silently turned back on - '--no-function-coverage' is an explicit
+    #   instruction - and if the user ignores the error, then the one coherent
+    #   state left is callgraph coverage off.  This has to come after
+    #   'parse_ignore_errors' above, or '--ignore usage' would not be in effect
+    #   yet.
+    if ($lcovutil::callgraph_coverage &&
+        !$lcovutil::func_coverage) {
+        lcovutil::ignorable_error($lcovutil::ERROR_USAGE,
+            "--callgraph-coverage requires function coverage, which is disabled (--no-function-coverage or 'function_coverage=0')."
+        );
+        $lcovutil::callgraph_coverage = 0;
+    }
+    # ..and '--callgraph-partial-data' is a policy on data which is only
+    #   collected when callgraph coverage is on, so asking for it alone asks
+    #   for nothing.  A
+    #   warning rather than an error:  unlike the contradiction above there is
+    #   no state to be incoherent, and 'lcov --capture' passes the flag through
+    #   to geninfo, where the metric may be turned off again by a gcov which is
+    #   too old or an object with no callgraph info beside it
+    if ($lcovutil::callgraph_partial_data &&
+        !$lcovutil::callgraph_coverage) {
+        lcovutil::ignorable_warning($lcovutil::ERROR_USAGE,
+            "--callgraph-partial-data has no effect without --callgraph-coverage - ignoring it."
+        );
+        $lcovutil::callgraph_partial_data = 0;
+    }
+
     # ...and which platform's paths we are working in - after the line above,
     #   because an invalid value is an ignorable error.
     set_path_style();
@@ -2275,6 +2524,63 @@ sub parseOptions
         }
     }
     return 1;
+}
+
+sub reject_metric($$$)
+{
+    # A metric this tool cannot ever produce, because its input does not carry
+    #   the data:  a Devel::Cover DB, a Cobertura or JaCoCo XML and an
+    #   'llvm-cov export' all record counters, so anything which needs edges or
+    #   condition vectors would have to come from a different tool entirely.
+    #   '$option' is the flag as the user spells it, '$ref' the variable it sets,
+    #   and '$why' one sentence naming both what is missing and where the metric
+    #   does come from.
+    #
+    # ERROR_UNSUPPORTED, which is the class every other "this cover type cannot
+    #   be produced here" answer uses - geninfo's, for gcov being too old or an
+    #   object built without '-fcallgraph-info'.  The user did not misuse the
+    #   option:  they asked a tool for a cover type it does not have, which is
+    #   the definition of that class, and the answer is the same whether the
+    #   reason is fixed for the life of the tool or a property of one input.
+    #   (The contradiction between '--callgraph-coverage' and
+    #   '--no-function-coverage' in parseOptions *is* a usage error, and stays
+    #   one:  there the two options disagree with each other.)
+    #
+    # Each tool calls this itself, right after parseOptions returns, rather than
+    #   parseOptions doing it:  the option table is shared, so the shared code
+    #   cannot know which tool it is parsing for.  And the option is deliberately
+    #   still IN that table for these tools - leaving it out would produce a bare
+    #   Getopt complaint, with no error class to ignore and no explanation of
+    #   why.
+    # As everywhere else, ignoring the error turns the metric off:  the run then
+    #   continues in the one coherent state, and writes no records for it.
+    my ($option, $ref, $why) = @_;
+
+    return unless $$ref;
+    lcovutil::ignorable_error($lcovutil::ERROR_UNSUPPORTED,
+           "--$option is not supported by " . $lcovutil::tool_name . ": $why.");
+    $$ref = 0;
+}
+
+sub reject_callgraph_coverage($)
+{
+    # see reject_metric.  '$why' says what this tool's input holds instead of
+    #   call sites
+    my $why = shift;
+    reject_metric('callgraph-coverage',
+                  \$lcovutil::callgraph_coverage,
+                  "$why.  Callgraph coverage requires geninfo with " .
+                      '-fcallgraph-info');
+}
+
+sub reject_mcdc_coverage($)
+{
+    # see reject_metric.  '$why' says what this tool's input holds instead of
+    #   condition vectors
+    my $why = shift;
+    reject_metric('mcdc-coverage', \$lcovutil::mcdc_coverage,
+        "$why.  MC/DC coverage requires geninfo with gcc 14.2 or later, or clang 18.1 or later"
+    );
 }
 
 #
@@ -2389,6 +2695,15 @@ sub munge_file_patterns
                     ],
                     ["lcov_excl_exception_br_stop",
                      \$lcovutil::EXCL_EXCEPTION_BR_STOP
+                    ],
+                    ['lcov_excl_callgraph_line',
+                     $lcovutil::EXCL_CALLGRAPH_LINE
+                    ],
+                    ['lcov_excl_callgraph_start',
+                     $lcovutil::EXCL_CALLGRAPH_START
+                    ],
+                    ['lcov_excl_callgraph_stop',
+                     $lcovutil::EXCL_CALLGRAPH_STOP
                     ],
                     ["lcov_unreachable_start", \$lcovutil::UNREACHABLE_START],
                     ["lcov_unreachable_stop", \$lcovutil::UNREACHABLE_STOP],
@@ -3202,6 +3517,9 @@ sub initial_state
     #  if those children don't execute in parallel.
     %message_types = ();    #reset
     $ReadCurrentSource::searchPath->reset();
+    # count only the continuation lines I merge - see 'compute_update'
+    $lcovutil::continuation_lines_merged  = 0;
+    $lcovutil::continuation_merge_targets = 0;
     # clear profile - want only my contribution
     %lcovutil::profileData  = ();
     %lcovutil::warnOnlyOnce = ();
@@ -3281,7 +3599,20 @@ sub compute_update
                $ReadCurrentSource::searchPath->current_count(),
                \%lcovutil::profileData,
                \%lcovutil::warnOnlyOnce,
-               \%lcovutil::explainOnce);
+               \%lcovutil::explainOnce,
+               # The whole array, not just what I added to it:  the flags are
+               #   booleans which only ever go 0 -> 1, so the parent can simply
+               #   OR them in - see '@coverTypeFound'.
+               \@lcovutil::coverTypeFound,
+               # ...and the counts of the files I read, which the parent adds to
+               #   its own:  each input is read by exactly one of us, so the sum
+               #   over the children is the sum over the inputs - see
+               #   '@coverTypeInputTotal'
+               \@lcovutil::coverTypeInputTotal,
+               # ..and what I merged, which the parent adds to its own
+               [$lcovutil::continuation_lines_merged,
+                $lcovutil::continuation_merge_targets
+               ]);
 
     foreach my $patType (\@lcovutil::exclude_file_patterns,
                          \@lcovutil::include_file_patterns,
@@ -3350,6 +3681,27 @@ sub update_state
     my $explainOnce = shift;
     while (my ($key, $v) = each(%$explainOnce)) {
         $lcovutil::explainOnce{$key} = $v;
+    }
+    my $coverTypeFound = shift;
+    for (my $i = 0; $i < COVER_TYPE_COUNT; ++$i) {
+        $lcovutil::coverTypeFound[$i] = 1 if $coverTypeFound->[$i];
+    }
+    # undef is "no input of mine collected data for this type".
+    # in contrast, 0 (zero) means that we collected data but there were
+    # zero coverpoints of the type.
+    my $coverTypeInputTotal = shift;
+    for (my $i = 0; $i < COVER_TYPE_COUNT; ++$i) {
+        next unless defined($coverTypeInputTotal->[$i]);
+        $lcovutil::coverTypeInputTotal[$i] =
+            ($lcovutil::coverTypeInputTotal[$i] || 0) +
+            $coverTypeInputTotal->[$i];
+    }
+    # undef when the child's dump holds no update:  the parent rejects that
+    #   chunk, but its state is updated first
+    my $merged = shift;
+    if (defined($merged)) {
+        $lcovutil::continuation_lines_merged  += $merged->[0];
+        $lcovutil::continuation_merge_targets += $merged->[1];
     }
 
     foreach my $patType (\@lcovutil::exclude_file_patterns,
@@ -3578,6 +3930,18 @@ sub fork_child
         $fate = 'baddata';
     }
     my $pid = fork();
+    # When the machine runs out of memory, the kernel kills whichever process
+    #   it scores highest - usually the biggest, and a child of ours is a copy
+    #   of us, so it can just as easily be the parent.  A dead child is a unit
+    #   of work which is retried;  a dead parent is the whole run, gone.  So
+    #   each child volunteers to be the one which is killed.  Best effort:
+    #   Linux only, and raising one's own score needs no privilege.
+    if (defined($pid) &&
+        0 == $pid &&
+        open(OOM_ADJ, '>', '/proc/self/oom_score_adj')) {
+        print(OOM_ADJ "1000\n");
+        close(OOM_ADJ);
+    }
     if ($fate && defined($pid) && 0 == $pid) {
         if ('baddata' eq $fate) {
             # data the parent can read but not unpack, and a success status:  the
@@ -3807,6 +4171,273 @@ sub add_count($$)
     return $sum >= $MAX_COUNT ? $MAX_COUNT : $sum;
 }
 
+sub site_count_hit($)
+{
+    # Is one call-site count (FunctionEntry::SITE_COUNT) a hit?  Not a bare
+    #   boolean test, because the unknown count '-' is a non-empty string and so
+    #   is *true* in Perl:  every '$count ? hit : missed' spelled directly would
+    #   report an unmeasured call as taken.
+    my $count = shift;
+    return (defined($count) && $count ne '-' && 0 != $count) ? 1 : 0;
+}
+
+sub site_count_unknown($)
+{
+    # Is one call-site count (FunctionEntry::SITE_COUNT) the unknown count?
+    #   Spelled out here so that the marker is compared in one place - see
+    #   site_count_hit for why it must never be tested as a bare boolean
+    my $count = shift;
+    return (!defined($count) || $count eq '-') ? 1 : 0;
+}
+
+sub site_count_value($)
+{
+    # One call-site count as a number:  '-', the unknown count, reads as 0.
+    # Mirrors 'BranchElement::count', which does exactly this for a branch which
+    #   was never evaluated, and for the same reason:  a differential
+    #   categorizer or a running total has to have a number, and the number an
+    #   unknown may contribute is the one which does not claim a hit.  Display
+    #   code must not use this - telling "not measured" apart from "measured
+    #   zero" is the whole point of the marker.
+    my $count = shift;
+    return (!defined($count) || $count eq '-') ? 0 : $count;
+}
+
+sub add_site_count($$)
+{
+    # Fold one call-site count into a running total - of a location with several
+    #   destinations, or of several ordinals shown as one row - under the same
+    #   lattice the merge uses:  unknown contributes nothing to a known total,
+    #   and a total is only unknown while every count folded into it was.
+    #   'undef' is the empty total, so that a caller can start from it.
+    my ($total, $count) = @_;
+    return $total if defined($count) && $count eq '-';
+    return $count unless defined($total);
+    return $count if $total eq '-';
+    return $total if !defined($count);
+    return add_count($total, $count);
+}
+
+sub external_call($$$$$$)
+{
+    # One call made from a site which is leaving the report, as the lists
+    #   TraceInfo::noteExternalCalls and TraceFile::noteExternalCalls hold it:
+    #   [the file the caller is defined in, callee, the site's count, {testcase
+    #   => that testcase's count of the site}].  '$testfnc' is the per-testcase
+    #   function data of the caller's file, and '$funcKey' and '$siteKey' find
+    #   the site in each of its maps.  An unknown count is '-', as it is on
+    #   the site
+    my ($file, $callee, $count, $testfnc, $funcKey, $siteKey) = @_;
+    my %perTest;
+    if (defined($testfnc)) {
+        foreach my $tn ($testfnc->keylist()) {
+            my $map = $testfnc->value($tn);
+            my $f   = defined($map) ? $map->findKey($funcKey) : undef;
+            next unless defined($f);
+            my (undef, undef, undef, $c) = $f->callSiteData($siteKey);
+            $perTest{$tn} = $c if defined($c);
+        }
+    }
+    return [$file, $callee, defined($count) ? $count : '-', \%perTest];
+}
+
+# The calls excludeCallSite has taken out, as the external_call records
+#   TraceInfo::noteExternalCalls takes.  A module global rather than something
+#   the callback hands back, so that the callback interface stays "remove this
+#   site":  _filterFile drains this into the file it just asked about, which is
+#   the only file a call can have been excluded from while that call was in
+#   progress
+our @excludedCallSites;
+
+sub excludeCallSite($$$$)
+{
+    # Remove one call site from a file's data:  the interface the 'callgraph'
+    #   pass of the '--unreachable-script' callback removes a site through, and
+    #   the only supported way for a callback to do it.
+    # Takes the two maps that pass is handed - the per-testcase collection and
+    #   the summary - because a site lives in every map which has the function,
+    #   and a site removed from one of them and left in another is a report
+    #   whose totals disagree with its tables.  '$funcKey' is the key
+    #   'FunctionMap::keylist' hands out and '$siteKey' the key
+    #   'FunctionEntry::callSiteKeys' does;  both name the same thing in every
+    #   map, which is what makes this a loop rather than a search.
+    # Returns true if a site was removed, and false if there was none left to
+    #   remove - so a callback may use the answer to count what it excluded
+    #   without having to remember what it has already seen.
+    # The callee found and hit totals need no correction, unlike a branch total,
+    #   which is cached and which a callback has to fix with 'adjust_counts':
+    #   they are counted from the surviving sites when they are asked for (see
+    #   FunctionMap::get_callgraph_found_and_hit), so an excluded site leaves
+    #   both of them at the same time - which is the whole of what the report
+    #   may conclude from it.  An excluded coverpoint is outside the boundary of the
+    #   report by definition, so whether that call was ever made is no longer a
+    #   question this report answers, and it must be counted neither as a call
+    #   which happened nor as one which did not.
+    # What the callee is told is the one thing which is not an inference:  a
+    #   function which is still in this report is called from a site which no
+    #   longer is, so that callee is recorded as having a caller outside the
+    #   boundary - the same FunctionAlias::has_external_callers a call whose
+    #   caller was erased (_noteErasedCalls) or whose file was removed ends up
+    #   asserting, with the count the site had.  Whether the call was ever
+    #   taken does not decide whether the flag is set:  the flag says that the
+    #   edge is there, which is what an excluded site leaves behind
+    my ($testdata, $summary, $funcKey, $siteKey) = @_;
+    # ..which has to be read before the site is taken out, and out of the
+    #   summary, since that is the map which has every site of the file
+    my $caller = $summary->findKey($funcKey);
+    my (undef, undef, undef, $count, $callee) =
+        defined($caller) ? $caller->callSiteData($siteKey) : ();
+    my $call =
+        defined($callee) ?
+        external_call($caller->filename(),
+                      $callee, $count, $testdata, $funcKey, $siteKey) :
+        undef;
+    my $removed = 0;
+    my @maps = ($summary, map({ $testdata->value($_) } $testdata->keylist()));
+    foreach my $map (@maps) {
+        next unless defined($map);
+        my $entry = $map->findKey($funcKey);
+        next unless defined($entry);
+        $removed = 1 if $entry->_removeSite($siteKey);
+    }
+    # The caller's own file and not the site's, when the two differ:  what
+    #   decides which definition of the callee the call reached is the
+    #   translation unit the caller was compiled in
+    push(@excludedCallSites, $call)
+        if $removed && defined($call);
+    return $removed;
+}
+
+# How a callee's set of callers relates to the calls it actually received - see
+#   classify_callers().  Numbered so that CALLERS_BOTH is exactly
+#   CALLERS_INTERNAL|CALLERS_EXTERNAL
+use constant {
+              CALLERS_NONE     => 0,    # nothing is known about its callers
+              CALLERS_INTERNAL => 1,    # called, and every call is a known site
+              CALLERS_EXTERNAL => 2,    # has a caller which is no site of this
+                                        #   report
+              CALLERS_BOTH     => 3,    # both of the above
+              CALLERS_INDETERMINATE => 4,    # cannot be told apart - see there
+};
+
+sub classify_callers($;$)
+{
+    # Relate one FunctionAlias' call sites to the number of times it was
+    #   actually entered, and return (class, elsewhere, external, deduced):
+    #     - elsewhere:  the calls no call site of this report accounts for;
+    #     - external:  those the 'x' flag's dropped sites made
+    #       (FunctionAlias::external_calls) - 0 without a flag;
+    #     - deduced:  the rest, which came from somewhere nothing recorded.
+    #   Each is undef where it cannot be decided.
+    #
+    # '$measured' is whether this report measured anything at all about the
+    #   compilation unit the symbol is defined in - FunctionMap::hasCallgraphData
+    #   - and defaults to true.  Where it is false none of what follows applies;
+    #   see the first return.
+    #
+    # Every call site in the report which named this symbol is on its caller
+    #   list by now, with the file it is in and the number of times it was
+    #   taken:  the callee's linkage does not enter into it, because the record
+    #   is written by the *caller's* translation unit (linkage only decides
+    #   which definition a site resolves to - see FunctionAlias::is_external).
+    #   So the callers we know, we know exactly.
+    # What cannot be known is who made the rest of the calls:  the symbol's own
+    #   execution count is the number of times it was entered from anywhere, and
+    #   the difference is calls which came from outside anything this report
+    #   describes - an uninstrumented or uncaptured translation unit, a call
+    #   through a function pointer or a virtual dispatch (neither of which the
+    #   callgraph info can name a target for), a call from the runtime itself
+    #   ('main', a static constructor, a signal handler), or a site whose
+    #   resolution failed.  The count of those calls is known and their origin
+    #   is not, which is exactly the distinction the four classes draw.
+    # The fifth class is case when the site count is unknown ('-'):
+    #   the '-' site may account for the whole difference or for none of
+    #   it, so "called from elsewhere" cannot be decided either way.
+    # In addition,  a call site for which no record could be written is
+    #   tagged with a flag on the callee (FunctionAlias::has_external_callers),
+    #   which carries the calls that site made.  That is a known external
+    #   caller - as opposed to one which is deduced to exist because the known
+    #   and the external sites together account for fewer calls than the
+    #   symbol received.  Where the flag's count is not known, whether there is
+    #   a deduced caller as well cannot be decided.
+    my ($alias, $measured) = @_;
+    # Nothing in this report was measured about the calls of the translation unit
+    #   this symbol is defined in (FunctionMap::hasCallgraphData), so there is
+    #   nothing to relate its execution count to.  A caller on its list, and
+    #   either of the flags which assert one, would each have been that
+    #   measurement, so it has none of them - and what the arithmetic below would
+    #   make of that is that every call it received came from outside the report,
+    #   which is the one answer which is certainly wrong:  the likeliest caller
+    #   is its own neighbour, and no record of the call was ever written
+    return (CALLERS_NONE, 0, 0, 0) if defined($measured) && !$measured;
+    my $mine     = $alias->count();
+    my $flagged  = $alias->has_external_callers();
+    my $external = $alias->external_calls();
+    my ($known, $indeterminate) = (0, 0);
+    foreach my $caller ($alias->callers()) {
+        # [callerEntry, line, column, ordinal, count, file] - see add_caller
+        my $count = $caller->[4];
+        if (!defined($count) || $count eq '-') {
+            $indeterminate = 1;
+            next;
+        }
+        $known = add_count($known, $count);
+    }
+    # Not entered at all:  nothing called it, so any '-' site among its callers
+    #   was taken zero times and there is nothing indeterminate about it, and
+    #   the flag's sites made no call either.
+    # The flag still answers the question the class asks - it says that a call
+    #   site outside the boundary names this function, which is where a caller is
+    #   and not whether it called.  Without the flag there is no caller of any
+    #   kind to report
+    return ($flagged ?
+                ($known ? CALLERS_BOTH : CALLERS_EXTERNAL) :
+                CALLERS_NONE,
+            0, 0, 0)
+        unless $mine;
+    # More calls recorded than entries is not diagnosed:  the two numbers come
+    #   from different gcov records, and a merge of runs which disagree about
+    #   function data, or a caller counted in a unit whose callgraph data was
+    #   captured separately, can produce it without anything being wrong here.
+    #   Everything is accounted for either way.
+    # A '-' site might account for any part of the difference, so neither the
+    #   difference nor what is left of it once the flag's calls are taken off
+    #   can be told - unless there is no difference to account for
+    my $elsewhere =
+        $known >= $mine ? 0 :
+        $indeterminate ? undef :
+        $mine - $known;
+    my $deduced;
+    if (defined($elsewhere) && (0 == $elsewhere || defined($external))) {
+        $deduced =
+            (0 == $elsewhere || $elsewhere <= $external) ? 0 :
+            $elsewhere - $external;
+    }
+    return ($known ? CALLERS_BOTH : CALLERS_EXTERNAL,
+            $elsewhere, $external, $deduced)
+        if $flagged || ($deduced && $deduced > 0);
+    return (CALLERS_INDETERMINATE, undef, 0, undef) unless defined($deduced);
+    return (CALLERS_INTERNAL, 0, 0, 0);
+}
+
+sub deduced_external_calls($;$)
+{
+    # The number of calls to this FunctionAlias which the arithmetic of
+    #   classify_callers says came from outside the callgraph boundary and
+    #   which no dropped call site accounts for - its count minus those of the
+    #   call sites which name it and those of the sites its 'x' flag stands for
+    #   - where that number is known and is not zero, and 0 otherwise.
+    # This is the *deduced* external caller, as opposed to the one which the
+    #   'x' flag records (FunctionAlias::has_external_callers):  a site which was
+    #   seen, and dropped because it is outside the boundary.  Either, both or
+    #   neither can hold.  A '-' site among the callers, or an 'x' flag whose
+    #   count is not known, leaves the difference undecided, so nothing is
+    #   deduced there
+    my ($alias, $measured) = @_;
+    my (undef, undef, undef, $deduced) = classify_callers($alias, $measured);
+    return (defined($deduced) && $deduced > 0) ? $deduced : 0;
+}
+
 sub report_format_error($$$$)
 {
     my ($errType, $countType, $count, $obj) = @_;
@@ -3864,7 +4495,10 @@ sub check_parent_process
     #                stdout/stderr capture.  '$payload' is the arrayref which is
     #                serialized for the parent, or undef for "nothing to send".
     #     merge   -> ($unit, $id, $payload, $ctx);  runs in the parent.
-    #     requeue -> ($unit, $id);  put a unit whose child died back on the queue.
+    #     requeue -> ($unit, $id, $why);  put a unit back on the queue.  '$why'
+    #                is 'fork' when fork() failed - the unit never ran, and '$id'
+    #                was the last one 'next' handed out - or 'retry' when its
+    #                child died.
     #     more    -> true while the queue could still produce work:  a requeued
     #                unit arrives after 'next' has already gone dry.
     #
@@ -4080,7 +4714,7 @@ sub check_parent_process
             ++$self->{failedAttempts};
             lcovutil::report_fork_failure($self->{forkFailWhen}->($id, $unit),
                                           $err, $self->{failedAttempts});
-            $self->{requeue}->($unit, $id);
+            $self->{requeue}->($unit, $id, 'fork');
             return 0;
         }
         $self->{failedAttempts} = 0;
@@ -4300,7 +4934,12 @@ sub check_parent_process
                            (POSIX::SIGKILL == $signal ?
                                 "killed by OS - possibly due to out-of-memory" :
                                 "serialized data $dumpfile not found"));
-                $self->{requeue}->($unit, $id);
+                # the OS killing a child - or a child saying that it could not
+                #   allocate memory - is a sign that we are running too many of
+                #   them:  retrying at the same parallelism would just repeat it
+                $self->_reduce_parallelism(scalar(keys(%$children)) + 1)
+                    if (POSIX::SIGKILL == $signal);
+                $self->{requeue}->($unit, $id, 'retry');
             } elsif (0 != $childstatus) {
                 lcovutil::report_parallel_error(
                                               $self->{operation},
@@ -4315,6 +4954,25 @@ sub check_parent_process
         }
         $self->{postReap}->($ctx) if $self->{postReap};
         unlink($dumpfile) if -f $dumpfile;
+    }
+
+    sub _reduce_parallelism
+    {
+        # Halve the number of children this manager may run at once, starting
+        #   from the number which were running when one was killed - and never
+        #   below one.  The limit stays lowered for the rest of this phase:
+        #   the children which are left are the same kind of work, and a limit
+        #   which grew back would find the same ceiling again.
+        my ($self, $wereRunning) = @_;
+        my $current = defined($self->{maxInFlight}) ? $self->{maxInFlight} :
+            $lcovutil::maxParallelism;
+        my $reduced =
+            int(($wereRunning < $current ? $wereRunning : $current) / 2) || 1;
+        return if $reduced >= $current;
+        lcovutil::info(
+                   "$self->{operation}: a child was killed for want of memory" .
+                       ":  running at most $reduced at once (was $current)\n");
+        $self->{maxInFlight} = $reduced;
     }
 
     sub _merge_payload
@@ -4378,7 +5036,12 @@ sub check_parent_process
                 $inFlight += $_->[0] foreach (values(%{$self->{reserved}}));
                 my ($next, $weight) = $self->_estimate($unit, $id);
                 my $total = $mySize + $inFlight + $next;
-                $tooBig = ($running > 1 && $total > $lcovutil::maxMemory);
+                # Over the ceiling, we wait for a child to finish - but with
+                #   nothing running, there is nothing to wait for, so the unit is
+                #   forked anyway:  one child at a time is the least parallel
+                #   this can be.  (It used to allow a second child regardless,
+                #   which is the copy of a large parent the machine may not have.)
+                $tooBig = ($running > 0 && $total > $lcovutil::maxMemory);
                 $message =
                     "memory constraint $mySize (me) + $inFlight ($running running) + "
                     . int($next)
@@ -4486,6 +5149,16 @@ sub parse_cov_filters(@)
                      "'mcdc' filter enabled but MC/DC coverage is not enabled.")
         if (defined($cov_filter[$FILTER_MCDC_SINGLE]) &&
             !$mcdc_coverage);
+    lcovutil::ignorable_warning($ERROR_USAGE,
+        "'unknown_callee_count' filter enabled but callgraph coverage is not enabled."
+        )
+        if (defined($cov_filter[$FILTER_UNKNOWN_CALLEE_COUNT]) &&
+            !$callgraph_coverage);
+    lcovutil::ignorable_warning($ERROR_USAGE,
+        "'callgraph_region' filter enabled but callgraph coverage is not enabled."
+        )
+        if (defined($cov_filter[$FILTER_EXCLUDE_CALLGRAPH]) &&
+            !$callgraph_coverage);
     if ($cov_filter[$FILTER_BRANCH_NO_COND]) {
         # turn on exception and orphan filtering too
         $cov_filter[$FILTER_EXCEPTION_BRANCH] = ['exception', 0, 0];
@@ -4542,6 +5215,16 @@ sub summarize_cov_filters
                  $patternCount,
                  $patternCount == 1 ? '' : 's');
         }
+    }
+    my $merged = $lcovutil::continuation_lines_merged;
+    if ($merged) {
+        my $targets = $lcovutil::continuation_merge_targets;
+        info(-1,
+             "Merged %d continuation line%s into %d statement line%s\n",
+             $merged,
+             $merged == 1 ? '' : 's',
+             $targets,
+             $targets == 1 ? '' : 's');
     }
 }
 
@@ -4711,6 +5394,55 @@ sub get_overall_line($$$)
     return lcovutil::rate($hit, $found, "% ($hit of $found $name$plural)");
 }
 
+#
+# coverpointName(type)
+#
+# The user-visible noun for one coverpoint of the named cover type:
+#   '%coverTypeCoverpoint' where the two words differ, and the name of the type
+#   itself otherwise - a line's coverpoint is a line.
+#
+
+sub coverpointName($)
+{
+    my $type = shift;
+    return $coverTypeCoverpoint{$type} || $type;
+}
+
+#
+# summaryLabel(type)
+#
+# The label the named cover type carries in a summary listing, padded with '.'
+#   out to the width of the widest label:  the name of the type - which is also
+#   the name of the option which asks for it - pluralized only where that name
+#   is the name of a coverpoint too.  A report has lines and functions, but it
+#   has one callgraph and one MC/DC metric, so neither of those two is plural.
+#
+
+sub summaryLabel($)
+{
+    my $type  = shift;
+    my $label = $type;
+    $label .= ('ch' eq substr($type, -2, 2) ? 'es' : 's')
+        if coverpointName($type) eq $type;
+    return $label . '.' x ($summaryLabelWidth - length($label));
+}
+
+#
+# summaryRow(type, found, hit)
+#
+# One row of a summary listing, without its newline:  the label of the cover
+#   type and the rate over its coverpoints.  Both 'lcov' and 'genhtml' print
+#   these rows and the two have to agree, so both of them call this.
+#
+
+sub summaryRow($$$)
+{
+    my ($type, $found, $hit) = @_;
+    return '  ' .
+        summaryLabel($type) . ': ' .
+        get_overall_line($found, $hit, coverpointName($type));
+}
+
 # Make sure precision is within valid range [1:4]
 sub check_precision()
 {
@@ -4742,7 +5474,6 @@ sub fileExistenceBeforeCallbackError
     my $filename = shift;
     if ($lcovutil::check_file_existence_before_callback &&
         !-e $filename) {
-
         my $explanation =
             $didFirstExistenceCheck ? '' :
             '  Use \'check_existence_before_callback = 0\' config file option to remove this check.';
@@ -5093,22 +5824,39 @@ sub new
 
     my $name = File::Spec->catfile($parentDir, $filename);
 
+    # look at every tag on every line:  an anchor is the 'id' field of the tag
+    # callgraph links are on rows and in cells.  There may be both anchors
+    # and any number of links on a particular line.
     open(HTML, '<', $name) or die("unable to open $name: $!");
     while (<HTML>) {
-        if (/<(a|span) .*id=\"([^\"]+)\"/) {
-            lcovutil::ignorable_error(
-                            $lcovutil::ERROR_USAGE,
-                            "\"$name\":$.: duplicate anchor '$2' original at " .
-                                $self->[ANCHORS]->{$2} . '.'
-            ) if exists($self->[ANCHORS]->{$2});
-            $self->[ANCHORS]->{$2} = $.;
-        } elsif (/<a .*href=\"([^#\"]+)(#([^\"]+))?\"/) {
-            next if 'http' eq substr($1, 0, 4);
-            push(@{$self->[HREFS]}, [$., $1, $3]);    # lineNo, filename, anchor
-        } elsif (/<frame .*src=\"([^\"]+)\"/) {
-            # frame tags have no anchor fragment; $3 from a prior <a href> match
-            # would be stale, so pass undef explicitly
-            push(@{$self->[HREFS]}, [$., $1, undef]); # lineNo, filename, anchor
+        while (/<(\w+)\b([^>]*)>/g) {
+            my ($tag, $attrs) = (lc($1), $2);
+            my @anchors;
+            push(@anchors, $1) if $attrs =~ /(?<![-\w])id="([^"]*)"/;
+            push(@anchors, $1)
+                if 'a' eq $tag && $attrs =~ /(?<![-\w])name="([^"]*)"/;
+            my %seen;
+            foreach my $anchor (map({ _decode($_) } @anchors)) {
+                next if $seen{$anchor}++;   # an '<a>' with the same id and name
+                lcovutil::ignorable_error(
+                       $lcovutil::ERROR_USAGE,
+                       "\"$name\":$.: duplicate anchor '$anchor' original at " .
+                           $self->[ANCHORS]->{$anchor} . '.'
+                ) if exists($self->[ANCHORS]->{$anchor});
+                $self->[ANCHORS]->{$anchor} = $.;
+            }
+            if ('a' eq $tag &&
+                $attrs =~ /(?<![-\w])href="([^"#]*)(?:#([^"]*))?"/) {
+                my ($file, $anchor) = ($1, $2);
+                next if $file =~ /^[a-z]+:/i;    # http:, mailto: ..
+                push(@{$self->[HREFS]},          # lineNo, filename, anchor
+                     [$.,
+                      '' eq $file ? $filename : _decode($file),
+                      defined($anchor) ? _decode($anchor) : undef
+                     ]);
+            } elsif ('frame' eq $tag && $attrs =~ /(?<![-\w])src="([^"]+)"/) {
+                push(@{$self->[HREFS]}, [$., _decode($1), undef]);
+            }
         }
     }
     close(HTML) or die("unable to close $name: $!");
@@ -5116,11 +5864,28 @@ sub new
     return bless $self, $class;
 }
 
+sub _decode
+{
+    # an attribute value as the browser sees it:  character references, and in
+    #   a link the '%' escapes, replaced by what they actually represent
+    my $value = shift;
+    $value =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/ge;
+    $value =~ s/&#x([0-9A-Fa-f]+);/chr(hex($1))/ge;
+    $value =~ s/&#([0-9]+);/chr($1)/ge;
+    my %entity = (amp => '&', lt => '<', gt => '>', quot => '"', apos => "'");
+    $value =~ s/&(amp|lt|gt|quot|apos);/$entity{$1}/g;
+    return $value;
+}
+
 sub verifyAnchor
 {
+    # an empty fragment or an otherwise un-anchord 'top' goes to the top
+    # of the current page
     my ($self, $anchor) = @_;
 
-    return exists($self->[ANCHORS]->{$anchor});
+    return exists($self->[ANCHORS]->{$anchor}) ||
+        '' eq $anchor ||
+        'top' eq lc($anchor);
 }
 
 sub hrefs
@@ -5852,7 +6617,6 @@ sub in
         $self->[0] = \*STDIN;
     } else {
         if ($f =~ /\.gz$/) {
-
             checkGzip()
                 unless defined($checkedGzipAvail);
 
@@ -6197,7 +6961,6 @@ sub remove
     my $data = $self->[HASH];
     if (!defined($check_if_present) ||
         exists($data->{$key})) {
-
         die("$key not found")
             unless exists($data->{$key});
         --$self->[FOUND];    # found;
@@ -6608,13 +7371,19 @@ use constant {
               IDX       => 0,
               SIGNATURE => 1,
               LIST      => 2,
+              LOCATION  => 3,    # see locationOffset
 };
+
+# max length of a multi-line statement:
+#  how far the line a block is written at may be from its leader (the line
+#  it is associated with/the line which has the 'linecov' coverpoint)
+use constant MAX_LOCATION_OFFSET => 127;
 
 sub new
 {
     my $class = shift;
 
-    my $self = [undef, '', []];
+    my $self = [undef, '', [], 0];
     return bless $self, $class;
 }
 
@@ -6626,6 +7395,39 @@ sub idx
 sub signature
 {
     return $_[0]->[SIGNATURE];
+}
+
+sub locationOffset
+{
+    # The line the block is written at, as an offset from the line of the
+    #   BranchLocation which holds it:  0 if it is that line.  The branches of
+    #   a statement which spans several lines are counted with the statement's
+    #   line, and so are kept there - but the html report displays them where
+    #   gcov (or whatever coverage data extraction tool) said they were.
+    #   A block written on one line is not the same block as one written on
+    #   a different line.  Held as an offset rather than a line number so
+    #   that it means the same thing regardless of actual location (e.g.,
+    #   in both the baseline and current version of a file which contains
+    #   edits)
+    return $_[0]->[LOCATION];
+}
+
+sub setLocationOffset
+{
+    # the caller has checked that the offset is within MAX_LOCATION_OFFSET
+    my ($self, $offset) = @_;
+    $self->[LOCATION] = $offset;
+}
+
+sub code
+{
+    # what tells the block apart from the others of its location:
+    #   Combine the signature and the block location (if the location is
+    #   not the leader)
+    my $self = shift;
+    return $self->[LOCATION] ?
+        $self->[SIGNATURE] . '^' . $self->[LOCATION] :
+        $self->[SIGNATURE];
 }
 
 sub empty
@@ -6678,6 +7480,8 @@ sub appendNew
 
 sub merge
 {
+    # 'line' is the line which holds the block:  messages should use the
+    #   actual line that the block was written at
     my ($self, $you, $filename, $line) = @_;
 
     my $m = $self->elements();
@@ -6686,18 +7490,20 @@ sub merge
         unless ($#$m == $#$y &&
                 $self->signature() eq $you->signature());
     my $changed = 0;
+    my $at      = $line + $self->locationOffset();
 
     for (my $idx = 0; $idx <= $#$m; ++$idx) {
         my $e = $m->[$idx];
         my $f = $y->[$idx];
         $changed = 1
-            if $e->merge($f, $filename, $line);
+            if $e->merge($f, $filename, $at);
     }
     return $changed;
 }
 
 package BranchLocation;
 # hash of blockID -> array of BranchElement refs for each sequential branch ID
+#   The blocks are indexed by code (see BranchBlock::code) as well
 
 use constant {
               LINE  => 0,
@@ -6749,7 +7555,7 @@ sub removeBlock
     for (my $i = $id; $i <= $#$list; ++$i) {
         $list->[$i]->setIdx($i);
     }
-    my $code  = $block->signature();
+    my $code  = $block->code();
     my $table = $self->[CODE];
     my @list  = grep({ $_->idx() != $id } @{$table->{$code}});
     if (@list) {
@@ -6795,8 +7601,8 @@ sub blocks
         # of appearance
         return
             sort({
-                     my $codeA = $a->signature();
-                     my $codeB = $b->signature();
+                     my $codeA = $a->code();
+                     my $codeB = $b->code();
                      length($codeA) <=> length($codeB) or
                          $codeA cmp $codeB or
                          $a->idx() <=> $b->idx();
@@ -6824,7 +7630,7 @@ sub insertBlock
     $branchBlock->setIdx($blockIdx);
     push(@$list, $branchBlock);
 
-    my $code  = $branchBlock->signature();
+    my $code  = $branchBlock->code();
     my $table = $self->[CODE];
 
     if (exists($table->{$code})) {
@@ -6920,7 +7726,7 @@ sub merge
 package MCDC_Block;
 
 # there may be more than one MCDC groups on a particular line -
-#   we hold the groups in a hash, keyed by size (number of MCDC_expressions)
+#   we hold the groups in a hash, keyed by group key (see groupKey).
 #   The particular group is a sorted list
 use constant {
               LINE   => 0,
@@ -6935,39 +7741,79 @@ sub new
     return bless $self, $class;
 }
 
+sub groupKey
+{
+    # The key of a group:  its size (number of MCDC_expressions) and its
+    #   location - the offset of the line the group is written at from the line
+    #   which holds the block (see BranchBlock::locationOffset).  Two groups of
+    #   the same size at different locations are different groups.  The key
+    #   is "<size>" if the offset is zero, and "<size>^<offset>" otherwise.
+    #   A static function:  it is shared by both implementations.
+    my ($size, $offset) = @_;
+    return ($offset // 0) ? "$size^$offset" : $size;
+}
+
+sub parseGroupKey
+{
+    # returns (size, location offset) of a group key - see groupKey
+    my $key = shift;
+    my $i   = index($key, '^');
+    return $i < 0 ? ($key, 0) : (substr($key, 0, $i), substr($key, $i + 1));
+}
+
+sub groupLine
+{
+    # the line the group with key 'key' of the block on line 'line' is written
+    #   at - the line a message about the group names
+    my ($line, $key) = @_;
+    return $line + (parseGroupKey($key))[1];
+}
+
+sub locationOffsets
+{
+    # the location offsets of my groups - see groupKey
+    my $self = shift;
+    return map({ (parseGroupKey($_))[1] } keys(%{$self->groups()}));
+}
+
 sub insertExpr
 {
-    my ($self, $filename, $groupSize, $sense, $count, $idx, $expr, $excluded) =
+    my ($self, $filename, $groupKey, $sense, $count, $idx, $expr, $excluded) =
         @_;
     my $groups = $self->[GROUPS];
     my $group;
-    if (exists($groups->{$groupSize})) {
-        $group = $groups->{$groupSize};
+    if (exists($groups->{$groupKey})) {
+        $group = $groups->{$groupKey};
     } else {
         $group = [];
-        $groups->{$groupSize} = $group;
+        $groups->{$groupKey} = $group;
     }
     my $cond;
     if ($idx < scalar(@$group)) {
         $cond = $group->[$idx];
         if ($cond->expression() ne $expr) {
             lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                 "\"$filename\":" .
-                     $self->line() .
-                     ": MC/DC group $groupSize expression $idx changed from '" .
-                     $cond->expression() .
-                     "' to '$expr'");
+                                      "\"$filename\":" .
+                                          groupLine($self->line(), $groupKey) .
+                                          ": MC/DC group " .
+                                          (parseGroupKey($groupKey))[0] .
+                                          " expression $idx changed from '" .
+                                          $cond->expression() .
+                                          "' to '$expr'");
         }
     } else {
         if ($idx != scalar(@$group)) {
             lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
-                "\"$filename\":" .
-                    $self->line() .
-                    ": MC/DC group $groupSize: non-contiguous expression '$idx' found - should be '"
-                    . scalar(@$group)
-                    . "'.");
+                  "\"$filename\":" .
+                      groupLine($self->line(), $groupKey) .
+                      ": MC/DC group " .
+                      (parseGroupKey($groupKey))[0] .
+                      ": non-contiguous expression '$idx' found - should be '" .
+                      scalar(@$group) . "'.");
         }
-        $cond = MCDC_Expression->new($self, $groupSize, $idx, $expr);
+        $cond =
+            MCDC_Expression->new($self, (parseGroupKey($groupKey))[0],
+                                 $idx, $expr);
         push(@$group, $cond);
     }
     $cond->set($sense, $count, $excluded);
@@ -7022,13 +7868,16 @@ sub num_groups
 
 sub expressions
 {
-    my ($self, $size) = @_;
-    return exists($self->[GROUPS]->{$size}) ? $self->[GROUPS]->{$size} : undef;
+    my ($self, $groupKey) = @_;
+    return
+        exists($self->[GROUPS]->{$groupKey}) ? $self->[GROUPS]->{$groupKey} :
+        undef;
 }
 
 sub expr
 {
     my ($self, $groupSize, $idx) = @_;
+    # $groupSize is a group key - see groupKey
     # Requested expression is expected to exist:  the caller
     #   (e.g. scripts/unreach.pm exclude_cond) names a group and an index that
     #   its own annotation claims exist, so anything out of range is an error.
@@ -7040,12 +7889,17 @@ sub expr
     return $list->[$idx];
 }
 
-sub is_compatible
+sub incompatible_group
 {
+    # return the key of a group we share whose expressions differ from yours,
+    #   or undef.  Of several, the one at the lowest location (then the
+    #   smallest) - so the message which uses some name does not depend on
+    #   hash order
     my ($self, $you) = @_;
 
     my $yours  = $you->groups();
     my $groups = $self->groups();
+    my ($conflict, @at);
     foreach my $size (keys %$groups) {
         next unless exists($yours->{$size});
         my $m = $groups->{$size};
@@ -7053,14 +7907,21 @@ sub is_compatible
         # merge() walks the two lists index-wise, so a shared group of unequal
         #   length leaves my trailing expressions with nothing to merge
         #   against:  that is an incompatible record not an error.
-        return 0 if scalar(@$m) != scalar(@$y);
-        my $idx = 0;
+        my $differ = scalar(@$m) != scalar(@$y);
+        my $idx    = 0;
         foreach my $e (@$m) {
-            my $ye = $y->[$idx++];
-            return 0 if $e->expression() ne $ye->expression();
+            last if $differ;
+            $differ = $e->expression() ne $y->[$idx++]->expression();
         }
+        next unless $differ;
+        my ($s, $offset) = parseGroupKey($size);
+        next
+            if (defined($conflict) &&
+                ($at[0] < $offset || ($at[0] == $offset && $at[1] < $s)));
+        $conflict = $size;
+        @at       = ($offset, $s);
     }
-    return 1;
+    return $conflict;
 }
 
 sub merge
@@ -7082,10 +7943,12 @@ sub merge
                     my $y_excl = $y->is_excluded($sense);
                     lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
                         "$filename:" .
-                            $self->line() .
-                            ":mismatched 'unreachable' tag for MC/DC element $idx of group $size sense "
-                            . ($sense ? 'true' : 'false')
-                            . ": '$e_excl' -> '$y_excl'.")
+                            groupLine($self->line(), $size) .
+                            ":mismatched 'unreachable' tag for MC/DC element $idx of group "
+                            . (parseGroupKey($size))[0]
+                            . ' sense ' .
+                            ($sense ? 'true' : 'false') .
+                            ": '$e_excl' -> '$y_excl'.")
                         if ($e_excl != $y_excl);
                     $changed = 1 if $e->set($sense, $y->count($sense), $y_excl);
                 }
@@ -7240,6 +8103,318 @@ sub render_data
             $self->[PARENT]->num_groups() > 1 ? 1 : 0);
 }
 
+package FunctionAlias;
+# one alias of one function:  its name and its hit count.
+#   A function has at least one alias - its own name - and C++ templates,
+#   clones and Java lambdas add the rest.  The alias is the granularity at
+#   which a symbol was actually called, so it is a type rather than a hash
+#   slot:  see FunctionEntry::aliasNames() for why FunctionEntry cannot hand
+#   out its alias container.
+
+use constant {
+              NAME     => 0,
+              COUNT    => 1,   # count, or [count, tla] in a differential report
+              CALLERS  => 2,   # undef until TraceFile::resolveCallSites runs
+              EXTERNAL => 3,   # this symbol has external linkage - see
+                               #   is_external.  Undef in all but the few
+                               #   symbols a callgraph capture asserts it for
+              EXTERNAL_CALLERS => 4,   # I was called from somewhere this report
+                                       #   cannot name:  undef where not, else
+                                       #   the calls those sites made, '-' if
+                                       #   not known - see has_external_callers
+              MERGED => 5,    # the other names merged into me:  undef where
+                              #   none, else { name => count } - see merged
+};
+
+# The letters of the optional flag field of an 'FNA:' record.  An 'x' may be
+#   followed by the number of calls it stands for - see external_calls.
+#   FLAG_DEDUCED_CALLERS is not a property of the alias and is not one of
+#   'flags' below:  it is the conclusion of lcovutil::deduced_external_calls,
+#   which the writer appends where the report it writes can draw it, and which
+#   the reader recomputes rather than believes - see TraceFile::write_info
+use constant {
+              FLAG_EXTERNAL         => 'e',
+              FLAG_EXTERNAL_CALLERS => 'x',
+              FLAG_DEDUCED_CALLERS  => 'd',
+};
+
+sub new
+{
+    my ($class, $name, $count) = @_;
+    my $self = [$name, $count];
+    bless $self, $class;
+    return $self;
+}
+
+sub clone
+{
+    # a copy holding the same count - or, in a differential report, sharing
+    #   the same [count, tla] pair, as the flat hash this replaced did
+    my $self = shift;
+    my $copy = FunctionAlias->new($self->[NAME], $self->[COUNT]);
+    # ..and the same linkage, which is a property of the symbol rather than of
+    #   the report the copy is being made for
+    $copy->set_external() if $self->is_external();
+    # ..and the same unnameable callers, which are a fact about the edges the
+    #   data recorded and not about the report the copy is for
+    $copy->[EXTERNAL_CALLERS] = $self->[EXTERNAL_CALLERS];
+    # ..and the names merged into me, which are a fact about the data too
+    $copy->[MERGED] = {%{$self->[MERGED]}} if defined($self->[MERGED]);
+    return $copy;
+}
+
+sub merged
+{
+    # The names which TraceFile::_collapseCallgraphAliases merged into me, each
+    #   with its own share of my count:  { name => count }, undef if none.  The
+    #   rest of my count is my own name's.  A map rather than a number of names,
+    #   so that two reports which each merged some of the same names combine
+    #   without counting a name twice, and so that the merge does not lose
+    #   function coverage.
+    # Recorded as the 'FNM:' records which follow my 'FNA:' record.
+    my $self = shift;
+    return $self->[MERGED];
+}
+
+sub add_merged
+{
+    # add_merged(name, count, ...):  these names were merged into me as well,
+    #   with these counts - summed with what a name already has.  My own name
+    #   is never one of them:  a report which merged 'b' into 'a' combined with
+    #   one which merged 'a' into 'b' (because it did not have the name which
+    #   made 'a' the one kept) says no more than that the two are one
+    #   function, and my count already holds both
+    my $self = shift;
+    my $name = $self->[NAME];
+    while (@_) {
+        my ($merged, $count) = splice(@_, 0, 2);
+        next if $merged eq $name;
+        $self->[MERGED]->{$merged} += $count;
+    }
+}
+
+sub name
+{
+    my $self = shift;
+    return $self->[NAME];
+}
+
+sub is_external
+{
+    # Whether this symbol has external linkage:  what an 'e' flag on its 'FNA:'
+    #   record asserts, and what geninfo reads off the callgraph info's node
+    #   list, where a symbol which does NOT have external linkage is
+    #   file-qualified.
+    # False means "not asserted", not "internal":  it is what every '.info'
+    #   written without call data says, what a producer other than geninfo says,
+    #   and what a comdat says (an inline function or a template instantiation
+    #   is file-qualified in the callgraph info too, so a bit which claimed to
+    #   mean "internal" would misclassify it).  Hence the rule built on this in
+    #   TraceFile::resolveCallSites only ever resolves a site which did not
+    #   resolve before - see there
+    my $self = shift;
+    return defined($self->[EXTERNAL]) ? $self->[EXTERNAL] : 0;
+}
+
+sub set_external
+{
+    # Set-only, and idempotent:  linkage is a property of the symbol, so two
+    #   captures of one symbol cannot disagree about it - one of them may simply
+    #   not have recorded it.  So a merge takes the assertion from whichever
+    #   side made it and there is nothing to reconcile
+    my $self = shift;
+    $self->[EXTERNAL] = 1;
+}
+
+sub has_external_callers
+{
+    # Whether at least one call to this symbol comes from a site which this
+    #   report cannot name:  what an 'x' flag on its 'FNA:' record asserts.
+    #
+    # A call site which the report *can* name is on my caller list, with its
+    #   file, line, column and count, so it needs no flag - two versions of it
+    #   can be compared site by site.  A call site which the report cannot name
+    #   any more leaves behind its existence and the count it had, and this is
+    #   that:  the flag says that such an edge exists, whether or not it was
+    #   taken, and external_calls says how many calls the dropped sites made.
+    #   Set where the fact would otherwise be lost outright:
+    #     - geninfo, for a call it cannot write a record for (see the drop in
+    #       join_call_sites);
+    #     - the removal of the file a known site was in, whether by '--remove',
+    #       '--extract', an exclude pattern or '--no-external';
+    #     - the erasing or exclusion of the function the site is in.
+    #   Not set from the residual 'count - sum(known sites) - external_calls',
+    #   which is recomputable while the data it is derived from is still there
+    #   and would freeze a stale conclusion if a later merge corrected the
+    #   count.  That residual is how a call from outside is deduced when nothing
+    #   records it - see classify_callers - so an unflagged symbol is not a
+    #   symbol nothing outside called.
+    # False means "not asserted", exactly as is_external() does:  every '.info'
+    #   written without call data says it, and so does one whose external callers
+    #   were all still nameable when it was written
+    my $self = shift;
+    return defined($self->[EXTERNAL_CALLERS]) ? 1 : 0;
+}
+
+sub external_calls
+{
+    # How many calls the call sites behind my 'x' flag made:  the number an
+    #   'x<count>' flag carries.  0 where there is no flag, and undef where there
+    #   is one and the count is not known - a bare 'x', or a dropped site whose
+    #   own count was '-'
+    my $self  = shift;
+    my $calls = $self->[EXTERNAL_CALLERS];
+    return 0 unless defined($calls);
+    return $calls eq '-' ? undef : $calls;
+}
+
+sub add_external_calls
+{
+    # One more call site outside the boundary names me, and it made '$count'
+    #   calls - '-' if not known.  The flag is never cleared, like set_external:
+    #   an edge which is there cannot be made not to exist by a later operation,
+    #   and the sides of a merge which did not see it simply have nothing to
+    #   say.  The count folds as the dropped sites' own counts would have
+    #   merged (lcovutil::add_site_count):  unknown contributes nothing to a
+    #   known total, and only known counts add.  Monotone within the
+    #   construction of one report, which is what makes 'lcov -a' of many tests
+    #   of one build answer for all of them;  a *later* version of the program
+    #   gets its own capture and so can say "no external callers any more"
+    my ($self, $count) = @_;
+    my $calls = $self->[EXTERNAL_CALLERS];
+    $self->[EXTERNAL_CALLERS] =
+        defined($calls) ? lcovutil::add_site_count($calls, $count) : $count;
+}
+
+sub flags
+{
+    # the optional flag field of my 'FNA:' record - see FLAG_EXTERNAL.  Empty
+    #   for almost every alias, which is why the writer asks for it in the same
+    #   call it asks for the count
+    my $self  = shift;
+    my $calls = $self->[EXTERNAL_CALLERS];
+    my $flags = $self->is_external() ? FLAG_EXTERNAL : '';
+    $flags .= FLAG_EXTERNAL_CALLERS . ($calls eq '-' ? '' : $calls)
+        if defined($calls);
+    return $flags;
+}
+
+sub is_differential
+{
+    # a differential report replaces the count with a [count, tla] pair -
+    #   see FunctionEntry::addAliasDifferential
+    my $self = shift;
+    return 'ARRAY' eq ref($self->[COUNT]);
+}
+
+sub count
+{
+    my $self = shift;
+    return $self->is_differential() ? $self->[COUNT]->[0] : $self->[COUNT];
+}
+
+sub set_count
+{
+    # counts are mutated while merging and filtering, which all happens before
+    #   a report can become differential - so there is no pair here to preserve
+    my ($self, $count) = @_;
+    $self->[COUNT] = $count;
+}
+
+sub add_count
+{
+    my ($self, $count) = @_;
+    $self->[COUNT] = lcovutil::add_count($self->[COUNT], $count);
+}
+
+sub tla
+{
+    # undef unless this is a differential report
+    my $self = shift;
+    return $self->is_differential() ? $self->[COUNT]->[1] : undef;
+}
+
+sub set_tla
+{
+    my ($self, $tla) = @_;
+    die("unexpected set_tla() call with non-differential data")
+        unless $self->is_differential();
+    $self->[COUNT]->[1] = $tla;
+}
+
+sub set_differential
+{
+    my ($self, $data) = @_;
+    die("expected array")
+        unless 'ARRAY' eq ref($data) && 2 == scalar(@$data);
+    $self->[COUNT] = $data;
+}
+
+sub write_data
+{
+    # everything the .info writer needs for one FNA: record, in one call -
+    #   the BranchElement::write_data/MCDC_Expression::write_data idiom
+    my $self = shift;
+    return ($self->[NAME], $self->count(), $self->flags());
+}
+
+sub is_resolved
+{
+    # whether TraceFile::resolveCallSites has run since I was last changed.
+    #   'undef' CALLERS means "not resolved" and an empty list means
+    #   "resolved, and nothing in this report calls me" - two different
+    #   answers, and callers() refuses only the first
+    my $self = shift;
+    return defined($self->[CALLERS]);
+}
+
+sub clear_callers
+{
+    # forget my callers and declare myself resolved:  this is what makes
+    #   resolveCallSites idempotent
+    my $self = shift;
+    $self->[CALLERS] = [];
+}
+
+sub add_caller
+{
+    # one call site which called me:  the FunctionEntry which contains the
+    #   site, where in it the site is, and how many times it was taken.
+    #   TraceFile::resolveCallSites is the only caller - see it for why this
+    #   direction is derived rather than stored.
+    # '$file' is the file the call is WRITTEN in, and is undef when that is the
+    #   file the caller is defined in - which is how the site itself holds it
+    #   (see FunctionEntry::_siteKey).  It is carried rather than recomputed from
+    #   the caller because those two files are not always the same one
+    my ($self, $callerEntry, $line, $column, $ordinal, $count, $file) = @_;
+    $self->is_resolved() or
+        die("cannot add a caller of '" . $self->[NAME] . "' before resolving");
+    push(@{$self->[CALLERS]},
+         [$callerEntry, $line, $column, $ordinal, $count, $file]);
+}
+
+sub callers
+{
+    # the call sites which called me, as a list of
+    #   [callerEntry, line, column, ordinal, count, file].
+    # This dies rather than answering an empty list on an unresolved report:
+    #   a missing metric which dies is debuggable, one which reads 0/0 is not
+    my $self = shift;
+    $self->is_resolved() or
+        die("the call sites of '" .
+            $self->[NAME] .
+            "' have not been resolved:  TraceFile::resolveCallSites() must run after the last filter and before any summary"
+        );
+    return @{$self->[CALLERS]};
+}
+
+sub numCallers
+{
+    my $self    = shift;
+    my @callers = $self->callers();
+    return scalar(@callers);
+}
+
 package FunctionEntry;
 # keep track of all the functions/all the function aliases
 #  at a particular line in the file.  They must all be the
@@ -7252,13 +8427,97 @@ use constant {
               FIRST   => 3,    # start line
               COUNT   => 4,
               LAST    => 5,
+              CALLS   => 6,    # the call sites in my body - see addCallSite.
+                               #   undef until the first one is added, which is
+                               #   never for most reports
+              EXTERNAL_CALLEES => 7,   # I called something which is outside the
+                                       #   boundary of this report - see
+                                       #   has_external_callees
+              SITES_AT => 8,    # my call sites by location - see _siteIndex.
+                                #   there only while a merge which asked for
+                                #   it is running
 };
+
+# The letters of the optional flag field of an 'FNL:' record - the per-function
+#   booleans, as FunctionAlias::FLAG_EXTERNAL and its neighbours are the
+#   per-alias ones.
+use constant FLAG_EXTERNAL_CALLEES => 'c';
+
+# the fields of one call site.  The site's (line, column, ordinal) is its key,
+#   so only these are stored per site
+# SITE_COUNT is a count, or the string '-' meaning "this call is here and its
+#   count is not known":  the call did not pair - see the 'pairing' entry of the
+#   documentation glossary - so reporting 0 would say "your tests never made this
+#   call", which is a different and wrong statement.  This is the same third state the
+#   'taken' field of a 'BRDA:' record has, deliberately - see BranchElement,
+#   whose reader, writer, hit test and merge lattice this follows exactly:  a
+#   '-' site is in *found* and never in *hit*, and unknown merged with known is
+#   known.  geninfo only writes one under '--callgraph-partial-data'; every
+#   reader accepts one always, because a '.info' file may come from anywhere
+use constant {
+              SITE_COUNT  => 0,
+              SITE_CALLEE => 1,
+              # the differential category of this site, set by genhtml's
+              #   'FileCoverageInfo::_categorizeCallgraphCov' and undef in every
+              #   other tool and in every non-differential report.  It is
+              #   appended rather than replacing SITE_COUNT (which is what the
+              #   function TLAs do) so that every reader of a site - the '.info'
+              #   writer, 'numCallSitesHit', 'unionCallSites' - keeps seeing one
+              #   shape.  It is here rather than in genhtml's own per-file
+              #   structures because the caller of a function need not be in the
+              #   same file as the function:  the 'called from' table of a
+              #   function detail page reaches its caller's sites through
+              #   'FunctionAlias::callers', and has no way back to the
+              #   'FileCoverageInfo' of the file that caller lives in
+              SITE_TLA => 2,
+              # which of my aliases make this call - see aliasSet.  The callee
+              #   of a call in a template need not be the same function in every
+              #   instantiation:  'f<int>' may call 'g<int>' where 'f<char>'
+              #   calls 'g<char>' from the same location, and the two are two
+              #   sites at that location.  Without this, a report could not say
+              #   which of them each alias makes - and it is what
+              #   'collapse_callgraph_alias' compares (see
+              #   TraceFile::_collapseCallgraphAliases).  Undef means "every
+              #   alias", which is what a site added by a producer that does not
+              #   know is taken to mean
+              SITE_ALIASES => 3,
+              # the line of the statement the call is part of - the leader -
+              #   where that is not the line the call is written on:  the
+              #   line its coverpoint is allocated to - see
+              #   TraceFile::_statementCallSiteMerge.
+              #   The key still tells us where the call is written - which
+              #   is where hyperlinks will go if not the leader - or undef
+              #   if this is the leader (..the common case) of if the
+              #   site is in a different file.
+              SITE_STATEMENT => 4,
+};
+
+# The separator of the names in an alias set.  A name is a field of one line of
+#   a '.info' file, so it cannot contain one
+use constant ALIAS_SET_SEPARATOR => "\n";
+
+# The largest ordinal a call site can have.  This is a property of the data and
+#   not of the backend which happens to be loaded, so it is enforced here as
+#   well as in the XS implementation - where the ordinal is the one field of a
+#   call site record narrow enough to have a limit at all (see 'struct CallSite'
+#   in lib/LcovUtil/FunctionData.hpp).  It is the count of calls at one exact
+#   (line, column) of one function, which is 1 for essentially every site in
+#   real code, so this is four orders of magnitude of headroom
+use constant MAX_CALLSITE_ORDINAL => 0xffff;
+
+# Maximum size of a multiline statement.
+#   How far the statement line of a call site (SITE_STATEMENT) may be from the
+#   line the call is written on, either way.  A property of the data for the
+#   same reason MAX_CALLSITE_ORDINAL is:  the XS implementation holds the
+#   distance in a byte.  A statement which is longer than this is not one
+#   'ReadCurrentSource::statementSpan' will find.
+use constant MAX_STATEMENT_OFFSET => 127;
 
 sub new
 {
     my ($class, $name, $map, $startLine, $endLine) = @_;
     die("unexpected type " . ref($map)) unless 'FunctionMap' eq ref($map);
-    my %aliases = ($name => 0);    # not hit, yet
+    my %aliases = ($name => FunctionAlias->new($name, 0));    # not hit, yet
     my $self    = [$name, \%aliases, $map, $startLine, 0, $endLine];
 
     bless $self, $class;
@@ -7271,10 +8530,12 @@ sub cloneWithEndLine
     my $fn = FunctionEntry->new($self->[NAME], $self->[MAP], $self->[FIRST],
                                 $withEnd ? $self->[LAST] : undef);
     if ($cloneAliases) {
-        my $count = 0;
-        while (my ($alias, $hit) = each(%{$self->aliases()})) {
-            $fn->[ALIASES]->{$alias} = $hit;
-            $count += $hit;
+        my $count   = 0;
+        my $aliases = $self->[ALIASES];
+        while (my ($alias, $data) = each(%$aliases)) {
+            # the clone gets its own FunctionAlias, holding the same count
+            $fn->[ALIASES]->{$alias} = $data->clone();
+            $count += $data->count();
         }
         $fn->[COUNT] = $count;
     }
@@ -7308,29 +8569,65 @@ sub isLambda
     # alias name selection above ensures that the 'master' name is lambda
     # only if every alias is a lambda.
     # -> this is a lambda only if there is only one alias
-    return ((TraceFile::is_language('c', $self->filename()) &&
+    return ((TraceFile::is_language(lcovutil::IS_C, $self->filename()) &&
                  $self->name() =~ /{lambda\(/) ||
-                (TraceFile::is_language('java', $self->filename()) &&
+                (TraceFile::is_language(lcovutil::IS_JAVA, $self->filename()) &&
                  $self->name() =~ /\.lambda\$/));
 }
 
-sub count
+sub set_hit
 {
-    my ($self, $alias, $merged) = @_;
-
-    exists($self->aliases()->{$alias}) or
-        die("$alias is not an alias of " . $self->name());
-
-    return $self->[COUNT]
-        if (defined($merged) && $merged);
-
-    return $self->aliases()->{$alias};
+    # the hit count across all the aliases of the function
+    my ($self, $count) = @_;
+    $self->[COUNT] = $count;
 }
 
-sub aliases
+sub is_differential
 {
+    # a differential report replaces my count with a [count, tla] pair - see
+    #   setCountDifferential
     my $self = shift;
-    return $self->[ALIASES];
+    return 'ARRAY' eq ref($self->[COUNT]);
+}
+
+sub tla
+{
+    # my differential category, or undef if this is not a differential report.
+    #   Reached through an accessor rather than through 'hit()->[1]' because
+    #   'hit()' materializes the pair in the XS backend:  writing to the copy
+    #   would change nothing there
+    my $self = shift;
+    return $self->is_differential() ? $self->[COUNT]->[1] : undef;
+}
+
+sub set_tla
+{
+    # recategorize:  genhtml rewrites my category when '--show-details' remaps
+    #   the categories
+    my ($self, $tla) = @_;
+    die("unexpected set_tla() call with non-differential data")
+        unless $self->is_differential();
+    $self->[COUNT]->[1] = $tla;
+}
+
+sub aliasNames
+{
+    # The names of my aliases, in hash order - callers which need a
+    #   deterministic order sort them.
+    # Note that there is deliberately no accessor which returns the alias
+    #   container itself:  an opaque XS object cannot return a live Perl hash,
+    #   and one which returns a materialized copy either rebuilds it on every
+    #   call or retains it for the life of the object.  MCDC_Block::groups()
+    #   did the latter and it cost 589 MB of peak RSS on a 132 MB report.
+    my $self = shift;
+    return keys(%{$self->[ALIASES]});
+}
+
+sub alias
+{
+    # the FunctionAlias of this name, or undef
+    my ($self, $name) = @_;
+    return $self->[ALIASES]->{$name};
 }
 
 sub numAliases
@@ -7363,6 +8660,15 @@ sub end_line
     return $self->[LAST];
 }
 
+sub _setEndLine
+{
+    # the unchecked mutator:  'set_end_line' below does the end-before-start
+    #   check and the diagnostic, then calls this.  The XS implementation
+    #   provides the same primitive, so the policy above it exists once
+    my ($self, $line) = @_;
+    $self->[LAST] = $line;
+}
+
 sub set_end_line
 {
     my ($self, $line) = @_;
@@ -7383,7 +8689,7 @@ sub set_end_line
         );
         return;
     }
-    $self->[LAST] = $line;
+    $self->_setEndLine($line);
 }
 
 sub _format_error
@@ -7406,14 +8712,29 @@ sub addAlias
                     grep({ $name =~ $_ || $self->name() =~ $_ }
                          @lcovutil::suppress_function_patterns));
     }
-    $count = $normalized;
+    # perhaps should remove lambda aliases, if they exist -
+    #   - Issue is that jacoco will show normal function and lambda on the
+    #     same line - which lcov takes to mean that they are aliases
+    # could just delete the lambda in that case..pretend it doesn't exist.
+    return $self->_addAliasCount($name, $normalized);
+}
+
+sub _addAliasCount
+{
+    # add 'count' to the alias of this name, creating it if it is new, and
+    #   maintain both my aggregate count and my choice of representative name.
+    #   The count has already been normalized:  'addAlias' above is the policy
+    #   which does that and reports a bad one, and the XS implementation
+    #   provides this primitive, so that policy exists once
+    my ($self, $name, $count) = @_;
     my $changed;
     my $aliases = $self->[ALIASES];
     if (exists($aliases->{$name})) {
-        $changed = 0 == $aliases->{$name} && 0 != $count;
-        $aliases->{$name} = lcovutil::add_count($aliases->{$name}, $count);
+        my $data = $aliases->{$name};
+        $changed = 0 == $data->count() && 0 != $count;
+        $data->add_count($count);
     } else {
-        $aliases->{$name} = $count;
+        $aliases->{$name} = FunctionAlias->new($name, $count);
         $changed = 1;
         # keep track of the shortest name as the function representative
         my $curlen = length($self->[NAME]);
@@ -7428,25 +8749,31 @@ sub addAlias
                  $name lt $self->[NAME]));
     }
     $self->[COUNT] = lcovutil::add_count($self->[COUNT], $count);
-    # perhaps should remove lambda aliases, if they exist -
-    #   - Issue is that jacoco will show normal function and lambda on the
-    #     same line - which lcov takes to mean that they are aliases
-    # could just delete the lambda in that case..pretend it doesn't exist.
     return $changed;
 }
 
-sub merge
+sub preferredName
 {
-    my ($self, $that) = @_;
-    lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                              $self->name() .
-                                  " has different location than " .
-                                  $that->name() .
-                                  " during merge"
-    ) if ($self->line() != $that->line());
-    while (my ($name, $count) = each(%{$that->[ALIASES]})) {
-        $self->addAlias($name, $count);
+    # return the 'best' function alias selected from the input candidates.
+    # Used to represent the function or an alias group of the function.
+    # Criteria:  the shortest, ties broken lexically, with a lambda ranked
+    #   as if it were 1000 characters longer - so is chosen only when every
+    #   candidate name is a lambda.
+    # The same rule as _addAliasCount's, so that which name a function
+    #   ends up with does not depend on how it got there
+    my $rank = sub {
+        my $name = shift;
+        return
+            length($name) + ($name =~ /(?:\{lambda\(|\.lambda\$)/ ? 1000 : 0);
+    };
+    my $best;
+    foreach my $name (@_) {
+        $best = $name
+            if !defined($best) ||
+            $rank->($name) < $rank->($best) ||
+            ($rank->($name) == $rank->($best) && $name lt $best);
     }
+    return $best;
 }
 
 sub removeAliases
@@ -7457,7 +8784,7 @@ sub removeAliases
     foreach my $name (@_) {
         exists($aliases->{$name}) or die("removing non-existent alias $name");
 
-        my $count = $aliases->{$name};
+        my $count = $aliases->{$name}->count();
         delete($aliases->{$name});
         $self->[COUNT] -= $count;
         if ($self->[NAME] eq $name) {
@@ -7466,16 +8793,25 @@ sub removeAliases
     }
     if ($rename &&
         %$aliases) {
-        my $name;
-        foreach my $alias (keys %$aliases) {
-            my $alen = length($alias);
-            $alen += 1000 if $alias =~ /(?:\{lambda\(|\.lambda\$)/;
-            my $curlen = defined($name) ? length($name) : 1_000_000;
-            $curlen += 1000
-                if defined($name) && $name =~ /(?:\{lambda\(|\.lambda\$)/;
-            $name = $alias if $alen < $curlen;
+        $self->[NAME] = preferredName(keys(%$aliases));
+    }
+    # ..and the calls those aliases made:  a site which names them in its alias
+    #   set no longer does, and a site which only they made is gone with them -
+    #   the code which made the call is not in the report any more
+    if (defined($self->[CALLS]) && @_) {
+        my %gone = map({ $_ => 1 } @_);
+        foreach my $key (keys(%{$self->[CALLS]})) {
+            my $set = $self->[CALLS]->{$key}->[SITE_ALIASES];
+            next unless defined($set);
+            my @names = aliasSetNames($set);
+            my @left  = grep({ !exists($gone{$_}) } @names);
+            next if scalar(@left) == scalar(@names);
+            if (@left) {
+                $self->[CALLS]->{$key}->[SITE_ALIASES] = aliasSet(@left);
+            } else {
+                $self->_removeSite($key);
+            }
         }
-        $self->[NAME] = $name;
     }
     return %$aliases;    # true if this function still exists
 }
@@ -7483,11 +8819,16 @@ sub removeAliases
 sub addAliasDifferential
 {
     my ($self, $name, $data) = @_;
+    my $alias = $self->alias($name);
     die("alias $name exists")
-        if exists($self->[ALIASES]->{$name}) && $name ne $self->name();
-    die("expected array")
-        unless ref($data) eq "ARRAY" && 2 == scalar(@$data);
-    $self->[ALIASES]->{$name} = $data;
+        if defined($alias) && $name ne $self->name();
+    if (defined($alias)) {
+        $alias->set_differential($data);
+    } else {
+        $alias = FunctionAlias->new($name, undef);
+        $alias->set_differential($data);
+        $self->[ALIASES]->{$name} = $alias;
+    }
 }
 
 sub setCountDifferential
@@ -7496,6 +8837,666 @@ sub setCountDifferential
     die("expected array")
         unless ref($data) eq "ARRAY" && 2 == scalar(@$data);
     $self->[COUNT] = $data;
+}
+
+sub _siteKey
+{
+    # the identity of a call site within the function which contains it.
+    #   (line, column) is almost enough - the column is what distinguishes two
+    #   calls on one line - but the compiler folds the location of a call nested
+    #   in an argument list onto the enclosing call, so 'sum2(i ? y() : 0, w())'
+    #   puts the edge to 'w' and the edge to 'sum2' at one column.  The ordinal
+    #   is the position of the site among all the sites at that exact
+    #   (line, column) in this function, and is 0 for essentially every site
+    #   in real code.
+    # It counts sites at a location and not sites per callee at a location,
+    #   because those two callees would otherwise share a key.  What it does not
+    #   number is two edges to one callee from one location:  the capture folds
+    #   those into one site and so does a merge - see join_call_sites in geninfo
+    #   and '_resolveCallSite' below - because a location and a callee is what a
+    #   report can name a call by, and one call as written is what is measured
+    # A location is a line and a column, so that folding leaves two calls to one
+    #   callee at two columns of one line as the two sites they are:  what merges
+    #   is only what a report could not have shown apart
+    #
+    # '$file' is the file the call is WRITTEN in, and is undef - and then not
+    #   part of the key at all - for the overwhelming majority of sites, which
+    #   are written in the same file as the function which contains them.  A
+    #   function's body can span files: a call written in an '#include'd
+    #   fragment is compiled into whichever translation unit included it, so
+    #   the site belongs to a caller defined in one file and is located in
+    #   another.  (line, column) is then not unique within the function, which
+    #   is why this is part of the identity and not payload beside it.
+    # It goes last, and '_splitSiteKey' reads it back with a limited split,
+    #   because a path may contain a colon ('C:/...')
+    my ($line, $column, $ordinal, $file) = @_;
+    return defined($file) ? "$line:$column:$ordinal:$file" :
+        "$line:$column:$ordinal";
+}
+
+sub _splitSiteKey($)
+{
+    # a site key back into (line, column, ordinal, file) - the file being undef
+    #   when the site is in the same file as its function.  See _siteKey
+    return split(':', $_[0], 4);
+}
+
+sub aliasSet
+{
+    # The alias set of a call site - see SITE_ALIASES - made of these names:
+    #   the names, sorted and without duplicates, joined into one string.  A
+    #   string rather than a container because most sets contain a single
+    #   element, and because a string is what both pure perl and XS
+    #   can hold and compare cheaply:  the XS one interns it,
+    #   as it does a callee name.  Undef if there are no names, which is
+    #   "every alias"
+    my %seen;
+    my @names = grep({ !$seen{$_}++ } @_);
+    return undef unless @names;
+    return $names[0] if 1 == scalar(@names);
+    return join(ALIAS_SET_SEPARATOR, sort(@names));
+}
+
+sub aliasSetNames($)
+{
+    # the names in an alias set, in sorted order;  the empty list for undef,
+    #   which is "every alias" - the caller decides what that means
+    my $set = shift;
+    return () unless defined($set);
+    return split(ALIAS_SET_SEPARATOR, $set);
+}
+
+our %_aliasUnionMemo;
+
+sub _unionAliasSets($$)
+{
+    # two inputs say which aliases make one call, and the answer is all of them.
+    #   Undef is "every alias", so it absorbs the other side
+    #   An aggregation meets the same pair once per input which instantiates
+    #   the template, and a set is as long as the template has instantiations -
+    #   so the answer is remembered rather than rebuilt each time
+    my ($mine, $yours) = @_;
+    return undef unless defined($mine) && defined($yours);
+    return $mine if $mine eq $yours;
+    my $key = ($mine lt $yours) ? "$mine\0$yours" : "$yours\0$mine";
+    return $_aliasUnionMemo{$key} //=
+        aliasSet(aliasSetNames($mine), aliasSetNames($yours));
+}
+
+sub siteHasAlias($$)
+{
+    # whether an alias set includes this name - undef includes every name
+    my ($set, $name) = @_;
+    return 1 unless defined($set);
+    return 1 if $set eq $name;
+    return scalar(grep({ $_ eq $name } aliasSetNames($set)));
+}
+
+sub addCallSite
+{
+    # One call from my body:  where the call is, how many times it was taken,
+    #   and the symbol it calls.  The callee is payload rather than key, and it
+    #   is a string rather than a reference:  it may name a function in a file
+    #   which has not been read yet, so it is resolved to a FunctionEntry in a
+    #   separate pass - see TraceFile::resolveCallSites.
+    # Note that the caller side is the authoritative storage, and that it is
+    #   local to one file:  that is what lets call data merge, filter and
+    #   serialize like every other coverpoint, and what makes every removal a
+    #   local edit rather than a scan of every other file.
+    # Returns true if this changed my data, in the sense addAlias means it:
+    #   a new site, or a site which was not taken and now is
+    # '$file' is where the call is written, and may be omitted - or given as my
+    #   own file - by a producer which has no cross-file sites:  see _siteKey.
+    #   It is normalized to undef here rather than at each producer, so that one
+    #   site cannot be recorded under two keys depending on which of them added
+    #   it.
+    # '$merging' says that the site comes from a different input than the ones
+    #   already here - another '.info', another '.gcda', another testcase - in
+    #   which case a disagreement about the ordinal is resolved rather than
+    #   reported:  see _resolveCallSite.  It is false for the sites of one input,
+    #   where two callees at one key really is malformed data
+    # '$aliases' is the set of my aliases which make the call - see aliasSet -
+    #   and is undef, "every alias", from a producer which does not say.  A
+    #   site which is already here takes the union:  two aliases whose calls
+    #   fold into one site both make it
+    # '$statement' is the line of the statement the call is part of (the
+    #   leader)- see SITE_STATEMENT - and is undef from a producer which does
+    #   not say, or for a call which is on that line.
+    #   The caller has checked that it is within MAX_STATEMENT_OFFSET of
+    #   '$line'.  A site which is already here and has none takes this one
+    my ($self, $line, $column, $ordinal, $count,
+        $callee, $file, $merging, $aliases, $statement) = @_;
+
+    $file      = undef if defined($file)    && $file eq $self->file();
+    $aliases   = undef if defined($aliases) && $aliases eq '';
+    $statement = undef
+        if defined($statement) && ($statement == $line || defined($file));
+    my $key = _siteKey($line, $column, $ordinal, $file);
+    # Normalized here rather than in the reader so that every producer of a
+    #   site - the '.info' reader, geninfo, a future front end - is held to the
+    #   same arithmetic as every other count.
+    # '-' is not a count and is passed through, exactly as BranchElement::new
+    #   leaves the marker alone:  it is the one value normalize_count must not
+    #   see, because 'looks_like_number' would call it ERROR_FORMAT
+    my $normalized = $count;
+    if (!defined($count) || $count ne '-') {
+        my $errno;
+        ($normalized, $errno) = lcovutil::normalize_count($count);
+        if (defined($errno)) {
+            lcovutil::report_format_error($errno, 'call', $count,
+                                          "call site $key in '" .
+                                              $self->name() . "' of " .
+                                              $self->file() .
+                                              " calling '$callee'");
+        }
+    }
+    my $changed =
+        $self->_addCallSite($line, $column, $ordinal, $normalized, $callee,
+                            $file, $aliases, $statement);
+    if (-1 == $changed && $merging) {
+        ($ordinal, $changed) =
+            $self->_resolveCallSite($line, $column, $file, $normalized,
+                                    $callee, $aliases, $statement);
+        $key = _siteKey($line, $column, $ordinal, $file);
+    }
+    # the messages below name the file the call is written in
+    my $where = defined($file) ? $file : $self->file();
+    if (-2 == $changed) {
+        # Not representable rather than not consistent:  a call site record
+        #   holds MAX_CALLSITE_ORDINAL ordinals, and there is no partial answer
+        #   to give - dropping the site would silently lose a call, and keeping
+        #   it under a different ordinal would collide with a real one
+        die('"' .
+            $where . '":' .
+            $line .
+            ": call site $key in '" .
+            $self->name() .
+            "' calling '$callee' has ordinal $ordinal:  no more than " .
+            MAX_CALLSITE_ORDINAL .
+            " calls at one location are supported" .
+            MessageContext::context());
+    }
+    if (0 > $changed) {
+        # Same file, same line, same column, same ordinal, different target,
+        #   within one input:  the data is malformed - one compiled unit cannot
+        #   have two calls with one identity.  Keep the first and name both.
+        #   Across inputs this is not an error - see _resolveCallSite
+        my $existing = ($self->callSiteData($key))[4];
+        lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
+                                  '"' .
+                                      $where . '":' .
+                                      $line .
+                                      ": call site $key in '" .
+                                      $self->name() .
+                                      "' calls '$existing" .
+                                      "' but also '$callee'" .
+                                      MessageContext::context());
+        return 0;
+    }
+    return $changed;
+}
+
+sub _addCallSite
+{
+    # add one site, or merge into the site already at this location.  Returns 1
+    #   if my data changed, 0 if it did not, -1 if a site is already here
+    #   calling something else, and -2 if the ordinal is past what a call site
+    #   holds - which 'addCallSite' above reports, so that the messages live
+    #   with every other one.  The XS implementation provides the same primitive
+    my ($self, $line, $column, $ordinal, $count,
+        $callee, $file, $aliases, $statement) = @_;
+    return -2 if $ordinal < 0 || $ordinal > MAX_CALLSITE_ORDINAL;
+    my $key = _siteKey($line, $column, $ordinal, $file);
+    $self->[CALLS] = {} unless defined($self->[CALLS]);
+    my $site = $self->[CALLS]->{$key};
+    if (!defined($site)) {
+        # ..with no statement slot unless there is one:  the common case
+        $self->[CALLS]->{$key} = [$count, $callee, undef, $aliases,
+                                  defined($statement) ? ($statement) : ()
+        ];
+        _indexSite($self->[SITES_AT], $line, $column, $ordinal, $callee, $file)
+            if defined($self->[SITES_AT]);
+        return 1;
+    }
+    return -1 if $site->[SITE_CALLEE] ne $callee;
+    # ..whatever the count says:  which aliases make the call is not coverage
+    #   data, so it does not make the site 'changed'
+    $site->[SITE_ALIASES] =
+        _unionAliasSets($site->[SITE_ALIASES], $aliases);
+    # ..and nor is the leader - the line its coverpoint is allocated to
+    $site->[SITE_STATEMENT] = $statement
+        if defined($statement) && !defined($site->[SITE_STATEMENT]);
+    # The '-' lattice of BranchElement::merge:  unknown + anything is that
+    #   thing, and only a known count can be added to.  A mixed capture where
+    #   one unit knows the count and another does not therefore resolves to the
+    #   count, and never the other way round
+    return 0 if $count eq '-';    # no new news
+    my $mine = $site->[SITE_COUNT];
+    if ($mine eq '-') {
+        $site->[SITE_COUNT] = $count;
+        return 0 != $count;
+    }
+    my $changed = 0 == $mine && 0 != $count;
+    $site->[SITE_COUNT] = lcovutil::add_count($mine, $count);
+    return $changed;
+}
+
+sub _siteIndex
+{
+    # my sites grouped by location, built the first time a merge asks, kept up
+    #   to date by _addCallSite and _removeSite while that merge runs, and
+    #   dropped by _dropSiteIndex when it is done.  Without it
+    #   every ordinal a merge resolves is a walk of every key:  a template
+    #   instantiated a thousand ways calls a thousand callees from one location,
+    #   so merging two of its functions costs millions of splits - which is what
+    #   stalled the parent of a large parallel capture.  The XS implementation
+    #   keeps its sites in location order and has no need of this.
+    # One entry per location - see _siteLocation - holding
+    #   [{ordinal => callee}, {callee => lowest ordinal}, low water mark]:  every
+    #   ordinal below the mark is in use there, which is what lets the lowest
+    #   free ordinal be found without starting from zero each time
+    my $self = shift;
+    return $self->[SITES_AT] if defined($self->[SITES_AT]);
+    my %index;
+    foreach my $key ($self->callSiteKeys()) {
+        my ($line, $column, $ordinal, $file) = _splitSiteKey($key);
+        _indexSite(\%index, $line, $column, $ordinal,
+                   $self->[CALLS]->{$key}->[SITE_CALLEE], $file);
+    }
+    $self->[SITES_AT] = \%index;
+    return \%index;
+}
+
+sub _dropSiteIndex
+{
+    # a merge is done with my _siteIndex.  It is not kept for the next one:  it
+    #   is a second copy of every site's location and callee, which a capture
+    #   parent would otherwise hold for every function it ever merged a
+    #   conflict into, and rebuilding it costs one walk of the keys - where
+    #   what it saves is one walk per ordinal resolved.  There is none to drop
+    #   in the XS implementation, whose entries are not arrays
+    my $self = shift;
+    return if $lcovutil::XS_LOADED;
+    delete($self->[SITES_AT]);
+}
+
+sub _siteLocation
+{
+    # the _siteIndex key of an exact (file, line, column).  The ordinal numbers
+    #   the sites at one location of one file, so a site in a different file is
+    #   at a different location however the line and the column read - see
+    #   _siteKey
+    my ($line, $column, $file) = @_;
+    return defined($file) ? "$line:$column:$file" : "$line:$column";
+}
+
+sub _indexSite
+{
+    my ($index, $line, $column, $ordinal, $callee, $file) = @_;
+    my $here = $index->{_siteLocation($line, $column, $file)} //= [{}, {}, 0];
+    $here->[0]->{$ordinal} = $callee;
+    my $lowest = $here->[1]->{$callee};
+    $here->[1]->{$callee} = $ordinal
+        if !defined($lowest) || $ordinal < $lowest;
+}
+
+sub _sitesAt
+{
+    # my sites at this exact (file, line, column), as [ordinal, callee] pairs in
+    #   ordinal order.  The XS implementation provides the same primitive
+    my ($self, $line, $column, $file) = @_;
+    my $here = $self->_siteIndex()->{_siteLocation($line, $column, $file)};
+    return () unless defined($here);
+    my $byOrdinal = $here->[0];
+    return
+        map({ [$_, $byOrdinal->{$_}] }
+            sort({ $a <=> $b } keys(%$byOrdinal)));
+}
+
+sub _findSiteAt
+{
+    # the key of my $nth site at (file, line, column) which calls $callee,
+    #   counting from the lowest ordinal, or undef if I have no such site.  This
+    #   is how one input's site is looked up in another's when the two do not
+    #   agree on the ordinal
+    my ($self, $line, $column, $file, $callee, $nth) = @_;
+    $nth = 0 unless defined($nth);
+    foreach my $site ($self->_sitesAt($line, $column, $file)) {
+        next unless $site->[1] eq $callee;
+        return _siteKey($line, $column, $site->[0], $file) if 0 == $nth--;
+    }
+    return undef;
+}
+
+sub _resolveCallSite
+{
+    # A site from another input wants an ordinal which is already taken here by
+    #   a call to something else.  That is not malformed data:  the ordinal
+    #   numbers the sites at one location within one compiled unit, so two units
+    #   which contain the same function - two instantiations of a template, two
+    #   objects sharing an inline or a comdat - each number theirs from zero, and
+    #   agree on the ordinal only by luck.  Two instantiations are also aliases
+    #   of one entry and so share one call site list, which is where they meet.
+    # Resolve it the way the report reads it:  the ordinal is not a name, it is
+    #   which of the calls at this location this is, so give this site the
+    #   ordinal my call to the same callee already has - the two inputs merely
+    #   numbered them differently - and failing that the lowest ordinal not in
+    #   use here, which makes it a call this function also contains.  Either way
+    #   no call is lost, the callees are right, and the answer does not depend on
+    #   the order the inputs were read in.  Where the two disagree about how many
+    #   calls to one callee are at one location, two of yours can fold into one
+    #   of mine:  the counts still add up, and two units which share a function
+    #   share its one 'FNL:' index, so nothing in the record could keep them
+    #   apart anyway.
+    # Returns the (ordinal, changed) of the site it merged into or added
+    my ($self, $line, $column, $file, $count, $callee, $aliases, $statement) =
+        @_;
+    my $ordinal = $self->_resolveOrdinal($line, $column, $file, $callee);
+    lcovutil::info(2,
+                   '"' .
+                       (defined($file) ? $file : $self->file()) . '":' .
+                       $line .
+                       ": call site $line:$column in '" .
+                       $self->name() .
+                       "' calling '$callee' merged as ordinal $ordinal\n");
+    return ($ordinal,
+            $self->_addCallSite($line, $column, $ordinal, $count,
+                                $callee, $file, $aliases, $statement));
+}
+
+sub _resolveOrdinal
+{
+    # the ordinal a site from another input calling $callee at this exact
+    #   (file, line, column) takes here:  that of my call to the same callee at
+    #   this location if I have one, and otherwise the lowest ordinal I do not
+    #   use there - see _resolveCallSite.  A template instantiated a thousand
+    #   ways calls a thousand callees from one location, and a merge resolves
+    #   each of them, so neither is a walk of the sites there - see _siteIndex.
+    #   The XS implementation provides the same primitive
+    my ($self, $line, $column, $file, $callee) = @_;
+    my $here = $self->_siteIndex()->{_siteLocation($line, $column, $file)};
+    return 0 unless defined($here);
+    my $ordinal = $here->[1]->{$callee};
+    return $ordinal if defined($ordinal);
+    $ordinal = $here->[2];
+    ++$ordinal while exists($here->[0]->{$ordinal});
+    $here->[2] = $ordinal;
+    return $ordinal;
+}
+
+sub _removeSite
+{
+    # drop the site with this key.  Returns true if there was one
+    my ($self, $key) = @_;
+    return 0 unless defined($self->[CALLS]) && exists($self->[CALLS]->{$key});
+    my $site = delete($self->[CALLS]->{$key});
+    if (defined($self->[SITES_AT])) {
+        my ($line, $column, $ordinal, $file) = _splitSiteKey($key);
+        my $where  = _siteLocation($line, $column, $file);
+        my $here   = $self->[SITES_AT]->{$where};
+        my $callee = $site->[SITE_CALLEE];
+        delete($here->[0]->{$ordinal});
+        if (!%{$here->[0]}) {
+            delete($self->[SITES_AT]->{$where});
+        } else {
+            $here->[2] = $ordinal if $ordinal < $here->[2];
+            if ($here->[1]->{$callee} == $ordinal) {
+                # my lowest call to this callee here went:  the next one, if
+                #   there is one, is now the lowest
+                my @left = grep({ $here->[0]->{$_} eq $callee }
+                                keys(%{$here->[0]}));
+                if (@left) {
+                    $here->[1]->{$callee} = (sort({ $a <=> $b } @left))[0];
+                } else {
+                    delete($here->[1]->{$callee});
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+sub callSiteKeys
+{
+    # the keys of my call sites, in hash order - see aliasNames() for why
+    #   there is no accessor which returns the container itself.
+    # CALLS is undef until the first site is added, which is never for most
+    #   functions - but that must not make the answer a different *kind* of
+    #   answer, so borrow an empty hash rather than returning the empty list:
+    #   'keys' of an empty hash is 0 in scalar context where '()' is undef,
+    #   and the XS implementation returns the count
+    my $self = shift;
+    return keys(%{$self->[CALLS] // {}});
+}
+
+sub sortedCallSiteKeys
+{
+    # my call site keys in source order:  by line, then column, then ordinal,
+    #   and then by the file a cross-file site is in - last, so that the order
+    #   of the sites of a function which has none is exactly what it was.  The
+    #   keys are strings, so this is not the order they sort in
+    my $self = shift;
+    return
+        sort({
+                 my @x = _splitSiteKey($a);
+                 my @y = _splitSiteKey($b);
+                 $x[0]     <=> $y[0] or
+                     $x[1] <=> $y[1] or
+                     $x[2] <=> $y[2] or
+                     (defined($x[3]) ? $x[3] : '') cmp
+                     (defined($y[3]) ? $y[3] : '')
+        } $self->callSiteKeys());
+}
+
+sub has_external_callees
+{
+    # Whether at least one call written in my body goes to a function outside the
+    #   boundary of this report:  what a 'c' flag on my 'FNL:' record asserts,
+    #   and the mirror of FunctionAlias::has_external_callers.
+    #
+    # The callee of such a call is not in the report - it is in a system header,
+    #   in a third party library, in a file which '--remove' or an exclude
+    #   pattern took out, or it is a function '--erase-functions' erased - so
+    #   there is nothing for the site to point at and the site itself is dropped
+    #   (TraceFile::_pruneExternalCallees).  All that is left to record is that
+    #   the edge is there, and this is that:  the caller is inside the boundary,
+    #   which is why the fact is kept on the caller even though the callee it
+    #   names is deliberately not part of the report.
+    # The flag says that such an edge exists.  It does not say that the edge was
+    #   taken, and it does not say how many such edges there are:  the site which
+    #   carried the count is gone, and no count is what leaving the boundary costs
+    #   an edge.  Whether the call was made can still be read off the line and
+    #   branch counts of the line it is written on - see _pruneExternalCallees
+    # False means "not asserted", exactly as the two alias flags do:  every
+    #   '.info' written without call data says it, so does one whose calls all
+    #   stay inside the boundary, and so does a capture - where no boundary has
+    #   been drawn yet and no site has been dropped
+    my $self = shift;
+    return defined($self->[EXTERNAL_CALLEES]) ? $self->[EXTERNAL_CALLEES] : 0;
+}
+
+sub set_external_callees
+{
+    # Set-only and idempotent, like the flag of FunctionAlias::external_calls:
+    #   an edge which is there cannot be made not to exist by a later operation, and the
+    #   sides of a merge which did not see it simply have nothing to say
+    my $self = shift;
+    $self->[EXTERNAL_CALLEES] = 1;
+}
+
+sub numCallSites
+{
+    # the number of 'FNC:' records in my body - which is what a user reading
+    #   "N of M callees" means by M, and the reason it is not the number of
+    #   distinct (location, callee) pairs the display tables have rows for:  two
+    #   calls at one location to one callee are two calls, and collapsing them
+    #   would make the denominator disagree with the record count in the '.info'.
+    #   A site whose count is '-' is one of them - see SITE_COUNT
+    my $self = shift;
+    return defined($self->[CALLS]) ? scalar(keys(%{$self->[CALLS]})) : 0;
+}
+
+sub numCallSitesHit
+{
+    # how many of my call sites were taken at least once.  Counted rather than
+    #   maintained, as numHit() is:  a site's count can change under merge,
+    #   filtering or subtraction
+    my $self = shift;
+    return 0 unless defined($self->[CALLS]);
+    my $n = 0;
+    foreach my $site (values(%{$self->[CALLS]})) {
+        # '-' is a site whose count is not known, which is never a site known to
+        #   have been taken:  it is in numCallSites and not here, so a degraded
+        #   capture understates the rate rather than overstating it
+        ++$n if lcovutil::site_count_hit($site->[SITE_COUNT]);
+    }
+    return $n;
+}
+
+sub callSiteData
+{
+    # everything there is to know about one of my call sites, in one call -
+    #   the FunctionAlias::write_data idiom.  Returns the empty list if I have
+    #   no site with this key.
+    # The file goes last, after the payload rather than with the rest of the
+    #   key, so that a reader which does not care where the call is written -
+    #   which is almost all of them - is unchanged:  it is undef for a site in
+    #   my own file, which is almost every site.  The alias set - see
+    #   SITE_ALIASES - comes after it, for the same reason, and the statement
+    #   line - see SITE_STATEMENT - after that
+    my ($self, $key) = @_;
+    my $site = defined($self->[CALLS]) ? $self->[CALLS]->{$key} : undef;
+    return () unless defined($site);
+    my ($line, $column, $ordinal, $file) = _splitSiteKey($key);
+    return ($line, $column, $ordinal, $site->[SITE_COUNT],
+            $site->[SITE_CALLEE], $file, $site->[SITE_ALIASES],
+            $site->[SITE_STATEMENT]);
+}
+
+sub _setSiteStatement
+{
+    # set the statement line of the site with this key - see SITE_STATEMENT.
+    #   Returns true if there is such a site.  The caller has checked that the
+    #   line is within MAX_STATEMENT_OFFSET of the site's own.  XS implements
+    #   the same primitive
+    my ($self, $key, $statement) = @_;
+    my $site = defined($self->[CALLS]) ? $self->[CALLS]->{$key} : undef;
+    return 0 unless defined($site);
+    $site->[SITE_STATEMENT] = $statement;
+    return 1;
+}
+
+sub _setSiteAliases
+{
+    # replace the alias set of the site with this key - see SITE_ALIASES.
+    #   Returns true if there is such a site.  The policy - what the set
+    #   becomes when an alias is removed or renamed - is the caller's.  XS
+    #   implements the same primitive
+    my ($self, $key, $aliases) = @_;
+    my $site = defined($self->[CALLS]) ? $self->[CALLS]->{$key} : undef;
+    return 0 unless defined($site);
+    $site->[SITE_ALIASES] = $aliases;
+    return 1;
+}
+
+sub callSiteTla
+{
+    # the differential category of one of my call sites, or undef if this is not
+    #   a differential report (or if I have no such site).  Located the way
+    #   FunctionAlias::callers reports a caller - by (line, column, ordinal,
+    #   file) rather than by the key string - so that the 'called from' table can
+    #   ask directly with what it already has
+    my ($self, $line, $column, $ordinal, $file) = @_;
+    my $site =
+        defined($self->[CALLS]) ?
+        $self->[CALLS]->{_siteKey($line, $column, $ordinal, $file)} :
+        undef;
+    return defined($site) ? $site->[SITE_TLA] : undef;
+}
+
+sub setCallSiteTla
+{
+    my ($self, $line, $column, $ordinal, $file, $tla) = @_;
+    my $key  = _siteKey($line, $column, $ordinal, $file);
+    my $site = defined($self->[CALLS]) ? $self->[CALLS]->{$key} : undef;
+    die("no call site $key in '" . $self->name() . "' of " . $self->file())
+        unless defined($site);
+    $site->[SITE_TLA] = $tla;
+}
+
+sub unionCallSites
+{
+    # add your call sites to mine:  a site we both have sums its counts, and a
+    #   site only you have is new to me.  You are another input, so a site whose
+    #   ordinal I have given to another callee is resolved and not reported -
+    #   see _resolveCallSite, which is also why this walks your sites in source
+    #   order rather than hash order:  the ordinals it hands out then depend only
+    #   on the data
+    my ($self, $that) = @_;
+    my $changed = 0;
+    foreach my $key ($that->sortedCallSiteKeys()) {
+        my ($line, $column, $ordinal, $count, $callee, $file, $aliases,
+            $statement)
+            = $that->callSiteData($key);
+        $changed = 1
+            if $self->addCallSite($line, $column, $ordinal,
+                                  $count, $callee, $file,
+                                  1, $aliases, $statement);
+    }
+    $self->_dropSiteIndex();
+    return $changed;
+}
+
+sub intersectCallSites
+{
+    # keep only the sites we both have, summing their counts - the same
+    #   treatment intersect gives an alias.  A function left with no sites is
+    #   not a function with no hits:  the entry stays.
+    # "Both have" is by location and callee and not by key:  you are another
+    #   input, so we need not agree on the ordinal - the same reason
+    #   unionCallSites resolves one - and a site of mine you also contain must
+    #   survive however you numbered it
+    my ($self, $that) = @_;
+    my $changed = 0;
+    my %nth;    # how many of my sites at this location call this callee already
+    foreach my $key ($self->sortedCallSiteKeys()) {
+        my ($line, $column, $ordinal, undef, $callee, $file) =
+            $self->callSiteData($key);
+        # two calls to one callee at one location are two calls, so my second
+        #   one wants your second one:  a location where you call it once and I
+        #   call it twice is a location we have one call in common at
+        my $where = defined($file) ? $file : '';
+        my $yours = $that->_findSiteAt($line, $column, $file, $callee,
+                                       $nth{"$line:$column:$callee:$where"}++);
+        if (defined($yours)) {
+            # ..and the aliases either side says make the call:  the ones
+            #   which do not survive the intersection are removed with the
+            #   aliases themselves - see removeAliases
+            my (undef, undef, undef, $count, undef, undef, $aliases, $statement)
+                = $that->callSiteData($yours);
+            $changed = 1
+                if $self->addCallSite($line, $column, $ordinal,
+                                      $count, $callee, $file,
+                                      undef, $aliases, $statement);
+        } else {
+            $self->_removeSite($key);
+            $changed = 1;
+        }
+    }
+    $that->_dropSiteIndex();
+    $self->_dropSiteIndex();
+    return $changed;
+}
+
+sub subtractCallSites
+{
+    # remove the sites we both have, keeping the ones only I have
+    my ($self, $that) = @_;
+    my $changed = 0;
+    foreach my $key ($that->callSiteKeys()) {
+        $changed = 1 if $self->_removeSite($key);
+    }
+    return $changed;
 }
 
 sub findMyLines
@@ -7581,16 +9582,66 @@ sub list_functions
     return keys(%{$self->[1]});
 }
 
+sub _insert
+{
+    # create an entry and store it under its start line.  The caller has already
+    #   established that no entry is there - 'define_function' below does the
+    #   diagnostics.  The XS implementation provides the same primitive
+    my ($self, $name, $start_line, $end_line) = @_;
+    my $data = FunctionEntry->new($name, $self, $start_line, $end_line);
+    $self->[0]->{$start_line} = $data;
+    return $data;
+}
+
+sub _registerName
+{
+    # make this name find this entry
+    my ($self, $name, $entry) = @_;
+    $self->[1]->{$name} = $entry;
+}
+
+sub _unregisterName
+{
+    # forget this name.  Returns true if I knew it
+    my ($self, $name) = @_;
+    return 0 unless exists($self->[1]->{$name});
+    delete($self->[1]->{$name});
+    return 1;
+}
+
+sub _removeKey
+{
+    # forget the entry at this start line.  Returns true if there was one
+    my ($self, $key) = @_;
+    return 0 unless exists($self->[0]->{$key});
+    delete($self->[0]->{$key});
+    return 1;
+}
+
+sub _relocate
+{
+    # move an entry to a new start line, keeping it alive across the move.
+    #   Returns false if it is not in my location map under its current line -
+    #   which another entry, from some other map, may share
+    my ($self, $entry, $line) = @_;
+    my $key = $entry->line();
+    return 0
+        unless exists($self->[0]->{$key}) && $self->[0]->{$key} == $entry;
+    delete($self->[0]->{$key});
+    $entry->set_line($line);
+    $self->[0]->{$line} = $entry;
+    return 1;
+}
+
 sub define_function
 {
     my ($self, $fnName, $start_line, $end_line, $location) = @_;
     #lcovutil::info("define: $fnName " . $self->$filename() . ":$start_line->$end_line\n");
     # could check that function ranges within file are non-overlapping
-    my ($locationMap, $nameMap) = @$self;
 
     my $data = $self->findName($fnName);
     if (defined($data) &&
-        #TraceFile::is_language('c', $self->filename()) &&
+        #TraceFile::is_language(lcovutil::IS_C, $self->filename()) &&
         $data->line() != $start_line
     ) {
         $location = '"' . $self->filename() . '":' . $start_line
@@ -7606,16 +9657,12 @@ sub define_function
             grep({ $fnName =~ $_ } @lcovutil::suppress_function_patterns);
         # if ignored, just return the function we already have -
         # record the function location as the smallest line number we saw
-        if ($start_line < $data->line()) {
-            delete $self->[0]->{$data->line()};
-            $data->set_line($start_line);
-            $self->[0]->{$start_line} = $data;
-        }
+        $self->_relocate($data, $start_line) if ($start_line < $data->line());
         return $data;
     }
 
-    if (exists($locationMap->{$start_line})) {
-        $data = $locationMap->{$start_line};
+    $data = $self->findKey($start_line);
+    if (defined($data)) {
         unless ((defined($end_line) &&
                  defined($data->end_line()) &&
                  $end_line == $data->end_line()) ||
@@ -7642,11 +9689,10 @@ sub define_function
                      $end_line > $data->end_line()));
         }
     } else {
-        $data = FunctionEntry->new($fnName, $self, $start_line, $end_line);
-        $locationMap->{$start_line} = $data;
+        $data = $self->_insert($fnName, $start_line, $end_line);
     }
-    if (!exists($nameMap->{$fnName})) {
-        $nameMap->{$fnName} = $data;
+    if (!defined($self->findName($fnName))) {
+        $self->_registerName($fnName, $data);
         $data->addAlias($fnName, 0);
     }
     return $data;
@@ -7692,10 +9738,8 @@ sub numHit
             ++$n
                 if $data->hit() > 0;
         } else {
-            my $aliases = $data->aliases();
-            foreach my $alias (keys(%$aliases)) {
-                my $c = $aliases->{$alias};
-                ++$n if $c > 0;
+            foreach my $alias ($data->aliasNames()) {
+                ++$n if $data->alias($alias)->count() > 0;
             }
         }
     }
@@ -7710,12 +9754,81 @@ sub get_found_and_hit
     return ($self->numFunc($merged), $self->numHit($merged));
 }
 
+sub get_callgraph_found_and_hit
+{
+    # the number of call sites in my functions, and how many of them were
+    #   taken:  the caller-side view, which is what this file's own data can
+    #   answer - see TraceInfo::callgraph_found.
+    # '--filter function' does not enter into it:  a site belongs to the
+    #   FunctionEntry, not to one of its names, so merging aliases neither adds
+    #   nor removes one
+    my $self  = shift;
+    my $found = 0;
+    my $hit   = 0;
+    foreach my $key ($self->keylist()) {
+        my $data = $self->findKey($key);
+        $found += $data->numCallSites();
+        $hit   += $data->numCallSitesHit();
+    }
+    return ($found, $hit);
+}
+
+sub hasCallgraphData
+{
+    # Does anything in this report say anything about the calls of the
+    #   compilation unit these functions belong to?  Four things can:  a call
+    #   site of its own, a function of it whose calls all left the boundary of
+    #   the report (FunctionEntry::has_external_callees), a symbol of it which
+    #   something outside that boundary called (has_external_callers), and a
+    #   call site elsewhere in the report which names a symbol it defines -
+    #   which is what '$calledSymbols' holds (see TraceFile::calledSymbols).
+    #
+    # Asked per file, unlike TraceFile::hasCallgraphData, and that is the point.
+    #   '-fcallgraph-info' is a property of the object, so one build can hold
+    #   objects compiled with it beside objects compiled without it, and a report
+    #   can merge a C++ capture with a language whose tools have no callgraph
+    #   data at all.  A file on the wrong side of that line carries no call
+    #   records for the same reason a leaf translation unit carries none, and
+    #   nothing in the data tells the two apart.  So the question is not "does
+    #   this file make calls" - which cannot be answered - but "was anything
+    #   measured about this file at all", which can.
+    #
+    # Where the answer is no, nothing is claimed for the file:  no 'FNCF:'/
+    #   'FNCH:' totals, and no caller deduced from an execution count
+    #   (lcovutil::classify_callers).  Both of those read as measurements, and a
+    #   "0 of 0 callees" invites the reader to conclude that the code makes no
+    #   calls rather than that nothing was measured.  The cost of not claiming
+    #   them is that a leaf unit which nothing in this report calls loses a zero
+    #   it was entitled to, which is the cheaper of the two mistakes.
+    my ($self, $calledSymbols) = @_;
+    foreach my $key ($self->keylist()) {
+        my $data = $self->findKey($key);
+        return 1
+            if 0 != $data->numCallSites() || $data->has_external_callees();
+        foreach my $name ($data->aliasNames()) {
+            return 1
+                if $data->alias($name)->has_external_callers() ||
+                (defined($calledSymbols) && exists($calledSymbols->{$name}));
+        }
+    }
+    return 0;
+}
+
+sub _mergeExternalCalls($$)
+{
+    # fold the external calls one side of a merge recorded for an alias into
+    #   the other side's copy of it - see FunctionAlias::add_external_calls
+    my ($mine, $yours) = @_;
+    return unless $yours->has_external_callers();
+    my $calls = $yours->external_calls();
+    $mine->add_external_calls(defined($calls) ? $calls : '-');
+}
+
 sub add_count
 {
     my ($self, $fnName, $count) = @_;
-    my $nameMap = $self->[1];
-    if (exists($nameMap->{$fnName})) {
-        my $data = $nameMap->{$fnName};
+    my $data = $self->findName($fnName);
+    if (defined($data)) {
         $data->addAlias($fnName, $count);
     } else {
         lcovutil::ignorable_error($lcovutil::ERROR_MISMATCH,
@@ -7727,19 +9840,17 @@ sub union
 {
     my ($self, $that) = @_;
 
-    my $changed  = 0;
-    my $myData   = $self->[0];
-    my $yourData = $that->[0];
-    while (my ($key, $thatData) = each(%$yourData)) {
-        my $thisData;
-        if (!exists($myData->{$key})) {
+    my $changed = 0;
+    foreach my $key ($that->keylist()) {
+        my $thatData = $that->findKey($key);
+        my $thisData = $self->findKey($key);
+        if (!defined($thisData)) {
             $thisData =
                 $self->define_function($thatData->name(),
                                        $thatData->line(),
                                        $thatData->end_line());
             $changed = 1;    # something new...
         } else {
-            $thisData = $myData->{$key};
             if (!($thisData->line() == $thatData->line()
                   && ($thisData->file() eq $thatData->file() ||
                       ($lcovutil::case_insensitive &&
@@ -7753,11 +9864,35 @@ sub union
             }
         }
         # merge in all the new aliases
-        while (my ($alias, $count) = each(%{$thatData->aliases()})) {
-            if ($thisData->addAlias($alias, $count)) {
+        foreach my $alias ($thatData->aliasNames()) {
+            my $yours = $thatData->alias($alias);
+            if ($thisData->addAlias($alias, $yours->count())) {
                 $changed = 1;
             }
+            # ..which my name index has to find as well:  define_function
+            #   registered only the name it was asked for, and an alias known
+            #   only to the entry is invisible to anything which looks a
+            #   symbol up - the 'd' flag, the callee side of a call site
+            $self->_registerName($alias, $thisData)
+                unless defined($self->findName($alias));
+            # ..and the two per-alias assertions, if that side made them:  they
+            #   travel with the definition rather than with the run which
+            #   captured it, which is what makes them correct under 'lcov -a' of
+            #   captures taken separately.  Not 'changed':  neither is coverage
+            #   data
+            my $mine = $thisData->alias($alias);
+            $mine->set_external() if $yours->is_external();
+            _mergeExternalCalls($mine, $yours);
+            # ..and the names merged into it, which either side may have done
+            $mine->add_merged(%{$yours->merged() // {}});
         }
+        # ..and the call sites, which are keyed by location within the file and
+        #   so need no cross-file step of their own
+        $changed = 1 if $thisData->unionCallSites($thatData);
+        # ..and the per-function assertion, which travels with the definition for
+        #   the same reason the per-alias ones do - see
+        #   FunctionEntry::has_external_callees
+        $thisData->set_external_callees() if $thatData->has_external_callees();
     }
     return $changed;
 }
@@ -7766,33 +9901,39 @@ sub intersect
 {
     my ($self, $that) = @_;
 
-    my $changed   = 0;
-    my $myData    = $self->[0];
-    my $myNames   = $self->[1];
-    my $yourData  = $that->[0];
-    my $yourNames = $that->[1];
-    foreach my $key (keys %$myData) {
-        my $me = $myData->{$key};
-        if (exists($yourData->{$key})) {
-            my $yourFn = $yourData->{$key};
+    my $changed = 0;
+    foreach my $key ($self->keylist()) {
+        my $me     = $self->findKey($key);
+        my $yourFn = $that->findKey($key);
+        if (defined($yourFn)) {
             # intersect operation:  keep only the common aliases
             my @remove;
-            my $yourAliases = $yourFn->aliases();
-            while (my ($alias, $count) = each(%{$me->aliases()})) {
-                if (exists($yourAliases->{$alias})) {
-                    if ($me->addAlias($alias, $yourAliases->{$alias})) {
+            foreach my $alias ($me->aliasNames()) {
+                my $yours = $yourFn->alias($alias);
+                if (defined($yours)) {
+                    if ($me->addAlias($alias, $yours->count())) {
                         $changed = 1;
                     }
+                    # an alias which survives the intersection keeps what either
+                    #   side knew about it - see FunctionMap::union
+                    my $mine = $me->alias($alias);
+                    $mine->set_external() if $yours->is_external();
+                    _mergeExternalCalls($mine, $yours);
+                    $mine->add_merged(%{$yours->merged() // {}});
                 } else {
                     # remove this alias from me..
                     push(@remove, $alias);
-                    delete($myNames->{$alias});
+                    $self->_unregisterName($alias);
                     $changed = 1;
                 }
             }
+            $changed = 1 if $me->intersectCallSites($yourFn);
+            # a function which survives the intersection keeps what either side
+            #   knew about it, as its aliases do just above
+            $me->set_external_callees() if $yourFn->has_external_callees();
             if (!$me->removeAliases(@remove)) {
                 # no aliases left (no common aliases) - so remove this function
-                delete($myData->{$key});
+                $self->_removeKey($key);
             }
         } else {
             $self->remove($me);
@@ -7806,24 +9947,23 @@ sub difference
 {
     my ($self, $that) = @_;
 
-    my $changed  = 0;
-    my $myData   = $self->[0];
-    my $yourData = $that->[0];
-    foreach my $key (keys %$myData) {
-        if (exists($yourData->{$key})) {
+    my $changed = 0;
+    foreach my $key ($self->keylist()) {
+        my $you = $that->findKey($key);
+        if (defined($you)) {
             # just remove the common aliases...
-            my $me  = $myData->{$key};
-            my $you = $yourData->{$key};
+            my $me = $self->findKey($key);
             my @remove;
-            while (my ($alias, $count) = each(%{$you->aliases()})) {
-                if (exists($me->aliases()->{$alias})) {
+            foreach my $alias ($you->aliasNames()) {
+                if (defined($me->alias($alias))) {
                     push(@remove, $alias);
                     $changed = 1;
                 }
             }
+            $changed = 1 if $me->subtractCallSites($you);
             if (!$me->removeAliases(@remove)) {
                 # no aliases left (no disjoint aliases) - so remove this function
-                delete($myData->{$key});
+                $self->_removeKey($key);
             }
         }
     }
@@ -7835,12 +9975,10 @@ sub remove
     my ($self, $entry) = @_;
     die("expected FunctionEntry - " . ref($entry))
         unless 'FunctionEntry' eq ref($entry);
-    my ($locationMap, $nameMap) = @$self;
-    my $key = $entry->line();
-    foreach my $alias (keys %{$entry->aliases()}) {
-        delete($nameMap->{$alias});
+    foreach my $alias ($entry->aliasNames()) {
+        $self->_unregisterName($alias);
     }
-    delete($locationMap->{$key});
+    $self->_removeKey($entry->line());
 }
 
 package BranchMap;
@@ -8294,7 +10432,8 @@ sub union
         }
 
         # check if we are compatible.
-        if ($myBranch->is_compatible($yourBranch)) {
+        my $conflict = $myBranch->incompatible_group($yourBranch);
+        if (!defined($conflict)) {
             # '= 1' rather than '+= ': the return value is a boolean
             #   'did anything change', and a running sum of per-line merge
             #   results would depend on hash iteration order (a new line
@@ -8311,8 +10450,12 @@ sub union
                 $changed = 1 if $changedHere;
             }
         } else {
-            lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                      "cannot merge inconsistent MC/DC record");
+            lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "$filename:" .
+                            MCDC_Block::groupLine($line, $conflict) .
+                            ": cannot merge inconsistent MC/DC record: group " .
+                            (MCDC_Block::parseGroupKey($conflict))[0]);
             # possibly remove this record?
         }
     }
@@ -8333,7 +10476,8 @@ sub intersect
             my $yourBranch = $yourData->{$line};
             my $myBranch   = $mydata->{$line};
 
-            if ($myBranch->is_compatible($yourBranch)) {
+            my $conflict = $myBranch->incompatible_group($yourBranch);
+            if (!defined($conflict)) {
                 # bracket the merge - see union() above
                 my ($oldFound, $oldHit) = $myBranch->totals();
                 my $changedHere = $myBranch->merge($yourBranch, $filename);
@@ -8341,8 +10485,12 @@ sub intersect
                 $self->adjust_counts($newFound - $oldFound, $newHit - $oldHit);
                 $changed = 1 if $changedHere;
             } else {
-                lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
-                                      "cannot merge inconsistent MC/DC record");
+                lcovutil::ignorable_error(
+                        $lcovutil::ERROR_INCONSISTENT_DATA,
+                        "$filename:" .
+                            MCDC_Block::groupLine($line, $conflict) .
+                            ": cannot merge inconsistent MC/DC record: group " .
+                            (MCDC_Block::parseGroupKey($conflict))[0]);
                 # possibly remove this record?
             }
         } else {
@@ -8437,6 +10585,8 @@ sub removeBranches
         my $elements = $block->elements();
         my $nElems   = 0;
         my $count    = 0;
+        # a message names the line the block is written at
+        my $at = $line + $block->locationOffset();
         for (my $idx = 0; $idx <= $#$elements; ++$idx) {
             my $br = $elements->[$idx];
             next if $br->is_excluded();
@@ -8445,7 +10595,7 @@ sub removeBranches
                 next
                     unless $br->set_excluded();
                 $modified = 1;
-                lcovutil::info(2, "$filename:$line: remove exception branch\n");
+                lcovutil::info(2, "$filename:$at: remove exception branch\n");
                 ++$count;
                 # Previous 'fallthrough' element is related to this exception.
                 # We expect the exception branch to have a predecessor -
@@ -8462,7 +10612,7 @@ sub removeBranches
         if ($count) {
             ++$filter->[-2] if $isMasterData;
             lcovutil::info(2,
-                           "$filename:$line: remove $count exception branch" .
+                           "$filename:$at: remove $count exception branch" .
                                (1 == $count ? '' : 'es') . "\n"
             ) if $isMasterData;
             $filter->[-1] += $count * $weight;
@@ -8472,13 +10622,13 @@ sub removeBranches
         my $removed = 0;
         if (0 == $remaining) {
             lcovutil::info(2,
-                           "$filename:$line: remove exception block $blkIdx\n");
+                           "$filename:$at: remove exception block $blkIdx\n");
             $brdata->removeBlock($block, $branches);
             $removed = 1;
         } elsif (1 == $remaining &&
                  defined($self->[ORPHAN_f])) {    # filter orphan
             lcovutil::info(2,
-                    "$filename:$line: remove orphan exception block $blkIdx\n");
+                      "$filename:$at: remove orphan exception block $blkIdx\n");
             $brdata->removeBlock($block, $branches);
             $removed = 1;
             ++$self->[ORPHAN_f]->[-2]
@@ -8558,14 +10708,18 @@ sub filter
 package TraceInfo;
 #  coverage data for a particular source file
 use constant {
-              VERSION       => 0,
-              LOCATION      => 1,
-              FILENAME      => 2,
-              CHECKSUM      => 3,
-              LINE_DATA     => 4,    # per-testcase data
-              BRANCH_DATA   => 5,
-              FUNCTION_DATA => 6,
-              MCDC_DATA     => 7,
+              VERSION        => 0,
+              LOCATION       => 1,
+              FILENAME       => 2,
+              CHECKSUM       => 3,
+              LINE_DATA      => 4,    # per-testcase data
+              BRANCH_DATA    => 5,
+              FUNCTION_DATA  => 6,
+              MCDC_DATA      => 7,
+              EXTERNAL_CALLS => 8,    # calls made from a function which was
+                                      #   erased from this file - see
+                                      #   noteExternalCalls below
+              SPAN => 9,    # line coverpoint -> last line of its statement
 
               UNION      => 0,
               INTERSECT  => 1,
@@ -8604,6 +10758,9 @@ sub new
     $self->[FILENAME] = $filename;
     # _checkdata   : line number  -> source line checksum
     $self->[CHECKSUM] = MapData->new();
+    # line number -> the last line of the statement which the line coverpoint
+    #   there counts, if that is not the line itself - see 'span'
+    $self->[SPAN] = MapData->new();
     # each line/branch/function element is a list of [summaryData, perTestcaseData]
 
     # line: [ line number  -> execution count - merged over all testcases,
@@ -8729,6 +10886,24 @@ sub function_hit
               defined($lcovutil::cov_filter[$lcovutil::FILTER_FUNCTION_ALIAS]));
 }
 
+sub callgraph_found
+{
+    # my own call sites - the caller-side view.  Deliberately not the number of
+    #   my functions which have callers:  that one needs
+    #   TraceFile::resolveCallSites to have run, so it is not a question a child
+    #   process or a single file can answer
+    my $self = shift;
+    my ($found, $hit) = $self->func()->get_callgraph_found_and_hit();
+    return $found;
+}
+
+sub callgraph_hit
+{
+    my $self = shift;
+    my ($found, $hit) = $self->func()->get_callgraph_found_and_hit();
+    return $hit;
+}
+
 sub branch_found
 {
     my $self = shift;
@@ -8755,6 +10930,61 @@ sub check
 {
     my $self = shift;
     return $self->[CHECKSUM];
+}
+
+# The statement spans:  MapData of line -> end line.  A line coverpoint counts
+#   the statement which starts on its line and ends on its end line - see
+#   'TraceFile::_continuationLineMerge'.  Only a statement which extends past
+#   its first line has an entry.  The span is a property of the source, not
+#   of a testcase, so there is one map for all testcases.
+#   An entry whose line has no line coverpoint means nothing:  it is never
+#   written, and 'spanOwners' ignores it.
+sub span
+{
+    my $self = shift;
+    return $self->[SPAN];
+}
+
+# The continuation lines of the statement spans:  hash of line -> the line of
+#   the coverpoint whose statement it is part of
+sub spanOwners
+{
+    my $self     = shift;
+    my $span     = $self->[SPAN];
+    my $lineData = $self->sum();
+    my %owner;
+    foreach my $line ($span->keylist()) {
+        next unless defined($lineData->value($line));
+        my $end = $span->value($line);
+        $owner{$_} = $line foreach ($line + 1 .. $end);
+    }
+    return \%owner;
+}
+
+sub noteExternalCalls
+{
+    # Remember, as lcovutil::external_call records, the calls which were made from a
+    #   function this file no longer has:  '--erase-functions' or a function
+    #   filter took the caller out of the boundary of the report, and its call
+    #   sites went with it, so the fact that those calls happened is recorded on
+    #   their callees instead - see FunctionAlias::has_external_callers.
+    # Held here rather than on the TraceFile because the erasing is done by
+    #   'TraceFile::_filterFile', which runs in a forked child and hands back
+    #   nothing but this object:  the list is drained into the TraceFile by
+    #   '_updateModifiedFile', which is where the child's data arrives (and the
+    #   only place this object is installed), so it is empty the rest of the time
+    my ($self, $calls) = @_;
+    push(@{$self->[EXTERNAL_CALLS]}, @$calls) if @$calls;
+}
+
+sub takeExternalCalls
+{
+    # the calls noted above, removed:  they belong to the report as a whole and
+    #   the one place which can hold them for the whole report is the TraceFile
+    my $self  = shift;
+    my $calls = $self->[EXTERNAL_CALLS];
+    $self->[EXTERNAL_CALLS] = undef;
+    return defined($calls) ? $calls : [];
 }
 
 # function coverage
@@ -9078,6 +11308,31 @@ sub _merge_checksums
     }
 }
 
+# The statement spans of both:  the source is the same, so they agree - if they
+#   do not, the source versions differ, and the span is dropped
+sub _merge_spans
+{
+    my ($self, $info, $filename) = @_;
+
+    my $mine  = $self->span();
+    my $yours = $info->span();
+    foreach my $line ($yours->keylist()) {
+        my $end = $yours->value($line);
+        if ($mine->mapped($line)) {
+            next if $mine->value($line) == $end;
+            lcovutil::ignorable_error(
+                                $lcovutil::ERROR_INCONSISTENT_DATA,
+                                "statement span mismatch at $filename:$line: " .
+                                    "$line-" .
+                                    $mine->value($line) .
+                                    " -> $line-$end");
+            $mine->remove($line);
+            next;
+        }
+        $mine->replace($line, $end);
+    }
+}
+
 sub merge
 {
     my ($self, $info, $op, $filename) = @_;
@@ -9145,6 +11400,7 @@ sub merge
         $changed = 1;
     }
     $self->_merge_checksums($info, $filename);
+    $self->_merge_spans($info, $filename) if $op == UNION;
 
     if ($op == UNION) {
         foreach my $name ($info->testfnc()->keylist()) {
@@ -9212,18 +11468,24 @@ use constant {
               SOURCE         => 2,
               EXCLUDE        => 3,
               BRANCH_EXCLUDE => 4,
+              SPANS          => 5,    # see _pythonStatementSpan
+              LANG           => 6,    # see _statementLanguage
+              TEXT           => 7,    # see _spanLine
+              STMT           => 8,    # see statementSpan
 
               # reasons: (bitfield)
-              EXCLUDE_REGION        => 0x10,
-              EXCLUDE_BRANCH_REGION => 0x20,
-              EXCLUDE_DIRECTIVE     => 0x40,
-              OMIT_LINE             => 0x80,
+              EXCLUDE_REGION           => 0x10,
+              EXCLUDE_BRANCH_REGION    => 0x20,
+              EXCLUDE_DIRECTIVE        => 0x40,
+              OMIT_LINE                => 0x80,
+              EXCLUDE_CALLGRAPH_REGION => 0x100,
 
-              # recorded exclusion markers
+              # recorded exclusion markers - outside the 0xFF0 of the reasons
               e_LINE        => 0x1,
               e_BRANCH      => 0x2,
               e_EXCEPTION   => 0x4,
               e_UNREACHABLE => 0x8,
+              e_CALLGRAPH   => 0x1000,
 };
 
 sub new
@@ -9321,6 +11583,7 @@ sub parseLines
     my $exclude_region;
     my $exclude_br_region;
     my $exclude_exception_region;
+    my $exclude_callgraph_region;
     my $line              = 0;
     my $excl_start        = qr(\b$lcovutil::EXCL_START\b);
     my $excl_stop         = qr(\b$lcovutil::EXCL_STOP\b);
@@ -9334,13 +11597,16 @@ sub parseLines
     my $unreachable_start = qr(\b$lcovutil::UNREACHABLE_START\b);
     my $unreachable_stop  = qr(\b$lcovutil::UNREACHABLE_STOP\b);
     my $unreachable_line  = qr(\b$lcovutil::UNREACHABLE_LINE\b);
+    my $excl_cg_start     = qr(\b$lcovutil::EXCL_CALLGRAPH_START\b);
+    my $excl_cg_stop      = qr(\b$lcovutil::EXCL_CALLGRAPH_STOP\b);
+    my $excl_cg_line      = qr(\b$lcovutil::EXCL_CALLGRAPH_LINE\b);
     # @todo:  if we had annotated data here, then we could whine at the
     #   author of the unmatched start, extra end, etc.
 
     my $exclude_directives;
     $exclude_directives =
         qr/^\s*#\s*((else|endif)|((ifdef|ifndef|if|elif|include|define|undef)\s+))/
-        if (TraceFile::is_language('c', $filename) &&
+        if (TraceFile::is_language(lcovutil::IS_C, $filename) &&
             defined($lcovutil::cov_filter[$lcovutil::FILTER_DIRECTIVE]));
 
     my @excludes;
@@ -9377,13 +11643,34 @@ sub parseLines
         $excl_br_line = undef;
         $excl_ex_line = undef;
     }
+    if (defined($lcovutil::cov_filter[$lcovutil::FILTER_EXCLUDE_CALLGRAPH])) {
+        # the call sites only:  the lines they are on, and every other
+        #   coverpoint of those lines, stay
+        push(@excludes,
+             [$excl_cg_start,
+              $excl_cg_stop,
+              \$exclude_callgraph_region,
+              e_CALLGRAPH | EXCLUDE_CALLGRAPH_REGION,
+              $lcovutil::EXCL_CALLGRAPH_START,
+              $lcovutil::EXCL_CALLGRAPH_STOP,
+             ]);
+    } else {
+        $excl_cg_line = undef;
+    }
     LINES: foreach (@$sourceLines) {
         $line += 1;
         my $exclude_branch_line           = 0;
         my $exclude_exception_branch_line = 0
             ; # per-line exception exclusion not implemented at present.  Probably unnecessary.
         chomp($_);
-        s/\r//;    # remove carriage return
+        s/\r//; # remove carriage return
+                # independent of the line markers below:  a line may exclude its
+                #   branches and its call sites both
+        my $exclude_callgraph_line =
+            (defined($excl_cg_line) && $_ =~ $excl_cg_line) ?
+            e_CALLGRAPH | EXCLUDE_CALLGRAPH_REGION :
+            0;
+
         if (defined($exclude_directives) &&
             $_ =~ $exclude_directives) {
             # line contains compiler directive - exclude everything
@@ -9456,7 +11743,10 @@ sub parseLines
              ($exclude_region ? $exclude_region->[1] : 0) |
                  ($exclude_br_region ? $exclude_br_region->[1] : 0) | (
                   $exclude_exception_region ? $exclude_exception_region->[1] : 0
-                 ) | $exclude_branch_line | $exclude_exception_branch_line);
+                 ) | (
+                  $exclude_callgraph_region ? $exclude_callgraph_region->[1] : 0
+                 ) | $exclude_branch_line | $exclude_exception_branch_line |
+                 $exclude_callgraph_line);
     }
     my @dangling;
     if ($exclude_region) {
@@ -9478,6 +11768,10 @@ sub parseLines
                    [$exclude_exception_region,
                     $lcovutil::EXCL_EXCEPTION_BR_START,
                     $lcovutil::EXCL_EXCEPTION_BR_STOP
+                   ],
+                   [$exclude_callgraph_region,
+                    $lcovutil::EXCL_CALLGRAPH_START,
+                    $lcovutil::EXCL_CALLGRAPH_STOP
                    ]
     ) {
         my ($key, $start, $stop) = @$t;
@@ -9492,6 +11786,10 @@ sub parseLines
     $data->[FILENAME] = $filename;
     $data->[SOURCE]   = $sourceLines;
     $data->[EXCLUDE]  = \@excluded;
+    $data->[SPANS]    = undef;
+    $data->[LANG]     = undef;
+    $data->[TEXT]     = [];
+    $data->[STMT]     = [];
     return $self;
 }
 
@@ -9537,7 +11835,8 @@ sub getExpr
             $expr .= $self->getLine($l);
         }
         $line = $self->getLine($endLine);
-        $expr .= substr($line, 0, $endCol);
+        # the end column is exclusive, as it is on a single line
+        $expr .= substr($line, 0, $endCol - 1);
     }
     $expr =~ s/^\s+//;
     $expr =~ s/\s+$//;
@@ -9553,7 +11852,6 @@ sub isOutOfRange
     my $data = $self->[0];
     if (defined($data->[EXCLUDE]) &&
         scalar(@{$data->[EXCLUDE]}) < $lineNo) {
-
         # Can happen due to version mismatches:  data extracted with
         #   version N of the file, then generating HTML with version M
         #   "--version-script callback" option can be used to detect this.
@@ -9740,7 +12038,6 @@ sub containsConditional
     for (my $next = $line + 1;
          defined($src) && ($next - $line) < $lcovutil::source_filter_lookahead;
          ++$next) {
-
         $src = lcovutil::simplifyCode($src);
 
         my $bitwiseOperators =
@@ -9869,16 +12166,401 @@ sub suppressCloseBrace
     return $suppress;
 }
 
+# The text of a C/C++ or Java line, for '_spanText':  comments, strings and
+#   character literals removed - so that a parenthesis or semicolon inside one
+#   does not count - or undef if the line cannot be read that way:  a compiler
+#   directive, a comment which spans lines, or a string which does (a raw
+#   string literal, say)
+sub _continuationText
+{
+    my ($self, $lineNo) = @_;
+    my $code = $self->getLine($lineNo);
+    return undef
+        if !defined($code) || $code =~ /^\s*#/;
+    $code =~ s/'(\\.|[^'\\])'//g;
+    $code = lcovutil::filterStringsAndComments($code);
+    return undef if $code =~ m#(/\*|\*/|")#;
+    return $code;
+}
+
+# The statement which line 'lineNo' is part of, as '(first, last)' line
+#   numbers - or the empty list if we are not sure.
+#   This is what '_statementBranchMerge' attributes a branch or MC/DC
+#   coverpoint on a line without a line coverpoint to, so it errs toward 'not
+#   known':  a coverpoint left where it is costs a report line, while one moved
+#   to the wrong statement is wrong data.
+# A statement may extend at most 'filter_lookahead' lines on either side of
+#   'lineNo'.
+# The answer for each line is kept until the next file is read:  it depends
+#   only on the source and on 'filter_lookahead'.
+sub statementSpan
+{
+    my ($self, $lineNo) = @_;
+    my $data = $self->[0];
+    return ()
+        unless (defined($data->[FILENAME]) &&
+                $lineNo >= 1 &&
+                $lineNo <= $self->numLines());
+    my $span = $data->[STMT]->[$lineNo];
+    unless (defined($span)) {
+        my $lang = $self->_statementLanguage();
+        $span = [$lang == lcovutil::IS_PYTHON ?
+                     $self->_pythonStatementSpan($lineNo) :
+                     $lang ? $self->_braceStatementSpan($lineNo, $lang) :
+                     ()
+        ];
+        $data->[STMT]->[$lineNo] = $span;
+    }
+    return @$span;
+}
+
+# The language whose statements 'statementSpan' finds in the file:  the
+#   'lcovutil::IS_*' flag of Python, C/C++, Java or Perl - the first the file is
+#   in, in that order - or 0 if none of them
+sub _statementLanguage
+{
+    my $self = shift;
+    my $data = $self->[0];
+    unless (defined($data->[LANG])) {
+        my $flags = TraceFile::language($data->[FILENAME]);
+        my ($lang) =
+            grep({ $flags & $_ } (lcovutil::IS_PYTHON, lcovutil::IS_C,
+                                  lcovutil::IS_JAVA, lcovutil::IS_PERL));
+        $data->[LANG] = defined($lang) ? $lang : 0;
+    }
+    return $data->[LANG];
+}
+
+# Line 'lineNo' for '_braceStatementSpan', as [text, positions]:  the text
+#   from '_spanText', and the positions in it of the characters which delimit
+#   statements and groups - '(', ')', '[', ']', '{', '}' and ';' - in order.
+#   Undef if '_spanText' cannot read the line.  Each line is read once per
+#   file.
+sub _spanLine
+{
+    my ($self, $lineNo, $lang) = @_;
+    my $cache = $self->[0]->[TEXT];
+    my $entry = $cache->[$lineNo];
+    unless (defined($entry)) {
+        my $code = $self->_spanText($lineNo, $lang);
+        if (defined($code)) {
+            my @positions;
+            push(@positions, $-[0]) while ($code =~ /[()\[\]{};]/g);
+            $entry = [$code, \@positions];
+        } else {
+            $entry = 0;
+        }
+        $cache->[$lineNo] = $entry;
+    }
+    return $entry ? $entry : undef;
+}
+
+# The text of a line for '_braceStatementSpan':  comments, strings and
+#   character literals removed, or undef if the line cannot be read that way.
+#   C/C++ and Java share '_continuationText'.  Perl is harder to read without
+#   parsing it, so any line which may hold a construct this does not
+#   understand - a quote-like operator, a regular expression, a heredoc, POD -
+#   is not read at all.  In an XS file, the line of a section keyword
+#   ('CODE:', 'OUTPUT:', etc.) ends the statement before it and is not part of
+#   one itself.  A '/' is division (or '//', defined-or) only when it
+#   follows an operand:  a variable, a number, ')', ']' or '}'.  A block which
+#   is the first argument of 'sort', 'map' or 'grep' is part of the expression
+#   if it ends on the same line.
+sub _spanText
+{
+    my ($self, $lineNo, $lang) = @_;
+    if ($lang != lcovutil::IS_PERL) {
+        my $keyword =
+            'CODE|PPCODE|INIT|PREINIT|INPUT|OUTPUT|CLEANUP|POSTCALL|ALIAS|' .
+            'PROTOTYPES?|OVERLOAD|INTERFACE|INTERFACE_MACRO|C_ARGS|SCOPE|' .
+            'FALLBACK|VERSIONCHECK|REQUIRE|BOOT|CASE';
+        return '}'
+            if ($self->filename() =~ /\.xs$/ &&
+                $self->getLine($lineNo) =~ /^\s*($keyword)\s*:/);
+        return $self->_continuationText($lineNo);
+    }
+
+    my $code = $self->getLine($lineNo);
+    return undef if !defined($code);
+    $code =~ s!((?:[\$\@\%]\w+|\b\d+|[)\]}])\s*)//?=?!$1 !g;
+    return undef
+        if ($code =~ /^(=\w|__END__|__DATA__)/ ||
+          $code =~ m@(<<|=~|!~|/|\b(m|s|y|tr|q|qq|qw|qr|qx)\s*[^\s\w=,;)}>-])@);
+    $code                 =~ s/'(\\.|[^'\\])*'//g;
+    $code                 =~ s/"(\\.|[^"\\])*"//g;
+    return undef if $code =~ /['"`]/;
+    $code                 =~ s/\$#/\$/g;
+    $code                 =~ s/#.*$//;
+    # a subscript or a dereference is not a block
+    1 while $code =~ s/([\w\}\]\$\@\%]|->)\s*\{[^{};]*\}/$1/;
+    1 while $code =~ s/\b(sort|map|grep)(\s*\(?\s*)\{[^{};]*\}/$1$2/;
+    return $code;
+}
+
+# The statement of a brace-delimited language (C/C++, Java, Perl) which line
+#   'lineNo' is part of - see 'statementSpan'.  The statement starts after the
+#   nearest ';', '{' or '}' before the line which is not inside a group of
+#   parentheses or brackets, and ends at the next ';' or '{' outside one.  The
+#   condition of an 'if', 'while', 'for', 'switch' or 'catch' is a statement of
+#   its own in C/C++ and Java, where the body it controls need not be a block.
+# Anything else is unknown:
+#   - a line which '_spanText' cannot read
+#   - a statement which shares a line with another one, other than the '}'
+#     which closes the block before it ('} else if (...)')
+#   - a brace or a ';' inside a group of parentheses (a lambda, a statement
+#     expression), other than the ';'s of a 'for'
+#   - a '}' before the end, as of an initializer list
+#   - a 'case', a 'default' or a label
+#   - a statement which runs out of the lookahead window
+sub _braceStatementSpan
+{
+    my ($self, $lineNo, $lang) = @_;
+    my $limit = $lcovutil::source_filter_lookahead;
+    my $last  = $self->numLines();
+    my $text  = sub {
+        my $l = shift;
+        return $l > $last ? undef : $self->_spanLine($l, $lang);
+    };
+    return () unless defined($text->($lineNo));
+
+    # backward:  find the end of the previous statement
+    my ($line, $col);    # where this statement starts
+    my $close = 0;       # ')' or ']' not yet matched, scanning backward
+    for (my $l = $lineNo - 1; $l >= 1; --$l) {
+        # the end of the previous statement may be just outside the window
+        return () if $lineNo - $l > $limit + 1;
+        my $entry = $text->($l);
+        return () unless defined($entry);
+        my ($code, $positions) = @$entry;
+        # the last ';', '{' or '}' on the line - unless it is inside a group
+        #   opened to its left, such as a 'for' header
+        my $end;
+        foreach my $c (reverse(@$positions)) {
+            my $char = substr($code, $c, 1);
+            if ($char eq ')' || $char eq ']') {
+                ++$close;
+            } elsif ($char eq '(' || $char eq '[') {
+                if ($close) {
+                    --$close;
+                } else {
+                    $end = undef;
+                }
+            } elsif (!$close) {
+                # ';', '{' or '}'
+                $end = $c unless defined($end);
+            }
+        }
+        next unless defined($end);
+        if (substr($code, $end + 1) =~ /\S/) {
+            # the statement starts on this line:  only after the closing
+            #   brace of the block before it
+            return ()
+                unless (substr($code, $end, 1) eq '}' &&
+                        substr($code, 0, $end) !~ /\S/);
+            ($line, $col) = ($l, $end + 1);
+        } else {
+            ($line, $col) = ($l + 1, 0);
+        }
+        last;
+    }
+    ($line, $col) = (1, 0) unless defined($line);
+
+    # forward:  find the end of this statement
+    my $peel = $lang != lcovutil::IS_PERL;
+    STATEMENT: while (1) {
+        # the first word of the statement
+        my ($code, $positions);
+        while (1) {
+            return () if $line - $lineNo > $limit;
+            my $entry = $text->($line);
+            return () unless defined($entry);
+            ($code, $positions) = @$entry;
+            last if substr($code, $col) =~ /\S/;
+            ($line, $col) = ($line + 1, 0);
+        }
+        my $first = $line;
+        return () if ($first > $lineNo || $lineNo - $first > $limit);
+        my $rest = substr($code, $col);
+        return ()
+            if ($rest =~ /^\s*(case|default)\b/ ||
+                $rest =~ /^\s*\w+\s*:(?!:)/);
+        if ($peel && $rest =~ /^(\s*(else|do)\b)/) {
+            # the statement it introduces starts after it
+            $col += length($1);
+            next STATEMENT;
+        }
+        my $header;
+        $header = $2
+            if ($peel && $rest =~ /^\s*((if|while|for|switch|catch)\s*\()/);
+        my $depth = 0;
+        while (1) {
+            foreach my $c (@$positions) {
+                next if $c < $col;
+                my $char = substr($code, $c, 1);
+                if ($char eq '(' || $char eq '[') {
+                    ++$depth;
+                } elsif ($char eq ')' || $char eq ']') {
+                    # closes a group opened before the statement
+                    return () unless $depth;
+                    next if --$depth || !defined($header);
+                    # the end of a condition
+                    my $after = substr($code, $c + 1);
+                    if ($lineNo <= $line) {
+                        # ..and the line is part of it:  the line it ends on
+                        #   may also open the block it controls
+                        return () unless $after =~ /^\s*\{?\s*$/;
+                        return ($first, $line);
+                    }
+                    # ..and the line is part of the statement it controls,
+                    #   which may not share a line with it
+                    return () if $after =~ /\S/;
+                    ($line, $col) = ($line + 1, 0);
+                    next STATEMENT;
+                } elsif ($char eq ';') {
+                    if ($depth) {
+                        # only the 'for' header separates statements there
+                        return ()
+                            unless (defined($header) &&
+                                    $header eq 'for' &&
+                                    1 == $depth);
+                        next;
+                    }
+                    return ()
+                        if ($line < $lineNo ||
+                            substr($code, $c + 1) =~ /\S/);
+                    return ($first, $line);
+                } elsif ($char eq '{') {
+                    return ()
+                        if ($depth ||
+                            $line < $lineNo ||
+                            substr($code, $c + 1) =~ /\S/);
+                    return ($first, $line);
+                } elsif ($char eq '}') {
+                    return ();
+                }
+            }
+            ($line, $col) = ($line + 1, 0);
+            return () if $line - $lineNo > $limit;
+            my $entry = $text->($line);
+            return () unless defined($entry);
+            ($code, $positions) = @$entry;
+        }
+    }
+}
+
+# The logical line of a Python source file which line 'lineNo' is part of -
+#   see 'statementSpan'.  A logical line continues onto the next physical line
+#   after a '\', or while a '(', '[' or '{' is open:  this is Python's own
+#   rule, so this reads the file from the top rather than looking around
+#   the line.  A logical line which holds a string spanning physical lines is
+#   not known.
+sub _pythonStatementSpan
+{
+    my ($self, $lineNo) = @_;
+    my $data   = $self->[0];
+    my $source = $data->[SOURCE];
+    unless (defined($data->[SPANS])) {
+        my @spans;
+        my $depth = 0;
+        my $quote;    # the delimiter of an open triple-quoted string
+        my $start;
+        my $tainted = 0;
+        for (my $l = 1; $l <= scalar(@$source); ++$l) {
+            my $code = $source->[$l - 1];
+            $code =~ s/\r?\n$//;
+            $start = $l unless defined($start);
+            my $continued = 0;
+            for (my $c = 0; $c < length($code); ++$c) {
+                if (defined($quote)) {
+                    $tainted = 1;
+                    my $end = index($code, $quote, $c);
+                    last if $end < 0;
+                    $c     = $end + 2;
+                    $quote = undef;
+                    next;
+                }
+                my $char = substr($code, $c, 1);
+                if ($char eq '#') {
+                    last;
+                } elsif ($char eq '\\' && $c == length($code) - 1) {
+                    $continued = 1;
+                } elsif ($char eq '"' || $char eq "'") {
+                    if (substr($code, $c, 3) eq $char x 3) {
+                        $quote = $char x 3;
+                        $c += 2;
+                        next;
+                    }
+                    # a string on one line
+                    my $end = $c + 1;
+                    while ($end < length($code)) {
+                        my $e = substr($code, $end, 1);
+                        last if $e eq $char;
+                        ++$end if $e eq '\\';
+                        ++$end;
+                    }
+                    $c = $end;
+                } elsif ($char =~ /[(\[{]/) {
+                    ++$depth;
+                } elsif ($char =~ /[)\]}]/) {
+                    --$depth if $depth;
+                }
+            }
+            next if ($continued || $depth || defined($quote));
+            my $span = $tainted ? undef : [$start, $l];
+            $spans[$_] = $span foreach ($start .. $l);
+            ($start, $tainted) = (undef, 0);
+        }
+        $data->[SPANS] = \@spans;
+    }
+    my $span = $data->[SPANS]->[$lineNo];
+    return ()
+        unless (defined($span) &&
+                $lineNo - $span->[0] <= $lcovutil::source_filter_lookahead &&
+                $span->[1] - $lineNo <= $lcovutil::source_filter_lookahead);
+    return @$span;
+}
+
+# Does line 'lineNo' hold a lambda?  For '_lambdaOnLine', which has already
+#   looked at the function data.  C/C++:  '[captures](params) {' or
+#   '[captures](params) -> type {' - or '[captures] {', which has no parameter
+#   list.  Java:  'param ->' or '(params) ->'
+sub containsLambda
+{
+    my ($self, $lineNo) = @_;
+    my $filename = $self->filename();
+    return 0
+        unless (defined($filename) &&
+                $lineNo >= 1 &&
+                $lineNo <= $self->numLines());
+    my $code = lcovutil::filterStringsAndComments($self->getLine($lineNo));
+    # C++:  '[captures](params) specifiers -> type {';  Java:  'params ->'
+    my $lambda =
+        TraceFile::is_language(lcovutil::IS_C, $filename) ?
+        qr/(?<![\w\]\)])\[[^\[\]]*\]\s*(\([^()]*\))?\s*(\b(mutable|constexpr|noexcept)\b\s*)*(->[^{;]*)?\{/
+        :
+        TraceFile::is_language(lcovutil::IS_JAVA, $filename) ?
+        qr/(\([^()]*\)|\b\w+)\s*->/ :
+        undef;
+    return defined($lambda) && $code =~ $lambda;
+}
+
 package TraceFile;
 
-our $ignore_testcase_name;    # use default name, if set
+our $ignore_testcase_name;     # use default name, if set
+our $callSitesResolved = 0;    # see resolveCallSites
+# the most lines a statement span may extend past its first line - see
+#   TraceInfo::span
+use constant MAX_SPAN_OFFSET => 127;
 use constant {
-              FILES    => 0,
-              COMMENTS => 1,
-              STATE    => 2,    # operations performed: don't do them again
+              FILES          => 0,
+              COMMENTS       => 1,
+              STATE          => 2,   # operations performed: don't do them again
+              EXTERNAL_CALLS => 3,   # calls made from a file this report is not
+                                     #   keeping - see noteExternalCalls
 
-              DID_FILTER => 1,
-              DID_DERIVE => 2,
+              DID_FILTER      => 1,
+              DID_DERIVE      => 2,
+              DID_CONSISTENCY => 4,    # see '_checkConsistency'
 };
 
 # '.info' record dispatch, for '_read_info' below.
@@ -9912,35 +12594,93 @@ use constant {
               REC_FNA     => 8,
               REC_BRDA    => 9,
               REC_MCDC    => 10,
-              REC_SUMMARY => 11,    # 'LF:', 'LH:', 'FNF:', ... - ignored
-              REC_SKIP    => 12,    # a cover type which is turned off
+              REC_FNC     => 11,    # a call site: FunctionEntry::addCallSite
+              REC_SUMMARY => 12,    # 'LF:', 'LH:', 'FNF:', ... - ignored
+              REC_FNM     => 13,    # a merged name:  FunctionAlias::merged
+              REC_SKIP    => 14,    # a cover type which is turned off
 };
+
+# The count records that a section must contain if it contains any data
+#   records of the corresponding type - say, the BRH/BRF records associated
+#   with a BRDA.
+# Keep track and look for them - to verify that the .info file format is
+#   what we expect.  Used for error checking.
+my @sectionCountRecords = ([[REC_DA], 'line', 'LF', 'LH'],
+                           [
+                            [REC_FN, REC_FNDA, REC_FNL, REC_FNA, REC_FNM,
+                             REC_SKIP + lcovutil::COVER_TYPE_FUNCTION
+                            ],
+                            'function',
+                            'FNF', 'FNH'
+                           ],
+                           [[REC_BRDA, REC_SKIP + lcovutil::COVER_TYPE_BRANCH],
+                            'branch',
+                            'BRF',
+                            'BRH'
+                           ],
+                           [[REC_MCDC, REC_SKIP + lcovutil::COVER_TYPE_MCDC],
+                            'MC/DC', 'MCF', 'MCH'
+                           ],
+                           [
+                            [REC_FNC, REC_SKIP + lcovutil::COVER_TYPE_CALLGRAPH
+                            ],
+                            'call site',
+                            'FNCF', 'FNCH'
+                           ],);
+
+# REC_SKIP is not one case but four:  REC_SKIP plus the type's index in
+#   '@lcovutil::coverTypeFound', so that '_read_info' can note that the data was
+#   in the input without having to look the tag up a second time.  They are the
+#   HIGHEST cases, which is what lets that test stay the one '>=' comparison a
+#   skip has always cost.
 
 # The tags, and the case each maps to when every cover type is enabled.  This
 #   is the master table:  '%recordDispatch' below is what '_read_info' actually
 #   looks records up in.
 my %recordCase = (
-                 'SF'   => REC_FILE,
-                 'KF'   => REC_FILE,
-                 'TN'   => REC_TN,
-                 'VER'  => REC_VER,
-                 'DA'   => REC_DA,
-                 'FN'   => REC_FN,
-                 'FNDA' => REC_FNDA,
-                 'FNL'  => REC_FNL,
-                 'FNA'  => REC_FNA,
-                 'BRDA' => REC_BRDA,
-                 'MCDC' => REC_MCDC,
-                 map({ ($_ => REC_SUMMARY) } qw(LF LH FNF FNH BRF BRH MCF MCH)),
+       'SF'   => REC_FILE,
+       'KF'   => REC_FILE,
+       'TN'   => REC_TN,
+       'VER'  => REC_VER,
+       'DA'   => REC_DA,
+       'FN'   => REC_FN,
+       'FNDA' => REC_FNDA,
+       'FNL'  => REC_FNL,
+       'FNA'  => REC_FNA,
+       'FNM'  => REC_FNM,
+       'BRDA' => REC_BRDA,
+       'MCDC' => REC_MCDC,
+       'FNC'  => REC_FNC,
+       map({ ($_ => REC_SUMMARY) } qw(LF LH FNF FNH BRF BRH MCF MCH FNCF FNCH)),
 );
 
-# Which tags belong to which cover type, for the REC_SKIP redirection below.
-my %recordCoverType = ('FN'   => \$lcovutil::func_coverage,
-                       'FNDA' => \$lcovutil::func_coverage,
-                       'FNL'  => \$lcovutil::func_coverage,
-                       'FNA'  => \$lcovutil::func_coverage,
-                       'BRDA' => \$lcovutil::br_coverage,
-                       'MCDC' => \$lcovutil::mcdc_coverage,);
+# Which tags belong to which cover type - as the type's COVER_TYPE_ index,
+#   which is both its slot in '@lcovutil::coverTypeFound' and the offset the
+#   REC_SKIP redirection below uses.  The enable flag comes from that type's row
+#   in '@lcovutil::coverType', so this table does not have to know which
+#   variable holds it.
+my %recordCoverType = ('FN'   => lcovutil::COVER_TYPE_FUNCTION,
+                       'FNDA' => lcovutil::COVER_TYPE_FUNCTION,
+                       'FNL'  => lcovutil::COVER_TYPE_FUNCTION,
+                       'FNA'  => lcovutil::COVER_TYPE_FUNCTION,
+                       'FNM'  => lcovutil::COVER_TYPE_FUNCTION,
+                       'BRDA' => lcovutil::COVER_TYPE_BRANCH,
+                       'MCDC' => lcovutil::COVER_TYPE_MCDC,
+                       'FNC'  => lcovutil::COVER_TYPE_CALLGRAPH);
+
+# The count records which say how many coverpoints of their cover type the
+#   producer counted, as that type's index:  the inverse of the 'count' field of
+#   '@lcovutil::coverType', so the types are named in one place.  These are
+#   REC_SUMMARY records like every other count - what the report says about this
+#   type is recomputed from the coverpoints and the number here does not survive
+#   - and what is read out of them is the total over the inputs, which is a
+#   statement about the inputs rather than about the report;  see
+#   '@lcovutil::coverTypeInputTotal' and the REC_SUMMARY arm of '_read_info'.
+my %recordDeclaresCoverType;
+for (my $covType = 0; $covType < lcovutil::COVER_TYPE_COUNT; ++$covType) {
+    my $tag = $lcovutil::coverType[$covType]->{count};
+    $recordDeclaresCoverType{$tag} = $covType if defined($tag);
+}
 
 # '%recordCase', with the tags of the cover types which are turned off
 #   redirected to REC_SKIP:  '_read_info' drops those records as soon as it has
@@ -9959,11 +12699,24 @@ my %recordCoverType = ('FN'   => \$lcovutil::func_coverage,
 #   the next read rebuilds it.
 my %recordDispatch;
 
+# Which cover type each ENABLED case belongs to, as an index into
+#   '@lcovutil::coverTypeFound';  undef for a case which is not a coverpoint.
+#    Indexed by case rather than keyed by tag so that noting the type costs
+#   '_read_info' one array fetch instead of a second hash lookup.  A disabled
+#   type does not appear:  its case is REC_SKIP plus the same index, which
+#   the skip arm reads directly.  Built alongside '%recordDispatch'.
+my @caseCoverType;
+
 sub _init_record_dispatch()
 {
     %recordDispatch = %recordCase;
-    while (my ($tag, $enabled) = each(%recordCoverType)) {
-        $recordDispatch{$tag} = REC_SKIP unless $$enabled;
+    @caseCoverType  = ();
+    while (my ($tag, $idx) = each(%recordCoverType)) {
+        if (${$lcovutil::coverType[$idx]->{flag}}) {
+            $caseCoverType[$recordCase{$tag}] = $idx;
+        } else {
+            $recordDispatch{$tag} = REC_SKIP + $idx;
+        }
     }
 }
 
@@ -9971,22 +12724,26 @@ sub load
 {
     # '$chunk' is the part of the file to read rather than all of it - see
     #   '_read_info' and 'AggregateTraces::_partition_sections'
+    # '$checkLater':  the data is to be merged with other data, which is
+    #   checked for consistency then - see '_checkConsistency'
     my ($class, $tracefile, $readSource, $verify_checksum,
-        $ignore_function_exclusions, $chunk)
+        $ignore_function_exclusions, $chunk, $checkLater)
         = @_;
     my $self    = $class->new();
     my $context = MessageContext->new("loading $tracefile");
 
     $self->_read_info($tracefile, $readSource, $verify_checksum, $chunk);
 
+    $self->[STATE] |= DID_CONSISTENCY if $checkLater;
     $self->applyFilters($readSource);
+    $self->[STATE] &= ~DID_CONSISTENCY if $checkLater;
     return $self;
 }
 
 sub new
 {
     my $class = shift;
-    my $self  = [{}, [], 0];
+    my $self  = [{}, [], 0, []];
     bless $self, $class;
 
     return $self;
@@ -9996,6 +12753,14 @@ sub serialize
 {
     my ($self, $filename) = @_;
 
+    # A resolved report holds references from one file's function data into
+    #   another's, so it must not be handed across a fork:  Storable would
+    #   follow them and the worker would send back a copy of half the report.
+    #   The caller-side data is the wire format precisely so that this is never
+    #   needed - see resolveCallSites, which must run in the parent, after the
+    #   last worker has been reaped
+    die("internal error: call sites were resolved before serialization")
+        if $callSitesResolved;
     my $data = Storable::store($self, $filename);
     die("serialize failed") unless defined($data);
 }
@@ -10016,18 +12781,83 @@ sub empty
 {
     my $self = shift;
 
-    my @totals = $self->count_totals();
-    foreach my $d (['function', $lcovutil::func_coverage, 3],
-                   ['branch', $lcovutil::br_coverage, 2],
-                   ['MC/DC', $lcovutil::mcdc_coverage, 4]
-    ) {
-        my ($type, $flag, $idx) = @$d;
-        next unless $flag;
-        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-               "$type coverage enabled but no corresponding coverpoints found.")
-            if 0 == $totals[$idx]->[0];
-    }
     return !keys(%{$self->[FILES]});
+}
+
+sub checkEnabledMetric
+{
+    # This cover type is enabled and this report has no corresponding
+    #   coverpoints:  the ERROR_EMPTY counterpart of 'lcovutil::reject_metric',
+    #   which says the same thing about a type the tool can never produce.
+    # Everything which differs between the types - the predicate, the
+    #   message and whether ignoring the message turns the metric off - is
+    #   held by the corresponding row in '@lcovutil::coverType'.
+    # Emit the message at most once per run:  a run can reach here more than
+    #   once, and for a type whose row says 'disable' the flag it clears makes
+    #   the second call a no-op anyway.
+    # '$totals' is 'count_totals's list, when the caller has one already:  see
+    #   checkEmpty, which shares one across the types.
+    my ($self, $covType, $totals) = @_;
+    my $row = $lcovutil::coverType[$covType];
+
+    return unless ${$row->{flag}};
+    defined($totals) or $totals = [$self->count_totals()];
+    return if $row->{have}->($self, $totals);
+    # Nothing of this type here - but if the inputs counted this type's
+    #   coverpoints and their counts sum to zero, that absence is what was
+    #   measured:  a file containing only straight-line code and no branches
+    #   Then the summary saying 'no data found' is the whole of the
+    #   answer and there is no error to raise.
+    # A total which is not zero is the opposite:  the coverpoints were in the
+    #   input and are not in the report, so this run's filters or patterns
+    #   removed every one of them - likely not what the user expected.
+    return if $row->{count} && lcovutil::inputCountedNone($covType);
+    lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
+        $row->{empty} ||
+            "$row->{name} coverage enabled but no corresponding coverpoints found."
+    ) if lcovutil::warn_once($lcovutil::ERROR_EMPTY, "type:$row->{name}");
+    ${$row->{flag}} = 0 if $row->{disable};
+}
+
+sub checkEmpty
+{
+    # Complain about:
+    #   - no coverpoints of some covtype which was enabled on the command line
+    #     (user thought something was here - but nothing is)
+    #   - input files contain covtype data but type was not enabled
+    #     (user might not have set an enable flag that was intended)
+    # Checks have to be done after all the .info files have been read
+    # and filtered.
+    # Emit message at most once per run - a run can reach here more than once
+    my $self = shift;
+
+    lcovutil::ignorable_error($lcovutil::ERROR_EMPTY, "coverage DB is empty")
+        if ($self->empty() &&
+            lcovutil::warn_once($lcovutil::ERROR_EMPTY, 'emptyDB'));
+
+    # count_totals() builds its whole list whether or not the corresponding
+    #   metric is enabled, so a slot does not move when another metric is off -
+    #   which is what lets the 'have' callbacks index it.  Built once here, for
+    #   all of the types.
+    my $totals = [$self->count_totals()];
+    my @notes;
+    for (my $covType = 0; $covType < lcovutil::COVER_TYPE_COUNT; ++$covType) {
+        my $row = $lcovutil::coverType[$covType];
+        if (${$row->{flag}}) {
+            $self->checkEnabledMetric($covType, $totals);
+        } elsif ($lcovutil::coverTypeFound[$covType] &&
+                 lcovutil::warn_once('coverTypeNote', $covType)) {
+            # we have records of a type which is not enabled - possible that
+            #   the user forgot to add the flag
+            push(@notes,
+                "Note: $row->{name} records were found in the input data, but"
+                    . " $row->{name} coverage is not enabled\n"
+                    . "\t- '$row->{option}' may be missing from the command line.\n"
+            );
+        }
+    }
+    # now print the type notes, if there were any
+    lcovutil::info(join('', @notes));
 }
 
 sub files
@@ -10081,8 +12911,9 @@ sub file_exists
 sub count_totals
 {
     my $self = shift;
-    # return list of (number files, [#lines, #hit], [#branches, #hit], [#functions,#hit])
-    my @data = (0, [0, 0], [0, 0], [0, 0], [0, 0]);
+    # return list of (number files, [#lines, #hit], [#branches, #hit],
+    #   [#functions,#hit], [#conditions, #hit], [#call sites, #hit])
+    my @data = (0, [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]);
     foreach my $filename ($self->files()) {
         my $entry = $self->data($filename);
         ++$data[0];
@@ -10096,6 +12927,10 @@ sub count_totals
         if ($lcovutil::mcdc_coverage) {
             $data[4]->[0] += $entry->mcdc_found();    # mcdc
             $data[4]->[1] += $entry->mcdc_hit();
+        }
+        if ($lcovutil::callgraph_coverage) {
+            $data[5]->[0] += $entry->callgraph_found();    # call sites
+            $data[5]->[1] += $entry->callgraph_hit();
         }
     }
     return @data;
@@ -10171,6 +13006,17 @@ sub checkCoverageCriteria
                                 'found' => 0,
                                 'hit'   => 0
                  });
+    my @metrics = ('line', 'branch', 'condition', 'function');
+    # ..and the callee counts only when the metric is on:  unlike the four above,
+    #   a report which was not asked for call data has none, so an unconditional
+    #   0/0 entry would tell the callback about a metric which does not exist
+    if ($lcovutil::callgraph_coverage) {
+        $total{'callgraph'} = {
+                               'found' => 0,
+                               'hit'   => 0
+        };
+        push(@metrics, 'callgraph');
+    }
     my %data;
     foreach my $filename ($self->files()) {
         my $entry = $self->data($filename);
@@ -10178,8 +13024,10 @@ sub checkCoverageCriteria
                     $entry->branch_found(), $entry->branch_hit(),
                     $entry->mcdc_found(), $entry->mcdc_hit(),
                     $entry->function_found(), $entry->function_hit());
+        push(@data, $entry->callgraph_found(), $entry->callgraph_hit())
+            if $lcovutil::callgraph_coverage;
         my $idx = 0;
-        foreach my $t ('line', 'branch', 'condition', 'function') {
+        foreach my $t (@metrics) {
             foreach my $x ('found', 'hit') {
                 $data{$t}->{$x} = $data[$idx] if $perFile;
                 $total{$t}->{$x} += $data[$idx++];
@@ -10193,37 +13041,43 @@ sub checkCoverageCriteria
 }
 
 #
-# print_summary(fn_do, br_do)
+# print_summary(fn_do, br_do, mcdc_do, callgraph_do)
 #
 # Print overall coverage rates for the specified coverage types.
 #   $countDat is the array returned by 'TraceFile->count_totals()'
 
 sub print_summary
 {
-    my ($self, $fn_do, $br_do, $mcdc_do) = @_;
+    my ($self, $fn_do, $br_do, $mcdc_do, $callgraph_do) = @_;
 
-    $br_do   = $lcovutil::br_coverage   unless defined($br_do);
-    $mcdc_do = $lcovutil::mcdc_coverage unless defined($mcdc_do);
-    $fn_do   = $lcovutil::func_coverage unless defined($fn_do);
+    $br_do        = $lcovutil::br_coverage        unless defined($br_do);
+    $mcdc_do      = $lcovutil::mcdc_coverage      unless defined($mcdc_do);
+    $fn_do        = $lcovutil::func_coverage      unless defined($fn_do);
+    $callgraph_do = $lcovutil::callgraph_coverage unless defined($callgraph_do);
     my @counts = $self->count_totals();
+    # which of the optional metrics the caller asked for, in '@coverType' order
+    my @enabled;
+    $enabled[lcovutil::COVER_TYPE_FUNCTION]  = $fn_do;
+    $enabled[lcovutil::COVER_TYPE_BRANCH]    = $br_do;
+    $enabled[lcovutil::COVER_TYPE_MCDC]      = $mcdc_do;
+    $enabled[lcovutil::COVER_TYPE_CALLGRAPH] = $callgraph_do;
+
     lcovutil::info("Summary coverage rate:\n");
     lcovutil::info("  source files: %d\n", $counts[0]);
-    lcovutil::info("  lines.......: %s\n",
-                   lcovutil::get_overall_line(
-                                        $counts[1]->[0], $counts[1]->[1], "line"
-                   ));
-    lcovutil::info("  functions...: %s\n",
-                   lcovutil::get_overall_line(
-                                    $counts[3]->[0], $counts[3]->[1], "function"
-                   )) if ($fn_do);
-    lcovutil::info("  branches....: %s\n",
-                   lcovutil::get_overall_line(
-                                      $counts[2]->[0], $counts[2]->[1], "branch"
-                   )) if ($br_do);
-    lcovutil::info("  conditions..: %s\n",
-                   lcovutil::get_overall_line(
-                                   $counts[4]->[0], $counts[4]->[1], "condition"
-                   )) if ($mcdc_do);
+    # line coverage is the one metric which cannot be turned off, so it is not in
+    #   '@coverType' and is printed here rather than in the loop
+    lcovutil::info("%s\n",
+                   lcovutil::summaryRow('line', $counts[1]->[0],
+                                        $counts[1]->[1]));
+    foreach my $covType (0 .. lcovutil::COVER_TYPE_COUNT - 1) {
+        next unless $enabled[$covType];
+        my $row   = $lcovutil::coverType[$covType];
+        my $total = $counts[$row->{total}];
+        lcovutil::info("%s\n",
+                       lcovutil::summaryRow(
+                                          $row->{name}, $total->[0], $total->[1]
+                       ));
+    }
 }
 
 sub skipCurrentFile
@@ -10240,7 +13094,6 @@ sub skipCurrentFile
         my $missing = !-r $filename;
         if ($missing &&
             $lcovutil::resolveCallback) {
-
             my $path = SearchPath::resolveCallback($filename, 0, 1);
             $missing = !defined($path) || '' eq $path;
         }
@@ -10340,12 +13193,46 @@ sub contains
     return exists($files->{$key});
 }
 
+sub _noteCallsFrom
+{
+    # Note every call made from a site in '$filename', for noteExternalCalls:
+    #   the file is about to go away, and its call sites are the only record that
+    #   those edges are there.  Taken or not:  the flag the note ends up setting
+    #   says that the edge exists, and carries the site's count
+    my ($self, $filename) = @_;
+
+    my @calls;
+    my $functionMap = $self->data($filename)->func();
+    my $testfnc     = $self->data($filename)->testfnc();
+    foreach my $key ($functionMap->keylist()) {
+        my $entry = $functionMap->findKey($key);
+        foreach my $site ($entry->callSiteKeys()) {
+            my (undef, undef, undef, $count, $callee) =
+                $entry->callSiteData($site);
+            # A call to a name this same file defines went to that definition -
+            #   the rule _resolveCallee decides every site by - and that
+            #   definition is going away with the site:  there is no surviving
+            #   callee for the call to be a fact about.  Left unnoted rather
+            #   than resolved later, when the file is gone and an unrelated
+            #   definition of the name elsewhere would answer for it
+            push(@calls,
+                 lcovutil::external_call(
+                               $filename, $callee, $count, $testfnc, $key, $site
+                 )) unless defined($functionMap->findName($callee));
+        }
+    }
+    $self->noteExternalCalls(\@calls);
+}
+
 sub remove
 {
     my ($self, $filename) = @_;
     $filename = lc($filename) if $lcovutil::case_insensitive;
     $self->file_exists($filename) or
         die("remove nonexistent file $filename");
+    # This file's calls outlive it, on their callees - see noteExternalCalls.
+    #   Before the delete, which is the last moment its call sites exist
+    $self->_noteCallsFrom($filename) if $lcovutil::callgraph_coverage;
     delete($self->[FILES]->{$filename});
 }
 
@@ -10369,9 +13256,13 @@ sub merge_tracefile
     my $changed = 0;
     my $mine    = $self->[FILES];
     my $yours   = $trace->[FILES];
+    # the result has been checked if both sides have been - or if I am empty
+    #   and you have been - and no file is in both:  its merged data is new
+    my $checked = (!%$mine || 0 != ($self->[STATE] & DID_CONSISTENCY)) &&
+        0 != ($trace->[STATE] & DID_CONSISTENCY);
     foreach my $filename (keys %$mine) {
-
         if (exists($yours->{$filename})) {
+            $checked = 0;
             # this file in both me and you...merge as appropriate
             #lcovutil::info(1, "merge common $filename\n");
             if ($self->data($filename)
@@ -10396,7 +13287,17 @@ sub merge_tracefile
             }
         }
     }
+    if ($checked) {
+        $self->[STATE] |= DID_CONSISTENCY;
+    } else {
+        $self->[STATE] &= ~DID_CONSISTENCY;
+    }
     $self->add_comments($trace->comments());
+    # ..and the calls whose sites that side no longer has:  a callee of one of
+    #   them may be a file only I have - see noteExternalCalls.  Kept for both
+    #   operations:  the call was made, whether or not this operation is keeping
+    #   the file it was made from
+    $self->noteExternalCalls($trace->[EXTERNAL_CALLS]);
     return $changed;
 }
 
@@ -10406,7 +13307,6 @@ sub _eraseFunction
         $lineData, $branchData, $mcdcData, $checksum) = @_;
     if (defined($end_line)) {
         for (my $line = $fcn->line(); $line <= $end_line; ++$line) {
-
             if (defined($checksum)) {
                 $checksum->remove($line, 1);    # remove if present
             }
@@ -10428,13 +13328,224 @@ sub _eraseFunction
     $functionMap->remove($fcn);
 }
 
+sub _noteErasedCalls
+{
+    # The calls made by a function which is about to be erased, as the
+    #   lcovutil::external_call records TraceInfo::noteExternalCalls takes:  its call sites
+    #   go with it, and they are the only record that those edges are there.
+    # Every site, taken or not, which is the rule TraceFile::_noteCallsFrom
+    #   applies to the same question for the same reason:  the flag this ends up
+    #   setting says that the edge exists, and carries the site's count
+    # '$testfnc' is the per-testcase function data, which still has the
+    #   function:  the master pass runs first (see _eraseFunctions)
+    my ($calls, $fcn, $source_file, $testfnc, $key) = @_;
+    foreach my $site ($fcn->callSiteKeys()) {
+        my (undef, undef, undef, $count, $callee) = $fcn->callSiteData($site);
+        push(@$calls,
+             lcovutil::external_call($source_file, $callee, $count,
+                                     $testfnc, $key, $site));
+    }
+}
+
+sub _isDestructor($)
+{
+    # does this callee name look like a destructor - demangled ('Foo::~Foo()'),
+    #   Itanium-mangled ('_ZN3FooD1Ev' and the D0/D2 variants) or MSVC ('??1Foo@@')
+    my $name = shift;
+    return $name =~ /(^|::)~/ ||
+        $name =~ /^_Z.*D[0-5]Ev$/ ||
+        $name =~ /^\?\?1/;
+}
+
+sub _filterBraceCallSites
+{
+    # The 'brace' filter on a closing brace which has call sites on it - which
+    #   the per-testcase line loop of _filterFile leaves alone, because a line
+    #   with a coverpoint of another kind is not one it may suppress.  The calls
+    #   made on a line which is nothing but a closing brace are mostly the
+    #   destructors of the objects which go out of scope there (and their
+    #   unwind copies), and only those count here.  Whatever else a compiler
+    #   keys to the brace - '_Unwind_Resume', '__cxa_end_catch' at the end of a
+    #   'catch', '__stack_chk_fail', '__cyg_profile_func_exit', sanitizer
+    #   calls - neither triggers nor blocks a rule:  many of those are normally
+    #   never made, so their zero says nothing about the scope.  A closing
+    #   brace with a zero count, whose preceding executable line was hit, and
+    #   which has at least one destructor call:
+    #   - if any of its destructor calls was taken, the line was executed:  its
+    #     count becomes the smallest non-zero count among those calls
+    #   - if none was taken, the line is removed - with every call site on it -
+    #     provided that every other line of the function was executed:  every
+    #     constructor was then called too, so the destructors should have been,
+    #     and were probably missed because an object was constructed in place.
+    #     The other lines which this rule is judging are not held against it,
+    #     so that two nested scopes do not block each other.  A function whose
+    #     end line is not known is not judged, and neither is a line where a
+    #     destructor call's count is not known ('-')
+    #   A closing brace whose only calls are to non-destructors is judged by the
+    #     rules for a brace with no call site at all - suppressCloseBrace - and
+    #     loses its call sites along with the line.
+    # Decided on the summary rather than per testcase, as the line loop does:  a
+    #   line is either in the report or not, whatever any one testcase says, and
+    #   the summary is what says whether a destructor ran at all.  A count which
+    #   is adjusted is adjusted in each testcase from that testcase's own call
+    #   counts, and the summary is their sum.  Removed call sites are recorded
+    #   on their callees, as every other removal of a site is
+    # Returns true if anything changed
+    my ($srcReader, $source_file, $traceInfo, $aliased, $brace) = @_;
+    my ($testdata, $sumcount, $funcdata, $checkdata,
+        $testfncdata, $testbrdata, $sumbrcount, $mcdc) = $traceInfo->get_info();
+    return 0 unless defined($funcdata) && defined($sumcount);
+
+    # the sites of each line of this file:  [function key, site key, count,
+    #   callee, function entry] - from the summary, which holds the merged count
+    my %sites;
+    foreach my $key ($funcdata->keylist()) {
+        my $entry = $funcdata->findKey($key);
+        foreach my $site ($entry->callSiteKeys()) {
+            my ($line, undef, undef, $count, $callee, $file) =
+                $entry->callSiteData($site);
+            next if defined($file);
+            push(@{$sites{$line}}, [$key, $site, $count, $callee, $entry]);
+        }
+    }
+    my %action;    # line => 'adjust', 'missed' or 'plain'
+    my %destructors;
+    foreach my $line (keys(%sites)) {
+        my $count = $sumcount->value($line);
+        next
+            unless defined($count) &&
+            $srcReader->isCharacter($line, '}') &&
+            0 == $srcReader->isExcluded($line);
+        next
+            if (defined($sumbrcount) && defined($sumbrcount->value($line))) ||
+            (defined($mcdc) && defined($mcdc->value($line)));
+        my @dtor = grep({ _isDestructor($_->[3]) } @{$sites{$line}});
+        if (!@dtor) {
+            $action{$line} = 'plain'
+                if $srcReader->suppressCloseBrace($line, $count, $sumcount);
+            next;
+        }
+        next unless $count == 0;
+        my $prev;
+        for (my $l = $line - 1; $l > 0 && !defined($prev); --$l) {
+            $prev = $sumcount->value($l);
+        }
+        next unless defined($prev) && $prev > 0;
+        $destructors{$line} = \@dtor;
+        if (grep({ lcovutil::site_count_hit($_->[2]) } @dtor)) {
+            $action{$line} = 'adjust';
+        } elsif (!grep({ $_->[2] eq '-' } @dtor)) {
+            $action{$line} = 'missed';
+        }
+    }
+    # ..a destructor call which was missed is only forgiven in a function all
+    #   of whose other lines ran
+    foreach my $line (grep({ $action{$_} eq 'missed' } keys(%action))) {
+        foreach my $s (@{$destructors{$line}}) {
+            my $entry = $s->[4];
+            my ($first, $last) = ($entry->line(), $entry->end_line());
+            my @missed;
+            @missed = grep(
+                       { $_ >= $first &&
+                               $_ <= $last &&
+                               !exists($action{$_}) &&
+                               0 == $sumcount->value($_) } $sumcount->keylist())
+                if defined($last);
+            if (!defined($last) || @missed) {
+                delete($action{$line});
+                last;
+            }
+        }
+    }
+    return 0 unless %action;
+
+    my @removedCalls;
+    foreach my $line (sort({ $a <=> $b } keys(%action))) {
+        lcovutil::info(2,
+                       "filter DA (" .
+                           $brace->[0] . ") '" .
+                           $srcReader->getLine($line) .
+                           "' $source_file:$line ($action{$line})\n");
+        ++$brace->[-2];    # one location where this applied
+        ++$brace->[-1];    # one coverpoint:  the line
+        if ('adjust' eq $action{$line}) {
+            my $total = 0;
+            foreach my $tn ($testdata->keylist()) {
+                my $d = $testdata->value($tn);
+                next unless defined($d->value($line));
+                my $map = $testfncdata->value($tn);
+                my $min;
+                foreach my $s (@{$destructors{$line}}) {
+                    my $f = defined($map) ? $map->findKey($s->[0]) : undef;
+                    next unless defined($f);
+                    my (undef, undef, undef, $c) = $f->callSiteData($s->[1]);
+                    next unless defined($c) && lcovutil::site_count_hit($c);
+                    $min = $c if !defined($min) || $c < $min;
+                }
+                next unless defined($min);
+                $d->remove($line);
+                $d->append($line, $min, 1);
+                $total = lcovutil::add_count($total, $min);
+            }
+            unless ($aliased->{TraceInfo::LINE_DATA}) {
+                $sumcount->remove($line);
+                $sumcount->append($line, $total, 1);
+            }
+            next;
+        }
+        # the line goes, and every call on it:  recorded on the callees first,
+        #   while the sites are still there to be read
+        foreach my $s (@{$sites{$line}}) {
+            my ($key, $site, $count, $callee) = @$s;
+            push(@removedCalls,
+                 lcovutil::external_call($source_file, $callee, $count,
+                                         $testfncdata, $key, $site));
+            ++$brace->[-1];    # ..and one per call site
+            foreach my $tn ($testfncdata->keylist()) {
+                my $f = $testfncdata->value($tn)->findKey($key);
+                $f->_removeSite($site) if $f;
+            }
+            unless ($aliased->{TraceInfo::FUNCTION_DATA}) {
+                my $f = $funcdata->findKey($key);
+                $f->_removeSite($site) if $f;
+            }
+        }
+        foreach my $tn ($testdata->keylist()) {
+            $testdata->value($tn)->remove($line, 1);    # remove if present
+        }
+        $sumcount->remove($line) unless $aliased->{TraceInfo::LINE_DATA};
+        $checkdata->remove($line) if $checkdata->mapped($line);
+    }
+    $traceInfo->noteExternalCalls(\@removedCalls) if @removedCalls;
+    return 1;
+}
+
 sub _eraseFunctions
 {
-    my ($source_file, $srcReader, $functionMap, $lineData, $branchData,
-        $mcdcData, $checksum, $state, $isMasterList) = @_;
+    my ($source_file, $srcReader, $functionMap, $lineData,
+        $branchData, $mcdcData, $checksum, $state,
+        $isMasterList, $externalCalls, $testfnc) = @_;
 
     my $modified      = 0;
     my $removeTrivial = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
+    # A function erased here leaves the boundary of the report, and the callees
+    #   it called - which have not left it - are told that they have a caller
+    #   outside it:  the '--erase-functions' case of
+    #   FunctionAlias::has_external_callers, and the same answer removing the
+    #   whole file would have given (TraceFile::remove).  Master pass only:  the
+    #   per-testcase maps hold the same sites and would record every call again.
+    # '%wasLocal' is the set of names this file defined BEFORE anything was
+    #   erased, which is what tells a call to a function which survives from a
+    #   call to a local definition which is being erased as well:  there the
+    #   callee is gone too, so there is nothing for the call to be a fact about,
+    #   and an unrelated definition of the same name in another file must not
+    #   answer for it
+    my $noteCalls = $lcovutil::callgraph_coverage &&
+        $isMasterList &&
+        defined($externalCalls);
+    my @erasedCalls;
+    my %wasLocal;
+    %wasLocal = map({ ($_ => 1) } $functionMap->list_functions()) if $noteCalls;
     FUNC: foreach my $key ($functionMap->keylist()) {
         my $fcn      = $functionMap->findKey($key);
         my $end_line = $fcn->end_line();
@@ -10450,7 +13561,7 @@ sub _eraseFunctions
             lcovutil::info(1, "no end line for '$name' at $key\n");
         } elsif (
                defined($removeTrivial) &&
-               is_language('c', $source_file) &&
+               is_language(lcovutil::IS_C, $source_file) &&
                (defined($srcReader) &&
                 $srcReader->containsTrivialFunction($fcn->line(), $end_line))
         ) {
@@ -10458,7 +13569,11 @@ sub _eraseFunctions
             # Only count what we removed from the top level/master list -
             #   - otherwise, we double count for every testcase.
             ++$removeTrivial->[-2] if $isMasterList;
-            foreach my $alias (keys %{$fcn->aliases()}) {
+            # before the erasing, which is the last moment the sites exist - and
+            #   once for the whole entry, which is what each alias of it removes
+            _noteErasedCalls(\@erasedCalls, $fcn, $source_file, $testfnc, $key)
+                if $noteCalls;
+            foreach my $alias ($fcn->aliasNames()) {
                 lcovutil::info(1,
                       "\"$source_file\":$end_line: filter trivial FN $alias\n");
                 _eraseFunction($fcn, $alias, $end_line,
@@ -10471,8 +13586,7 @@ sub _eraseFunctions
         }
         foreach my $p (@lcovutil::exclude_function_patterns) {
             my $pat = $p->[0];
-            my $a   = $fcn->aliases();
-            foreach my $alias (keys %$a) {
+            foreach my $alias ($fcn->aliasNames()) {
                 if ($alias =~ $pat) {
                     ++$p->[-1] if $isMasterList;
                     if (defined($end_line)) {
@@ -10486,6 +13600,9 @@ sub _eraseFunctions
                                       ":$end_line] due to '" .
                                       $p->[-2] . "'\n");
                     }
+                    _noteErasedCalls(\@erasedCalls, $fcn, $source_file,
+                                     $testfnc, $key)
+                        if $noteCalls;
                     _eraseFunction($fcn, $alias, $end_line,
                                    $source_file, $functionMap, $lineData,
                                    $branchData, $mcdcData, $checksum);
@@ -10505,7 +13622,6 @@ sub _eraseFunctions
             0 != ($reason & $srcReader->e_UNREACHABLE) &&
             0 != $fcn->hit()
         ) {
-
             lcovutil::ignorable_error($lcovutil::ERROR_UNREACHABLE,
                 "\"$source_file\":$line:  function $name is executed but was marked unreachable."
             );
@@ -10514,6 +13630,12 @@ sub _eraseFunctions
         }
 
     }    # foreach function
+         # ..and now that the erasing is done, the calls whose callee outlived
+         #   the caller - see '%wasLocal' above
+    push(@$externalCalls,
+         grep(
+             { !$wasLocal{$_->[1]} || defined($functionMap->findName($_->[1])) }
+             @erasedCalls)) if @erasedCalls;
     return $modified;
 }
 
@@ -10703,23 +13825,705 @@ sub _fixFunction
     my @fix = values(%fix);
 
     foreach my $f (@fix) {
-        $f->[FunctionEntry::COUNT] = $count;
+        $f->set_hit($count);
 
         # and mark that each alias was hit...
-        my $aliases = $f->aliases();
-        foreach my $alias (keys %$aliases) {
-            $aliases->{$alias} += $count;
+        foreach my $alias ($f->aliasNames()) {
+            my $data = $f->alias($alias);
+            $data->set_count($data->count() + $count);
         }
+    }
+}
+
+# The source of the file a consistency check, if it can be had:
+#   'srcReader' itself if that is the file it holds already, else 'srcReader'
+#   opened on the file - or undef if the file is not there to be read
+sub _consistencySource
+{
+    my ($traceInfo, $srcReader) = @_;
+    return undef unless defined($srcReader);
+    my $filename = $traceInfo->filename();
+    return $srcReader
+        if ($srcReader->notEmpty() &&
+            $srcReader->filename() eq $filename);
+    return undef
+        unless ($srcReader->isRecoveredBaselineFile($filename) ||
+                -e ReadCurrentSource::resolve_path($filename));
+    return $srcReader->open($filename) ? $srcReader : undef;
+}
+
+# Is the branch/line consistency check of line 'line' suppressed, because
+#   'ignore_lambda_consistency' is enabled and the line holds a lambda?  A
+#   lambda's body may be on the line which defines it, so the line's count and
+#   the counts of the branches on it need not be about the same code.
+#   C/C++ and Java only:  the lambda is found by the name of a function which
+#   starts on the line, or else in the source of the line
+sub _lambdaSuppressed
+{
+    my ($traceInfo, $srcReader, $line) = @_;
+    return 0 unless $lcovutil::ignore_lambda_consistency;
+    my $filename = $traceInfo->filename();
+    my $lang     = language($filename);
+    return 0 unless ($lang & (lcovutil::IS_C | lcovutil::IS_JAVA));
+
+    my $found = 0;
+    my $func  = $traceInfo->func()->findKey($line);
+    if (defined($func)) {
+        $found = $func->isLambda()
+            ||
+            grep({ ($lang & lcovutil::IS_C) ?
+                         ($_ =~ /\{lambda\(/ || $_ =~ /^_Z.*Ul\w*?E\d*_/) :
+                         $_ =~ /\.lambda\$/ } $func->aliasNames());
+    }
+    unless ($found) {
+        my $reader = _consistencySource($traceInfo, $srcReader);
+        $found = defined($reader) && $reader->containsLambda($line);
+    }
+    return 0 unless $found;
+    lcovutil::info(1,
+        "\"$filename\":$line: lambda detected, consistency check suppressed\n");
+    return 1;
+}
+
+# move the branch data of line 'from' of BranchData 'map' to line 'to', after
+#   any branch blocks already there
+sub _moveBranches
+{
+    # each block remembers the line it is written at - see
+    #   BranchBlock::locationOffset
+    my ($map, $from, $to) = @_;
+    my $location = $map->value($from);
+    return unless defined($location);
+    # copies:  the blocks belong to the location they are removed with
+    my @blocks = map({ Storable::dclone($_) } $location->blocks());
+    my ($found, $hit) = $location->totals();
+    $map->remove($from);
+    foreach my $block (@blocks) {
+        $block->setLocationOffset($from + $block->locationOffset() - $to);
+        $map->insertBlock($block, $to);
+    }
+    $map->adjust_counts($found, $hit);
+}
+
+# Can the branch and MC/DC data of line 'from' of the BranchData and MCDC_Data
+#   in 'maps' be moved to line 'to', so that each block still knows the line it
+#   is written at?  See BranchBlock::MAX_LOCATION_OFFSET
+sub _locationsFit
+{
+    my ($from, $to, @maps) = @_;
+    foreach my $map (@maps) {
+        next unless defined($map);
+        my $data = $map->value($from);
+        next unless defined($data);
+        my @offsets =
+            'BranchLocation' eq ref($data) ?
+            map({ $_->locationOffset() } $data->blocks()) :
+            $data->locationOffsets();
+        foreach my $offset (@offsets) {
+            return 0
+                if abs($from + $offset - $to) >
+                BranchBlock::MAX_LOCATION_OFFSET;
+        }
+    }
+    return 1;
+}
+
+# move the MC/DC data of line 'from' of MCDC_Data 'map' to line 'to'.  Each
+#   group keeps the line it is written at - see MCDC_Block::groupKey - so it
+#   is merged only into a group of line 'to' of the same size and location
+sub _moveMCDC
+{
+    my ($traceInfo, $map, $from, $to) = @_;
+    my $block = $map->value($from);
+    return unless defined($block);
+    # read everything before the block is removed with its line
+    my @expr;
+    my $groups = $block->groups();
+    foreach my $key (sort keys(%$groups)) {
+        my ($size, $offset) = MCDC_Block::parseGroupKey($key);
+        my $moved = MCDC_Block::groupKey($size, $from + $offset - $to);
+        foreach my $e (@{$groups->{$key}}) {
+            push(@expr,
+                 [$moved, $_,
+                  $e->count($_), $e->index(),
+                  $e->expression(), $e->is_excluded($_)
+                 ]) foreach (0, 1);
+        }
+    }
+    $map->remove($from);
+    my $target = $map->new_mcdc($traceInfo, $to);
+    my ($oldFound, $oldHit) = $target->totals();
+    my $filename = $traceInfo->filename();
+    foreach my $e (@expr) {
+        my ($size, $sense, $count, $idx, $text, $excluded) = @$e;
+        $target->insertExpr($filename, $size, $sense, $count,
+                            $idx, $text, $excluded);
+    }
+    my ($found, $hit) = $target->totals();
+    $map->adjust_counts($found - $oldFound, $hit - $oldHit);
+}
+
+# The lines of the statement 'first'..'last' cannot be distinguished if one of
+#   them is excluded ('flags':  see 'ReadCurrentSource::isExcluded'), or may
+#   start or end an exclusion:  the filters which apply exclusions may not have
+#   read the source yet
+sub _statementExcluded
+{
+    my ($reader, $first, $last, $flags) = @_;
+    my $markers = join('|',
+                       map({ quotemeta($_) } $lcovutil::EXCL_START,
+                           $lcovutil::EXCL_STOP,
+                           $lcovutil::EXCL_LINE,
+                           $lcovutil::EXCL_BR_START,
+                           $lcovutil::EXCL_BR_STOP,
+                           $lcovutil::EXCL_BR_LINE,
+                           $lcovutil::EXCL_EXCEPTION_BR_START,
+                           $lcovutil::EXCL_EXCEPTION_BR_STOP,
+                           $lcovutil::EXCL_EXCEPTION_LINE,
+                           $lcovutil::UNREACHABLE_START,
+                           $lcovutil::UNREACHABLE_STOP,
+                           $lcovutil::UNREACHABLE_LINE));
+    for (my $l = $first; $l <= $last; ++$l) {
+        return 1
+            if ($reader->isExcluded($l, $flags) ||
+                $reader->getLine($l) =~ /\b($markers)\b/);
+    }
+    return 0;
+}
+
+# Can a continuation line with count $count be merged into an anchor with
+#   count $anchor (which may be undef)?  Yes if the line is not hit, or if both
+#   are hit and the line no more often than the anchor
+sub _continuationMergeable
+{
+    my ($count, $anchor) = @_;
+    return !$count || ($anchor && $count <= $anchor);
+}
+
+# move the line coverpoint at line 'from' of 'traceInfo' to line 'to' - in the
+#   summary and in each testcase, which may be the same map - with its checksum
+sub _moveLine
+{
+    my ($traceInfo, $reader, $from, $to) = @_;
+    my $sum      = $traceInfo->sum();
+    my $sumAddr  = Scalar::Util::refaddr($sum);
+    my $testcase = $traceInfo->test();
+    foreach my $map ((grep({ Scalar::Util::refaddr($_) != $sumAddr }
+                           map({ $testcase->value($_) } $testcase->keylist())),
+                      $sum
+    )) {
+        my $count = $map->value($from);
+        next unless defined($count);
+        $map->remove($from);
+        $map->append($to, $count, 1);
+    }
+    my $checksum = $traceInfo->check();
+    if ($checksum->mapped($from)) {
+        $checksum->remove($from);
+        my $content = $reader->getLine($to);
+        $checksum->replace($to, Digest::MD5::md5_base64($content))
+            if defined($content);
+    }
+}
+
+# Fold the coverpoints of each line 'from' of 'traceInfo' into line 'to', for
+#   each 'from => [to, branches, mcdc]' of 'fold':  the line coverpoint takes
+#   the greater of the two counts - in the summary and in each testcase, which
+#   may be the same map - and the branch and MC/DC data of the line are moved
+#   if 'branches' and 'mcdc' say so and every block still fits.  The checksum
+#   of 'from' is dropped:  there is no source to compute the checksum of 'to'
+#   from, and 'to' keeps its own.
+# This is a baseline seen through the statements of current data which
+#   'merge_continuation_lines' produced - see genhtml's
+#   '_foldBaselineStatements' - so the greater count, not the sum:  a
+#   continuation line counts the same executions of the statement as its first
+#   line does, which is why '_continuationLineMerge' keeps the statement
+#   line's count
+sub foldContinuationLines
+{
+    my ($traceInfo, $fold) = @_;
+    my $sum      = $traceInfo->sum();
+    my $sumAddr  = Scalar::Util::refaddr($sum);
+    my $testcase = $traceInfo->test();
+    my $checksum = $traceInfo->check();
+    my $brData   = $lcovutil::br_coverage ? $traceInfo->sumbr() : undef;
+    my $mcdc     = $lcovutil::mcdc_coverage ? $traceInfo->mcdc() : undef;
+    foreach my $from (sort({ $a <=> $b } keys(%$fold))) {
+        my ($to, $branches, $conditions) = @{$fold->{$from}};
+        foreach my $map ((
+                        grep({ Scalar::Util::refaddr($_) != $sumAddr }
+                            map({ $testcase->value($_) } $testcase->keylist())),
+                        $sum
+        )) {
+            my $count = $map->value($from);
+            next unless defined($count);
+            $map->remove($from);
+            my $target = $map->value($to);
+            next if defined($target) && $target >= $count;
+            $map->remove($to) if defined($target);
+            $map->append($to, $count, 1);
+        }
+        $checksum->remove($from) if $checksum->mapped($from);
+        $branches   = 0 unless defined($brData);
+        $conditions = 0 unless defined($mcdc);
+        next
+            unless (($branches || $conditions)
+                    &&
+                    _locationsFit($from,
+                                  $to,
+                                  $branches ? $brData : undef,
+                                  $conditions ? $mcdc : undef));
+        if ($branches) {
+            my $addr = Scalar::Util::refaddr($brData);
+            my $tbr  = $traceInfo->testbr();
+            foreach my $tn ($tbr->keylist()) {
+                my $m = $tbr->value($tn);
+                _moveBranches($m, $from, $to)
+                    unless Scalar::Util::refaddr($m) == $addr;
+            }
+            _moveBranches($brData, $from, $to);
+        }
+        if ($conditions) {
+            my $addr = Scalar::Util::refaddr($mcdc);
+            my $tm   = $traceInfo->testcase_mcdc();
+            foreach my $tn ($tm->keylist()) {
+                my $m = $tm->value($tn);
+                _moveMCDC($traceInfo, $m, $from, $to)
+                    unless Scalar::Util::refaddr($m) == $addr;
+            }
+            _moveMCDC($traceInfo, $mcdc, $from, $to);
+        }
+    }
+}
+
+# Does line 'line' of 'reader' hold nothing but a '{' or a '}', once comments
+#   are removed?
+sub _bareBrace
+{
+    my ($reader, $line, $perl) = @_;
+    my $code = $reader->getLine($line);
+    return 0 unless defined($code);
+    $code = ReadCurrentSource::removeComments($code);
+    $code =~ s/#.*$// if $perl;
+    return $code =~ /^\s*[{}]\s*$/;
+}
+
+# The last line of the statement 'first'..'last', less the lines at its end
+#   which hold nothing but a brace and have no line coverpoint in 'lineData' -
+#   none from the coverage tool, or one which a filter removed:  the '{' which
+#   opens the block after a function's declaration or a control statement's
+#   header, or the '}' which closes a block.  The brace says nothing about the
+#   statement, so the statement does not include it.  A line which holds more
+#   than the brace - '{}', '};', '} else {' - is part of the statement.
+#   A statement does not start with a '{':  that ends the statement before it.
+sub _trimBraces
+{
+    my ($lineData, $reader, $perl, $first, $last) = @_;
+    --$last
+        while ($last > $first &&
+               !defined($lineData->value($last)) &&
+               _bareBrace($reader, $last, $perl));
+    return $last;
+}
+
+# The spans of 'traceInfo', less the brace lines at their end which have no
+#   line coverpoint now - see '_trimBraces':  a filter may have removed the
+#   coverpoint of a '}' after the spans were found.  A span which is left
+#   with one line is removed.
+# Returns non-zero if a span was changed.
+sub _trimSpans
+{
+    my ($traceInfo, $srcReader) = @_;
+    my $span = $traceInfo->span();
+    return 0 unless 0 != $span->entries();
+    my $reader = _consistencySource($traceInfo, $srcReader);
+    return 0 unless defined($reader);
+    my $lineData = $traceInfo->sum();
+    my $perl     = is_language(lcovutil::IS_PERL, $traceInfo->filename());
+    my $changed  = 0;
+
+    foreach my $line ($span->keylist()) {
+        my $end  = $span->value($line);
+        my $last = _trimBraces($lineData, $reader, $perl, $line, $end);
+        next if $last == $end;
+        if ($last > $line) {
+            $span->replace($line, $last);
+        } else {
+            $span->remove($line);
+        }
+        $changed = 1;
+    }
+    return $changed;
+}
+
+# 'merge_continuation_lines', the line coverpoints:  each line coverpoint
+#   counts a statement, which may be split across lines (see
+#   'ReadCurrentSource::statementSpan').  The coverpoint is put on the first
+#   line of the statement, and its span - the lines of the statement - is
+#   recorded:  see 'TraceInfo::span'.
+#   The coverage tool may write more than one line coverpoint for a statement.
+#   A coverpoint on a later line is an artifact of the tool if its count is 0,
+#   or if both it and the coverpoint it would be merged into are hit and its
+#   count is not greater - in the summary and in each testcase (see
+#   '_continuationMergeable').  It is removed - from the summary and from each
+#   testcase - so that the statement is reported once.  The remaining
+#   coverpoint's count does not change.
+#   One which cannot be merged - e.g., the condition of a loop whose header is
+#   split across lines, whose branches would be taken more often than the
+#   line they are moved to is executed - starts a new segment of the
+#   statement:  the statement is partitioned, and each segment is a statement
+#   of its own from here on.  So does a line which is the start line of a
+#   function.
+#   The span of a segment ends at the line before the next one, or at the
+#   last line of the statement.  A brace line at the end of the statement
+#   which has no line coverpoint is not part of it - see '_trimBraces'.
+# A statement which has an excluded line, or a line which may start or end an
+#   exclusion, is left alone:  its lines are not one statement.
+# The branch and MC/DC data and the call sites of a line whose coverpoint is
+#   removed or moved go to its segment's coverpoint afterward, by
+#   '_statementBranchMerge' and '_statementCallSiteMerge'.
+# A file which has spans already - read from a '.info' file which was
+#   written with 'merge_continuation_lines' - was merged when the spans were
+#   found, and is left alone.
+# Returns non-zero if the data was changed.
+sub _continuationLineMerge
+{
+    my ($traceInfo, $srcReader) = @_;
+    my $filename = $traceInfo->filename();
+    return 0
+        unless ($lcovutil::merge_continuation_lines &&
+                is_language(lcovutil::STATEMENT_LANGUAGES, $filename));
+    my $span = $traceInfo->span();
+    return 0 if 0 != $span->entries();
+
+    my $lineData = $traceInfo->sum();
+    my @lines    = sort { $a <=> $b } $lineData->keylist();
+    return 0 unless @lines;
+    my $reader = _consistencySource($traceInfo, $srcReader);
+    return 0 unless defined($reader);
+
+    my $func     = $traceInfo->func();
+    my $testcase = $traceInfo->test();
+    # branch and MC/DC data
+    my @other;
+    push(@other, $traceInfo->sumbr()) if $lcovutil::br_coverage;
+    push(@other, $traceInfo->mcdc()) if $lcovutil::mcdc_coverage;
+    my $flags = ReadCurrentSource::e_LINE;
+    $flags |= ReadCurrentSource::e_CALLGRAPH if $lcovutil::callgraph_coverage;
+    my $perl = is_language(lcovutil::IS_PERL, $filename);
+
+    my $changed = 0;
+    my $done    = 0;    # the last line which is part of a statement seen
+    for (my $i = 0; $i < @lines;) {
+        # a statement does not take in a coverpoint seen already
+        $done = $lines[$i - 1] if ($i && $lines[$i - 1] > $done);
+        my $line = $lines[$i++];
+        my ($first, $last) = $reader->statementSpan($line);
+        # a statement which starts after the '}' which closes the block before
+        #   it is found from its next line - within the same lookahead window
+        unless (defined($first)) {
+            ($first, $last) = $reader->statementSpan($line + 1);
+            $first = undef
+                if (defined($first) &&
+                    ($first != $line ||
+                     $last - $line > $lcovutil::source_filter_lookahead));
+        }
+        next
+            unless (defined($first) &&
+                    $first < $last &&
+                    $first > $done &&
+                    $last - $first <= MAX_SPAN_OFFSET);
+        $last = _trimBraces($lineData, $reader, $perl, $first, $last);
+        next unless $first < $last;
+        $done = $last;
+        # the line coverpoints of the statement
+        my @da = ($line);
+        push(@da, $lines[$i++]) while ($i < @lines && $lines[$i] <= $last);
+
+        my $f = $flags;
+        for (my $l = $first; $l <= $last; ++$l) {
+            if (grep({ defined($_->value($l)) } @other)) {
+                $f |= ReadCurrentSource::e_BRANCH;
+                last;
+            }
+        }
+        next if _statementExcluded($reader, $first, $last, $f);
+
+        my @segment = (shift(@da));    # the coverpoint of each segment
+        my %target;                    # the segments a line was merged into
+        foreach my $l (@da) {
+            my $to = $segment[-1];
+            # a function's start line starts a segment of its own
+            my $mergeable = !defined($func->findKey($l));
+            $mergeable &&=
+                _continuationMergeable($lineData->value($l),
+                                       $lineData->value($to));
+            foreach my $tn ($testcase->keylist()) {
+                last unless $mergeable;
+                my $data = $testcase->value($tn);
+                my $c    = $data->value($l);
+                $mergeable = !defined($c) ||
+                    _continuationMergeable($c, $data->value($to));
+            }
+            unless ($mergeable) {
+                push(@segment, $l);
+                next;
+            }
+            # the summary may be one of the testcases:  'remove' only if
+            #   present
+            $lineData->remove($l, 1);
+            $testcase->value($_)->remove($l, 1) foreach ($testcase->keylist());
+            $traceInfo->check()->remove($l, 1);
+            lcovutil::info(1,
+                "\"$filename\":$l: merged continuation line coverpoint into statement line $to\n"
+            );
+            ++$lcovutil::continuation_lines_merged;
+            $target{$#segment} = 1;
+            $changed = 1;
+        }
+        $lcovutil::continuation_merge_targets += scalar(keys(%target));
+        # the first segment starts where the statement does - unless its
+        #   coverpoint is a function's, or has branch or MC/DC data which
+        #   could not say where it is written
+        my $start = $segment[0];
+        if ($start > $first &&
+            !defined($func->findKey($start)) &&
+            _locationsFit($start, $first, @other)) {
+            _moveLine($traceInfo, $reader, $start, $first);
+            lcovutil::info(1,
+                "\"$filename\":$start: moved line coverpoint to statement line $first\n"
+            );
+            $segment[0] = $first;
+            $changed = 1;
+        }
+        my @range;
+        for (my $s = 0; $s < @segment; ++$s) {
+            my $begin = $segment[$s];
+            my $end   = $s + 1 < @segment ? $segment[$s + 1] - 1 : $last;
+            push(@range, $begin == $end ? $begin : "$begin-$end");
+            next unless $end > $begin;
+            $span->replace($begin, $end);
+            $changed = 1;
+        }
+        lcovutil::info(1,
+                       "\"$filename\":$first: statement $first-$last " .
+                           "partitioned into " .
+                           join(', ', @range) . "\n") if 1 < scalar(@segment);
+    }
+    return $changed;
+}
+
+# 'merge_continuation_lines', the call site coverpoints:  a call written on a
+#   line which has no line coverpoint - a later line of a statement split
+#   across lines, typically, or a line whose coverpoint
+#   '_continuationLineMerge' removed - belongs to the statement the line is
+#   part of.  Its coverpoint is allocated to the line coverpoint whose
+#   statement span the line is in (see 'TraceInfo::span'):  that is its
+#   statement line - see
+#   FunctionEntry::SITE_STATEMENT - in the summary and in each testcase.  The
+#   site still says where the call is written, which is where a reader is taken
+#   to see it.  A call written in another file, and a site which has a
+#   statement line already, are left alone.
+# Returns the number of call sites given a statement line.
+sub _statementCallSiteMerge
+{
+    my ($traceInfo, $srcReader) = @_;
+    my $filename = $traceInfo->filename();
+    return 0
+        unless ($lcovutil::merge_continuation_lines &&
+                $lcovutil::callgraph_coverage &&
+                is_language(lcovutil::STATEMENT_LANGUAGES, $filename));
+
+    my $lineData = $traceInfo->sum();
+    my $func     = $traceInfo->func();
+    my @candidate;    # [function key, site key, line]
+    foreach my $key ($func->keylist()) {
+        my $entry = $func->findKey($key);
+        foreach my $site ($entry->sortedCallSiteKeys()) {
+            my ($line, undef, undef, undef, undef, $file, undef, $statement) =
+                $entry->callSiteData($site);
+            push(@candidate, [$key, $site, $line])
+                unless (defined($file) ||
+                        defined($statement) ||
+                        defined($lineData->value($line)));
+        }
+    }
+    return 0 unless @candidate;
+    my $anchor = $traceInfo->spanOwners();
+    return 0 unless %$anchor;
+
+    my $testcase = $traceInfo->testfnc();
+    my $moved    = 0;
+    foreach my $c (@candidate) {
+        my ($key, $site, $line) = @$c;
+        my $to = $anchor->{$line};
+        next
+            unless (defined($to) &&
+                    abs($to - $line) <= FunctionEntry::MAX_STATEMENT_OFFSET);
+        # the summary may be one of the testcases:  setting it twice is
+        #   harmless
+        foreach
+            my $map ($func, map({ $testcase->value($_) } $testcase->keylist()))
+        {
+            my $entry = $map->findKey($key);
+            $entry->_setSiteStatement($site, $to) if defined($entry);
+        }
+        lcovutil::info(1,
+            "\"$filename\":$line: allocated call site $site coverpoint to statement line $to\n"
+        );
+        ++$moved;
+    }
+    return $moved;
+}
+
+# 'merge_continuation_lines', the branch and MC/DC coverpoints:  a branch or
+#   MC/DC coverpoint on a line which has no line coverpoint - a later line of a
+#   condition split across lines, typically, or a line whose coverpoint
+#   '_continuationLineMerge' removed - belongs to the statement the line is
+#   part of.
+#   Move it to the line coverpoint whose statement span the line is in (see
+#   'TraceInfo::span'), and check that the counts on that line agree
+#   afterward (see '_checkMergedLines').  Lines which are in no span are left
+#   where they are.
+# Returns a hash of the lines which received data -> the lines it came from.
+sub _statementBranchMerge
+{
+    my ($traceInfo, $srcReader) = @_;
+    my %merged;
+    my $filename = $traceInfo->filename();
+    return \%merged
+        unless ($lcovutil::merge_continuation_lines &&
+                ($lcovutil::br_coverage || $lcovutil::mcdc_coverage) &&
+                is_language(lcovutil::STATEMENT_LANGUAGES, $filename));
+
+    my $lineData = $traceInfo->sum();
+    my $brData   = $lcovutil::br_coverage ? $traceInfo->sumbr() : undef;
+    my $mcdc     = $lcovutil::mcdc_coverage ? $traceInfo->mcdc() : undef;
+    my %orphan;
+    foreach my $map ($brData, $mcdc) {
+        next unless defined($map);
+        foreach my $line ($map->keylist()) {
+            $orphan{$line} = 1 unless defined($lineData->value($line));
+        }
+    }
+    return \%merged unless %orphan;
+    my $anchor = $traceInfo->spanOwners();
+    return \%merged unless %$anchor;
+
+    foreach my $line (sort { $a <=> $b } keys(%orphan)) {
+        my $to = $anchor->{$line};
+        next unless (defined($to) && _locationsFit($line, $to, $brData, $mcdc));
+
+        # the summary and each testcase - which may be the same map
+        if (defined($brData)) {
+            my $sumAddr  = Scalar::Util::refaddr($brData);
+            my $testcase = $traceInfo->testbr();
+            foreach my $tn ($testcase->keylist()) {
+                my $m = $testcase->value($tn);
+                _moveBranches($m, $line, $to)
+                    unless Scalar::Util::refaddr($m) == $sumAddr;
+            }
+            _moveBranches($brData, $line, $to);
+        }
+        if (defined($mcdc)) {
+            my $sumAddr  = Scalar::Util::refaddr($mcdc);
+            my $testcase = $traceInfo->testcase_mcdc();
+            foreach my $tn ($testcase->keylist()) {
+                my $m = $testcase->value($tn);
+                _moveMCDC($traceInfo, $m, $line, $to)
+                    unless Scalar::Util::refaddr($m) == $sumAddr;
+            }
+            _moveMCDC($traceInfo, $mcdc, $line, $to);
+        }
+        lcovutil::info(1,
+            "\"$filename\":$line: merged branch/MC/DC data onto statement line $to\n"
+        );
+        push(@{$merged{$to}}, $line);
+    }
+    _checkMergedLines($traceInfo, $srcReader, \%merged);
+    return \%merged;
+}
+
+# Do the counts on each line which received data from '_statementBranchMerge'
+#   agree with each other?  The branches and MC/DC conditions on the line are
+#   all thought to be part of its statement now:
+#   - C/C++ counts:  no branch is taken more often than the statement is
+#     executed, and some branch is taken if the statement is executed
+#   - Python and Java hit/not-hit data:  a branch is taken exactly if the
+#     statement is executed
+#   - Perl:  a branch is taken only if the statement is executed
+#   - and in any language, an MC/DC condition is sensitized only if the
+#     statement is executed
+sub _checkMergedLines
+{
+    my ($traceInfo, $srcReader, $merged) = @_;
+    my $filename = $traceInfo->filename();
+    my $rule =
+        is_language(lcovutil::IS_PERL, $filename) ? 'perl' :
+        is_language(lcovutil::IS_PYTHON | lcovutil::IS_JAVA, $filename) ?
+        'boolean' :
+        'count';
+    my $lineData = $traceInfo->sum();
+    my $brData   = $lcovutil::br_coverage ? $traceInfo->sumbr() : undef;
+    my $mcdc     = $lcovutil::mcdc_coverage ? $traceInfo->mcdc() : undef;
+
+    foreach my $line (sort { $a <=> $b } keys(%$merged)) {
+        my $lineHit = $lineData->value($line);
+        my @reason;
+        my $location = defined($brData) ? $brData->value($line) : undef;
+        if (defined($location)) {
+            my $brHit = $location->hasHitElement(1);
+            if ($rule eq 'count') {
+                my $max = 0;
+                foreach my $blk ($location->blocks()) {
+                    foreach my $br (@{$blk->elements()}) {
+                        $max = $br->count() if $br->count() > $max;
+                    }
+                }
+                push(@reason,
+                    "largest branch hit count $max exceeds line hit count $lineHit"
+                ) if $max > $lineHit;
+            } elsif ($brHit && !$lineHit) {
+                push(@reason,
+                    'line is not hit but at least one branch on line has been evaluated'
+                );
+            }
+            push(@reason,
+                 'line is hit but no branches on line have been evaluated')
+                if ($lineHit && !$brHit && $rule ne 'perl');
+        }
+        my $block = defined($mcdc) ? $mcdc->value($line) : undef;
+        if (defined($block) && !$lineHit) {
+            my (undef, $hit) = $block->totals(1);
+            push(@reason, 'line is not hit but an MC/DC condition on line is')
+                if $hit;
+        }
+        next unless @reason;
+        next if _lambdaSuppressed($traceInfo, $srcReader, $line);
+        lcovutil::ignorable_error(
+                       $lcovutil::ERROR_INCONSISTENT_DATA,
+                       "\"$filename\":$line: after merging branch/MC/DC data " .
+                           'from line' .
+                           (1 < scalar(@{$merged->{$line}}) ? 's ' : ' ') .
+                           join(', ', @{$merged->{$line}}) .
+                           ' onto this statement: ' .
+                           join('; ', @reason) . '.' .
+                           _consistencySuffix());
     }
 }
 
 sub _checkConsistency
 {
     return unless $lcovutil::check_data_consistency;
-    my $traceInfo = shift;
-    my $modified  = 0;
+    my ($traceInfo, $srcReader) = @_;
+    my $modified = 0;
 
     my $start = Time::HiRes::gettimeofday();
+
+    # before anything which counts lines:  a line coverpoint which only
+    #   continues a statement is removed
+    $modified = 1 if _continuationLineMerge($traceInfo, $srcReader);
+    $modified = 1 if _statementCallSiteMerge($traceInfo, $srcReader);
 
     my @functions = sort { $a->line() <=> $b->line() }
         grep({ defined($_->end_line()) } $traceInfo->func()->valuelist());
@@ -10768,6 +14572,10 @@ sub _checkConsistency
                     $currentLine = shift(@lines);
                     next;
                 }
+                # a lambda on the line, with 'ignore_lambda_consistency' on:
+                #   the line's count need not be the function's, so neither
+                #   report nor fix it
+                last if _lambdaSuppressed($traceInfo, $srcReader, $currentLine);
                 my $suffix =
                     ($lcovutil::fix_inconsistency && lcovutil::is_ignored(
                                              $lcovutil::ERROR_INCONSISTENT_DATA)
@@ -10817,6 +14625,11 @@ sub _checkConsistency
         }
     }
 
+    # a branch or MC/DC coverpoint on a line without a line coverpoint which
+    #   belongs to a statement which has one is moved there
+    my $merged = _statementBranchMerge($traceInfo, $srcReader);
+    $modified = 1 if %$merged;
+
     # check MC/DC consistency -
     #   Note that we might have an MC/DC block on a line which has no
     #     linecov data
@@ -10859,13 +14672,15 @@ sub _checkConsistency
     # also check branch data consistency...should not have non-zero branch hit
     # count if line is not hit - and vice versa
     my $checkBranchConsistency =
-        !TraceFile::is_language('perl', $traceInfo->filename());
+        !TraceFile::is_language(lcovutil::IS_PERL, $traceInfo->filename());
     if ($lcovutil::br_coverage) {
         my $brData = $traceInfo->sumbr();
 
         foreach my $line ($brData->keylist()) {
             # we expect to find a line everywhere there is a branch
 
+            # checked when the data was merged
+            next if exists($merged->{$line});
             my $lineHit  = $lineData->value($line);
             my $location = $brData->value($line);
             unless (defined($lineHit)) {
@@ -10894,13 +14709,15 @@ sub _checkConsistency
                         $traceInfo->filename() .
                         "\":$line: line is hit but no branches on line have been evaluated."
                         . _consistencySuffix())
-                    if $checkBranchConsistency;
+                    if ($checkBranchConsistency &&
+                        !_lambdaSuppressed($traceInfo, $srcReader, $line));
             } elsif (!$lineHit && $brHit) {
                 lcovutil::ignorable_error($lcovutil::ERROR_INCONSISTENT_DATA,
                     '"' .
                         $traceInfo->filename() .
                         "\":$line: line is not hit but at least one branch on line has been evaluated."
-                        . _consistencySuffix());
+                        . _consistencySuffix())
+                    unless _lambdaSuppressed($traceInfo, $srcReader, $line);
             }
         }
     }
@@ -10914,33 +14731,67 @@ sub _checkConsistency
     return $modified;
 }
 
+sub _invokeExcludeCallback($$$$)
+{
+    # Ask the '--unreachable-script' callback about one coverpoint type, and turn
+    #   whatever it throws into an ignorable error naming the call which failed.
+    # The callback is handed the per-testcase collection before the summary:
+    #   that is the order the argument list has always had, and the order the
+    #   message below has to spell, or a user debugging a failing callback is
+    #   sent looking at the wrong argument
+    my ($type, $srcReader, $testCount, $sumCount) = @_;
+    my $callback = $lcovutil::excludeCoverpointCallback;
+    my $changed  = 0;
+    eval {
+        $changed = $callback->exclude($type, $srcReader, $testCount, $sumCount);
+    };
+    if ($@) {
+        my $class = ref($callback);
+        my $msg   = "\"unreachable\" callback $class->exclude($type, readSrc," .
+            " perTestDB, summaryDB) failed: $@";
+        lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK, $msg);
+        return 0;
+    }
+    return $changed;
+}
+
 sub _filterFile
 {
     my ($traceInfo, $source_file, $actions, $srcReader, $state) = @_;
 
+    # read first:  the consistency check uses the source too
+    my $context = MessageContext->new("filtering $source_file");
+    if (lcovutil::is_filter_enabled()) {
+        lcovutil::info(1, "reading $source_file for lcov filtering\n");
+        $srcReader->open($source_file);
+    } else {
+        $srcReader->close();
+    }
+
     my $modified = 0;
     if (0 != ($actions & DID_DERIVE)) {
         $modified = _deriveFunctionEndLines($traceInfo);
-        $modified = 1 if _checkConsistency($traceInfo);
-        if (0 == ($actions & DID_FILTER)) {
-            return [$traceInfo, $modified];
-        }
     }
-    my $region        = $cov_filter[$FILTER_EXCLUDE_REGION];
-    my $branch_region = $cov_filter[$FILTER_EXCLUDE_BRANCH];
-    my $range         = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
+    if (0 != ($actions & DID_CONSISTENCY)) {
+        $modified = 1 if _checkConsistency($traceInfo, $srcReader);
+    }
+    return ($traceInfo, $modified) if (0 == ($actions & DID_FILTER));
+    my $region           = $cov_filter[$FILTER_EXCLUDE_REGION];
+    my $branch_region    = $cov_filter[$FILTER_EXCLUDE_BRANCH];
+    my $callgraph_region = $cov_filter[$FILTER_EXCLUDE_CALLGRAPH];
+    my $range            = $cov_filter[$lcovutil::FILTER_LINE_RANGE];
     my $branch_histogram;
     $branch_histogram = $cov_filter[$FILTER_BRANCH_NO_COND]
-        if (is_language('c', $source_file));
+        if (is_language(lcovutil::IS_C, $source_file));
     my $brace_histogram;
     $brace_histogram = $cov_filter[$FILTER_LINE_CLOSE_BRACE]
-        if (is_language('c', $source_file));
+        if (is_language(lcovutil::IS_C, $source_file));
     my $blank_histogram          = $cov_filter[$FILTER_BLANK_LINE];
     my $function_alias_histogram = $cov_filter[$FILTER_FUNCTION_ALIAS];
     my $trivial_histogram        = $cov_filter[$FILTER_TRIVIAL_FUNCTION];
     my $filter_initializer_list;
     $filter_initializer_list = $cov_filter[$FILTER_INITIALIZER_LIST]
-        if (is_language('c', $source_file));
+        if (is_language(lcovutil::IS_C, $source_file));
     my $directive = $cov_filter[$FILTER_DIRECTIVE];
     my $omit;
     $omit = $cov_filter[$FILTER_OMIT_PATTERNS]
@@ -10949,13 +14800,6 @@ sub _filterFile
     $mcdc_single = $cov_filter[$FILTER_MCDC_SINGLE]
         if defined($FILTER_MCDC_SINGLE) && $lcovutil::mcdc_coverage;
 
-    my $context = MessageContext->new("filtering $source_file");
-    if (lcovutil::is_filter_enabled()) {
-        lcovutil::info(1, "reading $source_file for lcov filtering\n");
-        $srcReader->open($source_file);
-    } else {
-        $srcReader->close();
-    }
     my $path = ReadCurrentSource::resolve_path($source_file);
     lcovutil::info(1, "extractVersion($path) for $source_file\n")
         if $path ne $source_file;
@@ -10977,6 +14821,13 @@ sub _filterFile
         !lcovutil::checkVersionMatch($source_file, $traceInfo->version(),
                                      $fileVersion, 'filter')
     ) {
+        # not reached:  'checkVersionMatch' called without its 'silent'
+        #   argument never says no - a mismatch is an ERROR_VERSION, which
+        #   dies, unless the user ignores it, and then the mismatch is ignored
+        #   and the answer is yes.
+        # The block is not marked LCOV_UNREACHABLE:  Devel::Cover can
+        #   attribute the counts of the merged per-test databases of the
+        #   regression suite to the wrong lines, and has reported hits here.
         lcovutil::info(1,
                       "$source_file: skip filtering due to version mismatch\n");
         return ($traceInfo, 0);
@@ -11006,12 +14857,19 @@ sub _filterFile
         my $reader     = (defined($trivial_histogram) || defined($region)) &&
             $srcReader->notEmpty() ? $srcReader : undef;
 
+        # ..and the calls made by the functions it erases, which outlive them on
+        #   their callees:  collected here and drained into the TraceFile by
+        #   '_updateModifiedFile', because this may be running in a forked child
+        #   and this object is all that comes back from one
+        my @externalCalls;
         $modified = 1
             if _eraseFunctions($source_file, $reader,
                                $traceInfo->func(), $traceInfo->sum(),
                                $traceInfo->sumbr(), $traceInfo->mcdc(),
                                $traceInfo->check(), $state,
-                               1);
+                               1, \@externalCalls,
+                               $funcData);
+        $traceInfo->noteExternalCalls(\@externalCalls);
         foreach my $tn ($lineData->keylist()) {
             $modified = 1
                 if _eraseFunctions($source_file,
@@ -11073,6 +14931,22 @@ sub _filterFile
         FilterBranchExceptions->new($srcReader, $sumbrcount, $testbrdata,
                                     $aliased{TraceInfo::BRANCH_DATA});
 
+    # The calls made by the functions the region/range removal below takes out,
+    #   which outlive them on their callees:  the same treatment
+    #   '_eraseFunctions' gives the functions it erases, and for the same reason
+    #   - the function's call sites are the only record that those calls were
+    #   made, and the callees have not left the boundary of the report.
+    # Collected here and drained once, after the loop:  the removal takes the
+    #   function out of every testcase's map, so the snapshot of what this file
+    #   defined has to be taken before the first of them - see '%wasLocal' in
+    #   '_eraseFunctions', which is the same guard for the same case
+    my @erasedCalls;
+    my %wasLocal;
+    my $noteErased = $lcovutil::callgraph_coverage &&
+        $lcovutil::func_coverage &&
+        ($region || $range);
+    %wasLocal = map({ ($_ => 1) } $funcdata->list_functions()) if $noteErased;
+
     foreach my $testname (sort($testdata->keylist())) {
         my $testcount    = $testdata->value($testname);
         my $testfnccount = $testfncdata->value($testname);
@@ -11111,12 +14985,23 @@ sub _filterFile
                     foreach my $f ([ReadCurrentSource::EXCLUDE_REGION, $region],
                                    [ReadCurrentSource::OMIT_LINE, $omit]) {
                         if ($r & $f->[0]) {
-                            $f->[1]->[-2] += scalar(keys %{$data->aliases()});
+                            $f->[1]->[-2] += $data->numAliases();
                             last;
                         }
                     }
                 }
                 if ($remove) {
+                    # before the removal, which is the last moment the sites
+                    #   exist - and from the summary entry, which holds the
+                    #   merged count of each of them.  Once per function:  the
+                    #   removal below reaches every map, so the next testcase's
+                    #   'keylist' no longer has this key
+                    if ($noteErased) {
+                        my $entry = $funcdata->findKey($key);
+                        _noteErasedCalls(\@erasedCalls, $entry, $source_file,
+                                         $testfncdata, $key)
+                            if defined($entry);
+                    }
                     #remove this function from everywhere
                     foreach my $tn ($testfncdata->keylist()) {
                         my $d = $testfncdata->value($tn);
@@ -11135,6 +15020,90 @@ sub _filterFile
                 }    # if excluded
             }    # foreach function
         }    # if func_coverage
+        if ($lcovutil::callgraph_coverage &&
+            $functionMap &&
+            ($region || $range || $omit || $directive || $callgraph_region)) {
+            # The call sites of the surviving functions, which are keyed by the
+            #   line the *call* is on and not by the function's own line:  a
+            #   call in an excluded region has to go even though the function
+            #   containing it stays, exactly as an excluded branch does.
+            # This runs before the line data below, because the rule there is
+            #   that a line which still has a coverpoint of another kind is not
+            #   a line to suppress - so the sites of an excluded line must
+            #   already be gone by the time it is asked
+            foreach my $key ($functionMap->keylist()) {
+                my $entry = $functionMap->findKey($key);
+                foreach my $site ($entry->callSiteKeys()) {
+                    my ($line, undef, undef, undef, $callee, $siteFile) =
+                        $entry->callSiteData($site);
+                    # A call written in another file is not judged by this
+                    #   file's source:  its line number indexes that file, so
+                    #   every question below would be asked of the wrong text.
+                    #   It is not judged by that file's pass either - the site
+                    #   is in this file's FunctionMap, which is the only thing
+                    #   that pass walks - so an exclusion in an '#include'd
+                    #   fragment does not reach the calls written in it.  Said
+                    #   here rather than fixed, because the fix is a whole-report
+                    #   pass and every filter here is deliberately local to one
+                    #   file (a child may hold only this one)
+                    next if defined($siteFile);
+                    my $remove;
+                    my $counted;    # 'isOutOfRange' counts its own coverpoint
+                    if ($srcReader->isOutOfRange($line, 'line')) {
+                        $remove  = $range;
+                        $counted = 1;
+                    } elsif (0 != ($reason =
+                                       $srcReader->isExcluded(
+                                                  $line, $srcReader->e_CALLGRAPH
+                                       ))
+                    ) {
+                        # the line itself, or just its call sites
+                        #   ('LCOV_EXCL_CALLGRAPH_...')
+                        my $r = $srcReader->excludeReason($line);
+                        foreach my $f (
+                                   [ReadCurrentSource::EXCLUDE_REGION, $region],
+                                   [ReadCurrentSource::OMIT_LINE, $omit],
+                                   [ReadCurrentSource::EXCLUDE_DIRECTIVE,
+                                    $directive
+                                   ],
+                                   [ReadCurrentSource::EXCLUDE_CALLGRAPH_REGION,
+                                    $callgraph_region
+                                   ]
+                        ) {
+                            if ($r & $f->[0]) {
+                                $remove = $f->[1];
+                                last;
+                            }
+                        }
+                    }
+                    next unless $remove;
+                    # At the verbosity the function filter reports at rather than
+                    #   the one the line filter reports at:  this only ever fires
+                    #   for an explicit exclusion, and losing a whole call is the
+                    #   kind of thing a user asks '-v' to be told about
+                    lcovutil::info(1,
+                                   'filter FNC (' .
+                                       $remove->[0] .
+                                       ") $source_file:$line" .
+                                       " call to '$callee'\n");
+                    # one coverpoint suppressed - and not one more location:
+                    #   the line this site is on is counted by the filter which
+                    #   removes the line itself
+                    ++$remove->[-1] unless $counted;
+                    # ..from every testcase, and from the summary unless that is
+                    #   one of them - the aliasing note at the head of this sub
+                    foreach my $tn ($testfncdata->keylist()) {
+                        my $f = $testfncdata->value($tn)->findKey($key);
+                        $f->_removeSite($site) if $f;
+                    }
+                    unless ($aliased{TraceInfo::FUNCTION_DATA}) {
+                        my $f = $funcdata->findKey($key);
+                        $f->_removeSite($site) if $f;
+                    }
+                    $modified = 1;
+                }
+            }
+        }    # if callgraph_coverage
              # $testbrcount is undef if there are no branches in the scope
         if (($lcovutil::br_coverage || $lcovutil::mcdc_coverage) &&
             (defined($testbrcount)  ||
@@ -11301,25 +15270,21 @@ sub _filterFile
             ) {
                 my ($enable, $str, $testCount, $sumCount) = @$t;
                 next unless $enable && $sumCount;
-                eval {
-                    $modified = 1
-                        if $lcovutil::excludeCoverpointCallback->exclude($str,
-                                             $srcReader, $testCount, $sumCount);
-                };
-                if ($@) {
-                    lcovutil::ignorable_error($lcovutil::ERROR_CALLBACK,
-                        '"unreachable" callback ' .
-                            ref($lcovutil::excludeCoverpointCallback) .
-                            "->exclude($str, readSrc, summaryDB, perTestDB) failed: $@"
-                    );
-                }
+                $modified = 1
+                    if _invokeExcludeCallback($str, $srcReader, $testCount,
+                                              $sumCount);
             }
         }
 
+        # Every filter the loop below can apply has to be named here, or asking
+        #   for it alone does nothing at all:  'blank' was missing, so
+        #   '--filter blank' only ever worked in company - '--filter line' is
+        #   brace and blank together, which is how the gap stayed hidden
         next
             unless $region    ||
             $range            ||
             $brace_histogram  ||
+            $blank_histogram  ||
             $branch_histogram ||
             $directive        ||
             $omit             ||
@@ -11327,8 +15292,32 @@ sub _filterFile
 
         # Line related data
         my %initializerListRange;
+        # The lines which have a call site.  A line which still carries a
+        #   coverpoint of another kind is not a line to suppress - the same rule
+        #   the branch and MC/DC check in the loop below applies - and a call on
+        #   a line which looks like nothing but a closing brace is a real call:
+        #   to the destructor of an object which went out of scope there, or to
+        #   the end of a 'catch'.  The sites of a line which was *excluded* are
+        #   already gone, in the loop above, so an explicit exclusion still wins.
+        #   The 'brace' filter has rules of its own for a closing brace with
+        #   call sites, applied once after this loop - see _filterBraceCallSites
+        # A call written in another file is not one of this file's lines, even
+        #   though this file's map is where it is kept:  its line number indexes
+        #   that file, so counting it here would hold a line of this file which
+        #   happens to have the same number - and which the user may well have
+        #   excluded - against a call that is not on it
+        my %callSiteLine;
+        if ($lcovutil::callgraph_coverage && $functionMap) {
+            foreach my $key ($functionMap->keylist()) {
+                my $entry = $functionMap->findKey($key);
+                foreach my $site ($entry->callSiteKeys()) {
+                    my ($line, undef, undef, undef, undef, $siteFile) =
+                        $entry->callSiteData($site);
+                    $callSiteLine{$line} = 1 unless defined($siteFile);
+                }
+            }
+        }
         foreach my $line ($testcount->keylist()) {
-
             # warn about inconsistency if executed line is marked unreachable
             my $l_hit = $testcount->value($line);
             if ($l_hit &&
@@ -11345,12 +15334,14 @@ sub _filterFile
                     if $lcovutil::retainUnreachableCoverpointIfHit;
             }
 
-            # don't suppress if this line has associated branch or MC/DC data
+            # don't suppress if this line has associated branch, MC/DC or
+            #   call site data
             next
                 if (
                  (defined($sumbrcount) && defined($sumbrcount->value($line))) ||
                  (defined($mcdc_count) &&
-                    defined($mcdc_count->value($line))));
+                    defined($mcdc_count->value($line))) ||
+                 exists($callSiteLine{$line}));
 
             my $is_initializer;
             my $is_filtered = undef;
@@ -11449,7 +15440,60 @@ sub _filterFile
             }
         }    # foreach line
     }    #foreach test
-         # count the number of function aliases..
+         # ..and now that the removing is done, the calls whose callee outlived
+         #   the caller:  a call to a name this file defined and no longer does
+         #   has no surviving callee to be a fact about, and an unrelated
+         #   definition of the name elsewhere must not answer for it
+    if (@erasedCalls) {
+        my @survivingCallee = grep(
+                { !$wasLocal{$_->[1]} || defined($funcdata->findName($_->[1])) }
+                @erasedCalls);
+        $traceInfo->noteExternalCalls(\@survivingCallee);
+    }
+    # ..then the closing braces which have call sites on them, which the line
+    #   loop above did not touch:  once, on the summary, after every exclusion
+    #   has taken what it takes - see _filterBraceCallSites for the rules
+    $modified = 1
+        if $brace_histogram &&
+        $lcovutil::callgraph_coverage &&
+        _filterBraceCallSites($srcReader, $source_file, $traceInfo, \%aliased,
+                              $brace_histogram);
+    # Last, the call sites the user callback wants gone.  Once per file, and not
+    #   inside the loop above with the branch and MC/DC types:  that loop asks
+    #   the callback again for every testcase, with the same whole-file source
+    #   and the same summary map each time, which a marking callback survives
+    #   because marking twice is marking once - but removing a site is
+    #   destructive, and the second pass would find it already gone.
+    # After the loop rather than before it, so that the sites the region, range
+    #   and omit filters take out are gone by the time the callback is asked:
+    #   what it sees is what the report would otherwise have shown, and it is
+    #   not asked to rule on a call which is already excluded
+    if (defined($lcovutil::excludeCoverpointCallback) &&
+        $lcovutil::callgraph_coverage &&
+        $funcdata) {
+        # function coverage is a prerequisite of callgraph coverage - see the
+        #   '--callgraph-coverage requires function coverage' check in
+        #   'parseArgs' - so there is no separate '$func_coverage' test here
+        die("expected srcReader")
+            unless defined($srcReader) && $srcReader->notEmpty();
+        @lcovutil::excludedCallSites = ();
+        $modified                    = 1
+            if _invokeExcludeCallback('callgraph', $srcReader,
+                                      $testfncdata, $funcdata);
+        # ..and the calls it took out, on the callees which are still here:  a
+        #   site outside the boundary of the report is not evidence either way
+        #   about the call, but a call which was taken did reach its callee, and
+        #   that callee is in the report to be told so
+        if (@lcovutil::excludedCallSites) {
+            $traceInfo->noteExternalCalls(\@lcovutil::excludedCallSites);
+            @lcovutil::excludedCallSites = ();
+        }
+    }
+
+    # a '}' whose coverpoint a filter removed is not part of a statement
+    $modified = 1 if _trimSpans($traceInfo, $srcReader);
+
+    # count the number of function aliases..
     if ($function_alias_histogram) {
         $function_alias_histogram->[-2] += $funcdata->numFunc(1);
         $function_alias_histogram->[-1] += $funcdata->numFunc(0);
@@ -11487,6 +15531,11 @@ sub _updateModifiedFile
 {
     my ($self, $name, $traceFile) = @_;
     $self->[FILES]->{$name} = $traceFile;
+    # Every filtered file arrives here - from this process or from a child - so
+    #   this is the one place the calls the filters found on their way past can
+    #   be lifted onto the report as a whole:  see
+    #   TraceInfo::noteExternalCalls, which explains why they travel on the file
+    $self->noteExternalCalls($traceFile->takeExternalCalls());
 }
 
 sub _processParallelChunk
@@ -11573,7 +15622,6 @@ sub _processFilterWorklist
             $parallel &&
             1 < $lcovutil::maxParallelism)
     ) {
-
         $parallel = $lcovutil::maxParallelism;
 
         if (defined($lcovutil::lcov_filter_chunk_size)) {
@@ -11634,7 +15682,6 @@ sub _processFilterWorklist
     my @filters = grep { defined($_) } @lcovutil::cov_filter;
     my @save    = (\@pats, \@filters);
 
-    my $processedChunks = 0;
     my $tmp = File::Temp->newdir(
                           "filter_datXXXX",
                           DIR     => $lcovutil::tmp_dir,
@@ -11668,7 +15715,6 @@ sub _processFilterWorklist
                      #   something worth a process, or nothing left at all.
                      while (@$workList) {
                          my $d = pop(@$workList);
-                         ++$processedChunks;
                          # save current counts...
                          $state[0]->[1] = 0;
                          if (ref($d->[0]) eq 'TraceInfo') {
@@ -11736,13 +15782,7 @@ sub _processFilterWorklist
                      $lcovutil::profileData{filt_chunk}{$ctx->{id}} =
                          Time::HiRes::gettimeofday() - $ctx->{forkAt};
                  },
-                 requeue => sub {
-                     my ($d, $chunkId, $why) = @_;
-                     # a chunk we never managed to fork was counted as processed on the
-                     #   way past
-                     --$processedChunks if ('fork' eq $why);
-                     push(@$workList, $d);
-                 },
+                 requeue => sub { push(@$workList, $_[0]); },
                  # Whatever went wrong with this child, say it once, out here, the way
                  #   the hand-written loop did:  a die anywhere in the merge is the
                  #   child's fault as far as the user is concerned.
@@ -11791,6 +15831,10 @@ sub applyFilters
     # due to differences in #ifdefs when the corresponding tests were compiled.
     my @filter_workList;
 
+    # each file is checked once:  data which has been checked is not checked
+    #   again unless it has been merged with other data since
+    my $check = 0 == ($self->[STATE] & DID_CONSISTENCY);
+
     my $computeEndLine =
         (0 == ($self->[STATE] & DID_DERIVE) &&
          defined($lcovutil::derive_function_end_line) &&
@@ -11798,7 +15842,6 @@ sub applyFilters
          defined($lcovutil::func_coverage));
 
     foreach my $name ($self->files()) {
-
         my $traceInfo = $self->data($name);
         die("expected TraceInfo, got '" . ref($traceInfo) . "'")
             unless ('TraceInfo' eq ref($traceInfo));
@@ -11821,8 +15864,10 @@ sub applyFilters
         #   the function - so broken/completely useless.
         my $actions = 0;
         if ($computeEndLine &&
-            ($lcovutil::derive_function_end_line_all_files ||
-                is_language('c|java|perl', $source_file))
+            (   $lcovutil::derive_function_end_line_all_files ||
+                is_language(
+                         lcovutil::IS_C | lcovutil::IS_JAVA | lcovutil::IS_PERL,
+                         $source_file))
         ) {
             # try to derive end lines if at least one is unknown.
             #   can't compute for lambdas because we can't distinguish
@@ -11832,14 +15877,26 @@ sub applyFilters
                         $traceInfo->func()->valuelist());
         }
 
-        if ((defined($lcovutil::func_coverage) &&
-             (0 != scalar(@lcovutil::exclude_function_patterns) ||
-                 defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION]))) ||
-            (is_language('c|perl|python|java', $source_file) &&
-                lcovutil::is_filter_enabled())
-        ) {
+        my $filter =
+            (is_language(lcovutil::STATEMENT_LANGUAGES, $source_file) &&
+             lcovutil::is_filter_enabled());
+        $filter = 1
+            if (defined($lcovutil::func_coverage) &&
+                (0 != scalar(@lcovutil::exclude_function_patterns) ||
+                 defined($lcovutil::cov_filter[$FILTER_TRIVIAL_FUNCTION])));
+        # merging continuation lines reads the source and finds the statement
+        #   of every line coverpoint:  costly enough to justify parallel
+        #   processing - see '_continuationLineMerge'
+        my $merge =
+            ($check &&
+             $lcovutil::check_data_consistency                        &&
+             $lcovutil::merge_continuation_lines                      &&
+             is_language(lcovutil::STATEMENT_LANGUAGES, $source_file) &&
+             0 == $traceInfo->span()->entries());
+        if ($filter || $merge) {
             # we are forking anyway - so also compute end lines there
-            $actions |= DID_FILTER;
+            $actions |= DID_FILTER if $filter;
+            $actions |= DID_CONSISTENCY if $check;
             push(@filter_workList, [$traceInfo, $name, $actions]);
         } else {
             if (0 != $actions) {
@@ -11847,11 +15904,11 @@ sub applyFilters
                 # take long enough to be worth forking
                 TraceFile::_deriveFunctionEndLines($traceInfo);
             }
-            TraceFile::_checkConsistency($traceInfo);
+            TraceFile::_checkConsistency($traceInfo, $srcReader) if $check;
         }
 
     }    # foreach file
-    $self->[STATE] |= DID_DERIVE;
+    $self->[STATE] |= DID_DERIVE | DID_CONSISTENCY;
 
     if (@filter_workList) {
         lcovutil::info("Apply filtering..\n")
@@ -11862,20 +15919,1290 @@ sub applyFilters
     }
 }
 
-sub is_language
+sub _symbolIndex
 {
-    my ($lang, $filename) = @_;
-    my $idx = rindex($filename, '.');
-    my $ext = $idx == -1 ? '' : substr($filename, $idx);
-    foreach my $l (split('\|', $lang)) {
-        die("unknown language '$l'")
-            unless exists($lcovutil::languageExtensions{$l});
+    # Index every alias in this report by name, which is how a call site names
+    #   its callee.  Returns (\%symbol, \%duplicated, \%definedIn):  a name which
+    #   exactly one file defines is in the first, with the file which defines it
+    #   in the third, and one which several define - a 'static' function, usually
+    #   - is in the second instead, keyed by file as well, because it cannot be
+    #   resolved by name alone.  That is the rare case, and it costs nothing until
+    #   it happens.
+    # '$reset' also declares every alias unresolved, which is what makes
+    #   resolveCallSites idempotent;  a caller which is only looking a name up
+    #   must not ask for it.
+    # A name merged into an alias (see _collapseCallgraphAliases) finds that
+    #   alias, as a fourth value says - a hash of every such name - unless some
+    #   file defines the name:  a definition is what a call resolves to, and a
+    #   merged name is only remembered
+    my ($self, $reset) = @_;
+
+    my (%symbol, %definedIn, %duplicated, @merged);
+    foreach my $filename ($self->files()) {
+        my $functionMap = $self->data($filename)->func();
+        foreach my $key ($functionMap->keylist()) {
+            my $entry = $functionMap->findKey($key);
+            foreach my $name ($entry->aliasNames()) {
+                my $alias = $entry->alias($name);
+                $alias->clear_callers() if $reset;
+                my $names = $alias->merged();
+                push(@merged, [$filename, $alias, $names]) if defined($names);
+                if (exists($duplicated{$name})) {
+                    $duplicated{$name}->{$filename} = $alias;
+                } elsif (exists($symbol{$name})) {
+                    $duplicated{$name} = {
+                                          $definedIn{$name} => $symbol{$name},
+                                          $filename         => $alias
+                    };
+                    # ..and the name has no one defining file any more:  the
+                    #   duplicate index is keyed by file precisely because the
+                    #   answer depends on where the call was made
+                    delete($definedIn{$name});
+                } else {
+                    $symbol{$name}    = $alias;
+                    $definedIn{$name} = $filename;
+                }
+            }
+        }
+    }
+    # ..then the merged names, by the same rules among themselves:  a name
+    #   merged in two files is as ambiguous as one defined in two
+    my %mergedNames;
+    foreach my $m (@merged) {
+        my ($filename, $alias, $names) = @$m;
+        foreach my $name (keys(%$names)) {
+            if (exists($mergedNames{$name})) {
+                if (exists($duplicated{$name})) {
+                    $duplicated{$name}->{$filename} = $alias;
+                } else {
+                    $duplicated{$name} = {
+                                          $definedIn{$name} => $symbol{$name},
+                                          $filename         => $alias
+                    };
+                    delete($symbol{$name});
+                    delete($definedIn{$name});
+                }
+            } elsif (!exists($symbol{$name}) && !exists($duplicated{$name})) {
+                $mergedNames{$name} = 1;
+                $symbol{$name}      = $alias;
+                $definedIn{$name}   = $filename;
+            }
+        }
+    }
+    return (\%symbol, \%duplicated, \%definedIn, \%mergedNames);
+}
+
+sub _resolveCallee($$$$$)
+{
+    # Which alias a call to '$callee' from a site in '$fromFile' went to, as
+    #   (alias, the file which defines it) - or an empty list if that cannot be
+    #   decided.  See _symbolIndex for the three indexes and resolveCallSites for
+    #   what the answer is used for;  the file is what reaches the per-testcase
+    #   copies of the same alias (see _applyExternalCalls).
+    # '$fromFile' need not be a file this report has:  a call from one it does
+    #   not is exactly the case the linkage rule below is for
+    my ($symbol, $duplicated, $definedIn, $fromFile, $callee) = @_;
+
+    return ($symbol->{$callee}, $definedIn->{$callee})
+        unless exists($duplicated->{$callee});
+    my $candidates = $duplicated->{$callee};
+    # The file the call is in defines a function of that name:  a call to a name
+    #   the file defines goes to that definition
+    my $alias = $candidates->{$fromFile};
+    return ($alias, $fromFile) if defined($alias);
+    # It does not, so the call went to a definition with external linkage:  a
+    #   symbol which has not got it is unreachable from outside the file which
+    #   defines it, so every file-local candidate is excluded outright and one
+    #   external candidate is the answer.  That is the whole point of recording
+    #   the linkage (see FunctionAlias::is_external):  without it an unrelated
+    #   'static' of the same name in some third file voids a perfectly good
+    #   cross-file call.
+    # The rule is additive by construction - a candidate is only ever *asserted*
+    #   external - so it can turn an unresolved site into a resolved one and can
+    #   never change where a site which resolves today goes.  With no assertion
+    #   anywhere, which is what data captured by a tool that does not record the
+    #   flag looks like, nothing matches and the caller's ambiguity case is what
+    #   happens
+    my @external =
+        grep({ $candidates->{$_}->is_external() } keys(%$candidates));
+    return 1 == scalar(@external) ?
+        ($candidates->{$external[0]}, $external[0]) :
+        ();
+}
+
+sub _deducedExternalCalls
+{
+    # Whether the 'FNA:' record of '$name' gets the 'd' flag:  the summary of
+    #   its file has resolved callers for it, and they account for fewer calls
+    #   than it received - see lcovutil::deduced_external_calls.
+    #   '$measured' is a reference to the answer of hasCallgraphData for the
+    #   file, which is computed the first time it is needed
+    my ($summary, $name, $measured, $calledSymbols) = @_;
+    return 0 unless defined($summary);
+    my $entry = $summary->findName($name);
+    return 0 unless defined($entry);
+    my $alias = $entry->alias($name);
+    return 0 unless defined($alias) && $alias->is_resolved();
+    $$measured = $summary->hasCallgraphData($calledSymbols)
+        unless defined($$measured);
+    return lcovutil::deduced_external_calls($alias, $$measured);
+}
+
+sub _callSiteFileIndex
+{
+    # The index each file is written under in the 'SF:' records of one tracefile,
+    #   as a hash of file name to index, or an empty one when the report needs no
+    #   index at all - see the 'SF:' description in geninfo(1) and the 'FNC:'
+    #   writer in write_info.
+    #
+    # A file gets an index for one of two reasons:
+    #   - some call site is written in it and contained in a function defined
+    #     somewhere else, so an 'FNC:' record has to name it;
+    #   - or the name itself begins with digits and a comma, which is the one
+    #     spelling a reader could not tell from the optional index field.  Giving
+    #     it an index makes the record unambiguous without touching the name,
+    #     since the name is then the field which takes the rest of the line.
+    # Nothing else does.
+    #
+    # The indexes are assigned in file-name order and are a property of this one
+    #   tracefile:  nothing reads them once the file has been parsed, and two
+    #   '.info' files may number the same file differently
+    my $self = shift;
+    my %needed;
+    if ($lcovutil::callgraph_coverage) {
+        foreach my $filename ($self->files()) {
+            my $functionMap = $self->data($filename)->func();
+            next unless $functionMap;
+            foreach my $key ($functionMap->keylist()) {
+                my $entry = $functionMap->findKey($key);
+                foreach my $site ($entry->callSiteKeys()) {
+                    my $siteFile = ($entry->callSiteData($site))[5];
+                    $needed{$siteFile} = 1 if defined($siteFile);
+                }
+            }
+        }
+    }
+    foreach my $filename ($self->files()) {
+        $needed{$filename} = 1
+            if ReadCurrentSource::resolve_path(
+                                             $self->data($filename)->filename(),
+                                             1) =~ /^\d+,/;
+    }
+    my %index;
+    my $next = 0;
+    foreach my $filename (sort(keys(%needed))) {
+        $index{$filename} = $next++;
+    }
+    return \%index;
+}
+
+sub _pruneUnwritableSites
+{
+    # A call site written in a file this report does not have cannot be written
+    #   to a '.info' file:  the record names the site's file by its index, and
+    #   only an 'SF:' record can define an index - so a file with no section of
+    #   its own has no index for the record to use.
+    # That is not a malformed report:  it is what removing the file the call is
+    #   written in while keeping the file the caller is defined in does -
+    #   '--remove', '--extract', an exclude pattern, '--no-external'.  Which is
+    #   exactly the case noteExternalCalls covers, so it gets the same treatment:
+    #   the site goes, and the fact that the edge is there survives on the callee
+    #   as FunctionAlias::has_external_callers.
+    # Whole-report and parent-only, like every other question of the form "is
+    #   this in the report":  resolveCallSites runs it with the index it has
+    #   already built, and write_info runs it for a report which was never
+    #   resolved.  Idempotent - a second pass finds nothing to do.
+    # Returns the number of sites removed.
+    my ($self, $symbol, $duplicated, $definedIn) = @_;
+    return 0 unless $lcovutil::callgraph_coverage;
+    my $haveIndex = defined($symbol);
+    my %known     = map({ ($_ => 1) } $self->files());
+    my @calls;
+    my $removed = 0;
+    foreach my $filename ($self->files()) {
+        my $traceInfo   = $self->data($filename);
+        my $functionMap = $traceInfo->func();
+        next unless $functionMap;
+        my $testfncdata = $traceInfo->testfnc();
+        foreach my $key ($functionMap->keylist()) {
+            my $entry = $functionMap->findKey($key);
+            foreach my $site ($entry->callSiteKeys()) {
+                my (undef, undef, undef, $count, $callee, $siteFile) =
+                    $entry->callSiteData($site);
+                next unless defined($siteFile) && !exists($known{$siteFile});
+                lcovutil::info(
+                             1,
+                             "\"$siteFile\" is not in this report:  the call" .
+                                 " to '$callee' in '" .
+                                 $entry->name() .
+                                 "' of \"$filename\" cannot be written and is" .
+                                 " recorded on the callee\n");
+                # '$filename' and not '$siteFile':  what decides which
+                #   definition the call reached is the translation unit it was
+                #   compiled in, which is where the caller is defined - the same
+                #   rule resolveCallSites applies to a site it keeps.  Taken or
+                #   not:  the flag says the edge exists, and the count it
+                #   carries is the site's
+                push(@calls,
+                     lcovutil::external_call($filename, $callee, $count,
+                                             $testfncdata, $key, $site));
+                # ..from every testcase, and from the summary - the aliasing note
+                #   in _filterUnknownCalleeCount applies here too
+                foreach my $tn ($testfncdata->keylist()) {
+                    my $f = $testfncdata->value($tn)->findKey($key);
+                    $f->_removeSite($site) if $f;
+                }
+                $entry->_removeSite($site);
+                ++$removed;
+            }
+        }
+    }
+    return 0 unless $removed;
+    $self->noteExternalCalls(\@calls);
+    # resolveCallSites applies these itself a moment later, with the index it
+    #   already has;  a caller which only wants to write the report has no such
+    #   pass, so the flag is set here
+    unless ($haveIndex) {
+        ($symbol, $duplicated, $definedIn) = $self->_symbolIndex(0);
+        $self->_applyExternalCalls($symbol, $duplicated, $definedIn);
+    }
+    return $removed;
+}
+
+sub noteExternalCalls
+{
+    # Remember the calls made from a file this report is not keeping, as
+    #   lcovutil::external_call records.  The site goes away with its file and nothing later
+    #   can tell that it was ever there, so the fact that the edge is there is
+    #   recorded on the *callee* instead - see
+    #   FunctionAlias::has_external_callers.
+    # Noted here and applied in resolveCallSites rather than at once, because the
+    #   callee may be in a file this process has not read yet:  a parallel read
+    #   gives each worker a run of sections, so the excluded caller and its callee
+    #   can be in different chunks.  This list is part of the object and so
+    #   crosses the fork with it (see serialize), and the merge of two reports
+    #   keeps both lists
+    my ($self, $calls) = @_;
+    push(@{$self->[EXTERNAL_CALLS]}, @$calls) if @$calls;
+}
+
+sub _applyExternalCalls
+{
+    # Record every call noted by noteExternalCalls on its callee:  the flag,
+    #   and the calls the site made.  resolveCallSites is the only caller:  by
+    #   then the last input has been read and every callee which is in this
+    #   report is in the index.
+    # A callee which cannot be resolved is passed over in silence:  there is no
+    #   one alias for the flag to go on, so there is nothing to record and
+    #   nothing the user could do about it either.  Any calls which were taken are
+    #   still counted in the callee's own execution count, which is where the
+    #   residual in lcovutil::classify_callers finds them for as long as the count
+    #   is there.
+    # A call which is recorded is consumed, because its count is added to the
+    #   callee's:  applying it again would count it twice.  One which is not
+    #   stays on the list - resolveCallSites can run again after another input
+    #   is merged, and a callee which that input brought in gets it on the next
+    #   pass
+    my ($self, $symbol, $duplicated, $definedIn) = @_;
+    my @unresolved;
+    foreach my $call (@{$self->[EXTERNAL_CALLS]}) {
+        my ($fromFile, $callee, $count, $perTest) = @$call;
+        my ($alias, $calleeFile) =
+            TraceFile::_resolveCallee($symbol, $duplicated, $definedIn,
+                                      $fromFile, $callee);
+        if (!defined($alias)) {
+            push(@unresolved, $call);
+            next;
+        }
+        $alias->add_external_calls($count);
+        # ..by the name it has, which a call to a name merged into it has not
+        $callee = $alias->name();
+        # ..and on the per-testcase copy of that alias, because the '.info'
+        #   writer writes a section per testcase out of the per-testcase maps:
+        #   a flag set only on the summary alias is written when the report has
+        #   one testcase, where the two maps are the same object, and silently
+        #   dropped when it has more.  Where they are the same object, the
+        #   summary's count is already that testcase's.
+        # Every testcase of the callee's file, and not some subset of them:  the
+        #   removal which recorded this call took the site out of the report as a
+        #   whole, so the edge is a fact about each of them - with the count that
+        #   testcase had for the site, which is 0 for one which did not have it
+        next unless defined($calleeFile);
+        my $summaryAddr =
+            Scalar::Util::refaddr($self->data($calleeFile)->func());
+        my $testfncdata = $self->data($calleeFile)->testfnc();
+        foreach my $tn ($testfncdata->keylist()) {
+            my $map = $testfncdata->value($tn);
+            next if Scalar::Util::refaddr($map) == $summaryAddr;
+            my $entry = $map->findName($callee);
+            next unless $entry;
+            my $c = $perTest->{$tn};
+            $entry->alias($callee)->add_external_calls(defined($c) ? $c : 0);
+        }
+    }
+    $self->[EXTERNAL_CALLS] = \@unresolved;
+}
+
+sub _pruneExternalCallees
+{
+    # A call to a name no file in this report defines:  'printf', a template
+    #   instantiated in a system header, a method of a third party library.  Such
+    #   a callee is outside the boundary of the report, so the site is removed.
+    #
+    # Why:  the metric is meant to say whether the functions the report describes
+    #   were exercised, and such a call cannot contribute to that answer.  Nothing
+    #   in the report defines the callee, so there is no page for its name to lead
+    #   to and no test the user could add to the report to cover it, while a C++
+    #   report carries enough of them - every implicit 'std::' instantiation - to
+    #   dominate the denominator.  What is kept is that the edge is there, on the
+    #   caller, which is the end of it the report still has.
+    # Dropping the site is not the same as losing what it measured:  the line the
+    #   call is written on keeps its line count and a branch on that line keeps
+    #   its branch counts, so whether the code which makes the call ran is still
+    #   in the report - as an upper bound rather than a count, since a line can
+    #   hold several calls and a call in a short-circuit or a ternary can be
+    #   skipped on a line which ran.  The other end of a boundary crossing can be
+    #   deduced much the same way:  a call from outside shows as the difference
+    #   between a function's execution count and the counts of the sites the
+    #   report does list - see classify_callers, which draws exactly that
+    #   inference where no flag says that such an edge is there.
+    # This is the mirror of _pruneUnwritableSites, which drops the sites whose
+    #   *caller* is in no file of the report:  there the call is recorded on the
+    #   callee and here it is recorded on the caller, each time on whichever end
+    #   of the call the report is keeping - see
+    #   FunctionEntry::has_external_callees.
+    #
+    # Whole-report and parent-only, like every other question of the form "is
+    #   this in the report" - which is why the removal cannot be done by 'geninfo',
+    #   and why a raw capture holds these sites.  The index is unaffected (it
+    #   indexes definitions, not calls) and the pass is idempotent.  Returns the
+    #   number of sites removed
+    my ($self, $symbol, $duplicated) = @_;
+    my $removed = 0;
+    foreach my $filename ($self->files()) {
+        my $traceInfo   = $self->data($filename);
+        my $functionMap = $traceInfo->func();
+        next unless $functionMap;
+        my $testfncdata = $traceInfo->testfnc();
+        foreach my $key ($functionMap->keylist()) {
+            my $entry = $functionMap->findKey($key);
+            foreach my $site ($entry->callSiteKeys()) {
+                my ($line, undef, undef, undef, $callee, $siteFile) =
+                    $entry->callSiteData($site);
+                # "in the report" is both indexes:  a name several files define
+                #   is in it whether or not this call can be told which of them
+                #   it went to
+                next
+                    if exists($symbol->{$callee}) ||
+                    exists($duplicated->{$callee});
+                # the file to look at is the one the call is written in, which is
+                #   the caller's own only when the two are the same
+                my $where = defined($siteFile) ? $siteFile : $filename;
+                lcovutil::info(2,
+                    "\"$where\":$line: call to '$callee' is not in this report - dropping it\n"
+                );
+                # The site goes, and the fact that this function calls out of the
+                #   boundary survives on it.  Whether the call was taken does not
+                #   enter into it:  the flag says the edge is there, exactly as
+                #   FunctionAlias::has_external_callers does at the other end of
+                #   a crossing, and the count is what the site took with it
+                $entry->set_external_callees();
+                # ..from every testcase, and from the summary - the aliasing note
+                #   in _filterUnknownCalleeCount applies here too
+                foreach my $tn ($testfncdata->keylist()) {
+                    my $f = $testfncdata->value($tn)->findKey($key);
+                    $f->_removeSite($site) if $f;
+                }
+                $entry->_removeSite($site);
+                ++$removed;
+            }
+        }
+    }
+    lcovutil::info(1,
+                   "dropped $removed call site(s) whose callee is not in this" .
+                       " report\n") if $removed;
+    return $removed;
+}
+
+sub _filterUnknownCalleeCount
+{
+    # The 'unknown_callee_count' filter:  remove the call sites whose count
+    #   this capture does not know - the unpaired calls, see the 'pairing' entry
+    #   of the documentation glossary.
+    #
+    # Why a filter rather than a display rule:  a site with an unknown count is
+    #   in 'found' and never in 'hit' (numCallSitesHit), so it is a ceiling on
+    #   the rate which no test can lift.  Whether that ceiling is worth carrying
+    #   is something only the user knows - the sites are the report's own calls,
+    #   measured by a compiler which could not count them - so it is a filter they
+    #   ask for and not something done to them.
+    #
+    # It runs from resolveCallSites, after the passes above:  a site this removes
+    #   must be gone from the callee-side view as well, and that view is built
+    #   there.  Consequently 'geninfo' accepts the filter and does not apply it -
+    #   'lcov --capture' forwards '--filter' to it - and the site is removed when
+    #   the report is assembled.
+    #
+    # The counts in the histogram are the same two every other filter reports:
+    #   how many source locations it applied at, and how many coverpoints it
+    #   removed.  Those differ here more than usual, since a location can hold
+    #   several calls
+    my $self   = shift;
+    my $filter = $lcovutil::cov_filter[$lcovutil::FILTER_UNKNOWN_CALLEE_COUNT];
+    return unless defined($filter);
+    foreach my $filename ($self->files()) {
+        my $traceInfo   = $self->data($filename);
+        my $functionMap = $traceInfo->func();
+        next unless $functionMap;
+        my $testfncdata = $traceInfo->testfnc();
+        my %seen;    # the locations this filter has already been counted at
+        foreach my $key ($functionMap->keylist()) {
+            my $entry = $functionMap->findKey($key);
+            foreach my $site ($entry->callSiteKeys()) {
+                my ($line, undef, undef, $count, $callee, $siteFile) =
+                    $entry->callSiteData($site);
+                next unless lcovutil::site_count_unknown($count);
+                # the site's own file, which is the caller's only when the call
+                #   is written where the caller is defined - and is what the
+                #   location count below has to be keyed on for the same reason
+                my $where = defined($siteFile) ? $siteFile : $filename;
+                lcovutil::info(1,
+                               'filter FNC (' .
+                                   $filter->[0] .
+                                   ") $where:$line" .
+                                   " call to '$callee'\n");
+                ++$filter->[-2] unless $seen{"$where:$line"}++;
+                ++$filter->[-1];
+                # ..from every testcase, and from the summary.  Both
+                #   unconditionally:  when the two are aliased the second
+                #   removal finds the site already gone and says so by
+                #   returning false, which is not an error the way handing
+                #   'remove' an undef would be
+                foreach my $tn ($testfncdata->keylist()) {
+                    my $f = $testfncdata->value($tn)->findKey($key);
+                    $f->_removeSite($site) if $f;
+                }
+                $entry->_removeSite($site);
+            }
+        }
+    }
+}
+
+sub _renameCalleesOf
+{
+    # Rename the callees of the call sites of '$entry' which '$rename' maps to
+    #   another name:  all of them in one pass.  A site whose new callee is
+    #   called from the same place already folds into that call - the counts
+    #   are added and the alias set is the union of theirs - the way a merge of
+    #   two inputs resolves the same disagreement (see _resolveCallSite).  The
+    #   folded call keeps the ordinal of the call which had the name already,
+    #   or else the lowest of theirs.  '$targets' holds every name '$rename'
+    #   maps to.  Returns the number of sites the folding removed.
+    # All at once, because one place in a template body may call a different
+    #   function from each of thousands of instantiations, and those calls fold
+    #   into one when the functions are merged:  renaming them one by one would
+    #   look at that place once per call, and build every intermediate union of
+    #   the alias sets
+    my ($entry, $rename, $targets) = @_;
+    my %groups;
+    foreach my $key ($entry->callSiteKeys()) {
+        my ($line, $column, $ordinal, $count, $callee, $file, $set, $statement)
+            = $entry->callSiteData($key);
+        my $to = $rename->{$callee};
+        next unless defined($to) || $targets->{$callee};
+        push(@{
+                 $groups{
+                     join("\0", $line, $column, $file // '', $to // $callee)
+                 }
+             },
+             [$key, $ordinal, $count, $set, defined($to), $statement]);
+    }
+    my $folded = 0;
+    foreach my $id (sort(keys(%groups))) {
+        my $sites = $groups{$id};
+        next unless grep({ $_->[4] } @$sites);
+        my ($line, $column, $file, $callee) = split("\0", $id, 4);
+        $file = undef if '' eq $file;
+        my ($kept) = grep({ !$_->[4] } @$sites);
+        my ($ordinal) =
+            defined($kept) ? ($kept->[1]) :
+            sort({ $a <=> $b } map({ $_->[1] } @$sites));
+        my $set =
+            (grep({ !defined($_->[3]) } @$sites)) ?
+            undef :
+            FunctionEntry::aliasSet(
+                        map({ FunctionEntry::aliasSetNames($_->[3]) } @$sites));
+        $entry->_removeSite($_->[0]) foreach @$sites;
+        $entry->addCallSite($line, $column, $ordinal, $_->[2], $callee,
+                            $file, 0, $set, $_->[5]) foreach @$sites;
+        $folded += scalar(@$sites) - 1;
+    }
+    $entry->_dropSiteIndex() if %groups;
+    return $folded;
+}
+
+sub _renameCallees
+{
+    # Rename the callee of every call site, in the summary and in every
+    #   testcase, for which '$to' has an answer:  called with the file of the
+    #   caller and the callee, it returns the new name or undef.  '$names' is
+    #   every name it may answer for, which is all most sites are looked up in.
+    #   See _renameCalleesOf for what happens to the sites
+    my ($self, $names, $to) = @_;
+    foreach my $filename ($self->files()) {
+        my $traceInfo = $self->data($filename);
+        my @maps      = ($traceInfo->func());
+        unless ($traceInfo->isAliased(TraceInfo::FUNCTION_DATA)) {
+            my $testfnc = $traceInfo->testfnc();
+            push(@maps, map({ $testfnc->value($_) } $testfnc->keylist()));
+        }
+        # the answers for this file, as they are needed
+        my (%rename, %targets);
+        foreach my $map (@maps) {
+            foreach my $key ($map->keylist()) {
+                my $entry = $map->findKey($key);
+                my $any;
+                foreach my $site ($entry->callSiteKeys()) {
+                    my $callee = ($entry->callSiteData($site))[4];
+                    next unless $names->{$callee};
+                    unless (exists($rename{$callee})) {
+                        my $name = $to->($filename, $callee);
+                        $name = undef if defined($name) && $name eq $callee;
+                        $rename{$callee} = $name;
+                        $targets{$name}  = 1 if defined($name);
+                    }
+                    $any = 1 if defined($rename{$callee});
+                }
+                _renameCalleesOf($entry, \%rename, \%targets) if $any;
+            }
+        }
+    }
+}
+
+sub _renameMergedCallees
+{
+    # Every call to a name which is not defined but was merged into an alias
+    #   (see _symbolIndex) is a call to that alias's name, so that everything
+    #   which follows sees one name for one callee.  This is a call written
+    #   somewhere the merge did not see - typically a use of an instantiation
+    #   which another file defines ('extern template'), read after that file was
+    #   collapsed
+    my ($self, $symbol, $duplicated, $definedIn, $mergedNames) = @_;
+    $self->_renameCallees($mergedNames,
+                          sub {
+                              my ($filename, $callee) = @_;
+                              my ($alias) =
+                                  TraceFile::_resolveCallee(
+                                               $symbol, $duplicated, $definedIn,
+                                               $filename, $callee);
+                              return defined($alias) ? $alias->name() : undef;
+                          });
+}
+
+sub adoptAliasNames
+{
+    # Rename my aliases to the names '$other' keeps for them, where the two
+    #   merged them differently - see _collapseCallgraphAliases.  The name kept
+    #   is the shortest of the names merged, so two versions of one program
+    #   keep different names when one has an instantiation the other has not:
+    #   one keeps 'f<ab>' for 'f<ab>', 'f<int>' and 'f<char>', and the other
+    #   'f<int>' for 'f<int>' and 'f<char>'.  The differential report matches
+    #   functions, callers and callees by name, and would see one name gone and
+    #   another new, where it should compare the two.  genhtml calls this on
+    #   the baseline with the current data, which is the version every page
+    #   shows.
+    # An alias of mine is renamed to the alias of '$other' which stands for
+    #   its name or, failing that, for one of the names merged into it - the
+    #   first, in sort order, which '$other' has an answer for.  Two of mine
+    #   which '$other' merged become one, since there is only one name in
+    #   '$other' to compare them with;  but a name '$other' merged into two
+    #   different aliases, in different files, is not an answer.  Nor is a name
+    #   which another function of the same file has.  The counts and the
+    #   merged names go with each alias as they do when it is collapsed, and
+    #   every call to it is a call to its new name.
+    # Returns the number of aliases renamed:  if there are any, the
+    #   callee-side view has to be built again (see resolveCallSites)
+    my ($self, $other) = @_;
+
+    # every name an alias of '$other' stands for, and that alias's name - or
+    #   undef, if there is more than one
+    my %kept;
+    foreach my $filename ($other->files()) {
+        my $map = $other->data($filename)->func();
+        foreach my $key ($map->keylist()) {
+            my $entry = $map->findKey($key);
+            foreach my $name ($entry->aliasNames()) {
+                my $merged = $entry->alias($name)->merged();
+                foreach my $n ($name, defined($merged) ? keys(%$merged) : ()) {
+                    $kept{$n} =
+                        (exists($kept{$n}) && ($kept{$n} // '') ne $name) ?
+                        undef :
+                        $name;
+                }
+            }
+        }
+    }
+
+    my ($renamed, %callees) = (0);
+    foreach my $filename ($self->files()) {
+        my $traceInfo = $self->data($filename);
+        my $map       = $traceInfo->func();
+        foreach my $key ($map->keylist()) {
+            my $entry = $map->findKey($key);
+            my %renames;
+            foreach my $name ($entry->aliasNames()) {
+                my $to = $kept{$name};
+                unless (exists($kept{$name})) {
+                    my $merged = $entry->alias($name)->merged() // {};
+                    my ($first) =
+                        grep({ exists($kept{$_}) } sort(keys(%$merged)));
+                    $to = $kept{$first} if defined($first);
+                }
+                next unless defined($to) && $to ne $name;
+                my $owner = $map->findName($to);
+                next if defined($owner) && $owner != $entry;
+                $renames{$name} = $to;
+                $callees{$name} =
+                    (exists($callees{$name}) && ($callees{$name} // '') ne $to)
+                    ?
+                    undef :
+                    $to;
+            }
+            next unless %renames;
+            $renamed += scalar(keys(%renames));
+            _renameAliases($map, $entry, \%renames);
+            next if $traceInfo->isAliased(TraceInfo::FUNCTION_DATA);
+            my $testfnc = $traceInfo->testfnc();
+            foreach my $tn ($testfnc->keylist()) {
+                my $copy = $testfnc->value($tn)->findKey($key);
+                _renameAliases($testfnc->value($tn), $copy, \%renames)
+                    if defined($copy);
+            }
+        }
+    }
+    $self->_renameCallees(\%callees, sub { return $callees{$_[1]} })
+        if $renamed;
+    return $renamed;
+}
+
+sub _renameAliases
+{
+    # Each alias of '$entry' which '$renames' maps to another becomes that
+    #   one:  its calls are made by the other, its count and its 'x' calls are
+    #   added to the other's, and it is gone.  The callee side - the sites which
+    #   call it - is the caller's business:  see _collapseCallgraphAliases.
+    #   '$map' is the FunctionMap '$entry' is in, whose name index has to forget
+    #   the names too.
+    # Every name at once, because the sites are what costs:  a template with
+    #   thousands of instantiations has thousands of sites, and renaming one
+    #   name at a time would visit each of them once per name
+    my ($map, $entry, $renames) = @_;
+    my @gone = grep({ defined($entry->alias($_)) } sort(keys(%$renames)));
+    return unless @gone;
+    foreach my $key ($entry->callSiteKeys()) {
+        my $set = ($entry->callSiteData($key))[6];
+        next unless defined($set);
+        my @names = FunctionEntry::aliasSetNames($set);
+        next unless grep({ exists($renames->{$_}) } @names);
+        $entry->_setSiteAliases($key,
+                                FunctionEntry::aliasSet(
+                                            map({ $renames->{$_} // $_ } @names)
+                                ));
+    }
+    foreach my $loser (@gone) {
+        my $gone = $entry->alias($loser);
+        my ($count, $external, $flagged, $calls, $merged) = (
+                                           $gone->count(), $gone->is_external(),
+                                           $gone->has_external_callers(),
+                                           $gone->external_calls(),
+                                           $gone->merged());
+        my $winner = $renames->{$loser};
+        $entry->_addAliasCount($winner, $count);
+        # ..which, if it is a new name here, my name index has to find
+        $map->_registerName($winner, $entry)
+            unless defined($map->findName($winner));
+        my $alias = $entry->alias($winner);
+        $alias->set_external() if $external;
+        $alias->add_external_calls(defined($calls) ? $calls : '-') if $flagged;
+        # ..and the winner now stands for the loser's name, and for every name
+        #   which an earlier merge folded into the loser
+        #   - each with its own share of the count, which for the loser is what
+        #   that earlier merge did not give to another name
+        $merged //= {};
+        my $own = $count;
+        $own -= $_ foreach values(%$merged);
+        $alias->add_merged($loser, $own, %$merged);
+        $map->_unregisterName($loser);
+    }
+    $entry->removeAliases(@gone);
+}
+
+sub _collapseCallgraphAliases
+{
+    # The 'collapse_callgraph_alias' setting:  merge the aliases of one
+    #   function which are indistinguishable in the callgraph.
+    #   A template instantiated for several types, or a function the compiler
+    #   cloned, is one FunctionEntry with several names, and whether their
+    #   calls differ is what call site attribution tells us (see SITE_ALIASES).
+    #   Where they do not - each alias calls the same functions from the same
+    #   places and is called from the same places - the separate names are
+    #   clutter in the report, and this folds them into one.
+    #
+    # "The same" is a property of the edges, not of the records:
+    #   a call is (the file it is written in, its line, its column, the function
+    #   at the other end), where "function" is the FunctionEntry - so a call to
+    #   'g<int>' and a call to 'g<char>' from the same place are the same call
+    #   if those are aliases of one function.  The ordinal and the count are not
+    #   part of it:  the first is a numbering, and the second is what is being
+    #   added up.  Two aliases merge if they have the same set of calls in each
+    #   direction - none at all included - and agree about the 'e' flag (a
+    #   linkage is a property of the symbol, and one of them having it would be
+    #   lost or invented by the merge) and about having an 'x' flag (one
+    #   asserting external callers and the other not is a difference in the
+    #   callgraph which no site records).  An alias whose name more than one
+    #   file defines is left alone:  which definition a call to it reached is
+    #   decided per site, so renaming it is not a local edit.
+    #
+    # The retained name is FunctionEntry::preferredName of the group;  it gets
+    #   the sum of the counts and of the 'x' calls, and remembers each merged
+    #   name with its own count (see FunctionAlias::merged).  A call which both
+    #   made from one place is two sites when their callees differ by name, and
+    #   is one site - with the sum of their counts - once the callee is merged.
+    #
+    # Runs from resolveCallSites after the sites are resolved, because both
+    #   directions of a call are what it compares, and the callers it changes
+    #   are corrected in place - only the merged names' lists change, so the
+    #   rest of the resolution stands.  Returns the number of resolved sites the
+    #   merge removed.
+    #
+    # The two flags are a hard rule, and there is no setting which merges
+    #   aliases that differ in them:
+    #     - a different 'x' flag means one alias had callers the callgraph
+    #       could not name and the other did not - which is a difference in the
+    #       callers, the very thing that two aliases have to agree about to be
+    #       merged.  Merging them would claim callers for a name which had none.
+    #     - a different 'e' flag is usually not a property of the code but of
+    #       the captures:  gcc 14 and later record the linkage and older
+    #       versions do not, so data merged from both says 'e' for one
+    #       instantiation and nothing for another.  Merging them with the flag
+    #       set would usually be right, but would lose which name had the
+    #       linkage, and the linkage is what resolves a call to a name several
+    #       files define (see _resolveCallee).
+    #   The '-v' summary below says how many groups were kept apart by the one
+    #   flag alone and by the other alone.  If the 'e' count turns out to be
+    #   common in real data, the better answer is to treat a missing 'e' as
+    #   unknown rather than as "not external", and to merge in every case
+    #   - not to add a setting.
+    #
+    # The cost is linear in the size of the data:  a hash of each alias's edges,
+    #   built once, then one pass over the sites of an entry for all the names
+    #   merged in it (see _renameAliases), and a site which every alias makes
+    #   - one with no alias set - is left out of the comparison altogether,
+    #   since it is the same for all of them.  So there is no XS
+    #   implementation:  this runs once per report, and '--profile' is what
+    #   would say whether it ever needs one
+    my ($self, $symbol, $duplicated, $definedIn) = @_;
+    return 0 unless $lcovutil::collapse_callgraph_alias;
+
+    # every name merged, and the name it was merged into;  the function each
+    #   name kept is an alias of;  and the functions which call any of them
+    my (%rename, %winners, %callers);
+    # the FunctionEntry a call to '$callee' from '$fromFile' reached - a merged
+    #   name included, which its entry no longer knows:  the calls to it are
+    #   renamed only at the end
+    my $destination = sub {
+        my ($fromFile, $callee) = @_;
+        my ($alias, $file) =
+            TraceFile::_resolveCallee($symbol, $duplicated, $definedIn,
+                                      $fromFile, $callee);
+        return "?$callee" unless defined($alias) && defined($file);
+        my $entry =
+            $self->data($file)->func()->findName($rename{$callee} // $callee);
+        return defined($entry) ? "$file\0" . $entry->line() : "?$callee";
+    };
+    # the per-testcase maps of a file, unless they are its summary
+    my %testMaps;
+    my $testMaps = sub {
+        my $filename = shift;
+        return @{
+            $testMaps{$filename} //= do {
+                my $traceInfo = $self->data($filename);
+                my $testfnc   = $traceInfo->testfnc();
+                $traceInfo->isAliased(TraceInfo::FUNCTION_DATA) ? [] :
+                    [map({ $testfnc->value($_) } sort($testfnc->keylist()))];
+            }
+        };
+    };
+
+    my ($removed, $onlyLinkage, $onlyExternal) = (0, 0, 0);
+    # a file which nothing measured the calls of has the same signature - none -
+    #   for every alias, which says nothing about whether they differ
+    my $called = $self->calledSymbols();
+    foreach my $filename (sort($self->files())) {
+        my $traceInfo   = $self->data($filename);
+        my $functionMap = $traceInfo->func();
+        next unless $functionMap && $functionMap->hasCallgraphData($called);
+        foreach my $key (sort({ $a <=> $b } $functionMap->keylist())) {
+            my $entry = $functionMap->findKey($key);
+            next unless defined($entry);
+            my @names = $entry->aliasNames();
+            next if scalar(@names) < 2;
+            my %calls = map({ ($_ => {}) }
+                            grep({ !exists($duplicated->{$_}) } @names));
+            next if scalar(keys(%calls)) < 2;
+            # what each alias calls - other than what they all call, which
+            #   tells none of them apart
+            foreach my $site ($entry->callSiteKeys()) {
+                my ($line, $column, undef, undef, $callee, $siteFile, $set) =
+                    $entry->callSiteData($site);
+                next unless defined($set);
+                my $edge = join("\0",
+                                '>', $siteFile // '',
+                                $line, $column,
+                                $destination->($filename, $callee));
+                foreach my $name (FunctionEntry::aliasSetNames($set)) {
+                    $calls{$name}->{$edge} = 1 if exists($calls{$name});
+                }
+            }
+            # ..and what calls it
+            foreach my $name (keys(%calls)) {
+                foreach my $row ($entry->alias($name)->callers()) {
+                    # [callerEntry, line, column, ordinal, count, file]
+                    my ($from, $line, $column, undef, undef, $file) = @$row;
+                    $calls{$name}->{
+                        join("\0",
+                             '<', $file // $from->file(),
+                             $line, $column,
+                             $from->file(), $from->line())
+                    } = 1;
+                }
+            }
+            my (%bySignature, %renames);
+            foreach my $name (sort(keys(%calls))) {
+                push(@{
+                         $bySignature{join("\1", sort(keys(%{$calls{$name}})))}
+                     },
+                     $name);
+            }
+            foreach
+                my $group (sort({ $a->[0] cmp $b->[0] } values(%bySignature))) {
+                next if scalar(@$group) < 2;
+                my %byFlags;
+                foreach my $name (@$group) {
+                    my $alias = $entry->alias($name);
+                    push(@{
+                             $byFlags{
+                                 ($alias->is_external() ? 'e' : '') .
+                                     ($alias->has_external_callers() ? 'x' : '')
+                             }
+                         },
+                         $name);
+                }
+                if (scalar(keys(%byFlags)) > 1) {
+                    # the same calls, and kept apart by a flag:  said at
+                    #   verbosity 1, since which of the two it was is what a
+                    #   user wondering why would want to know
+                    my @e = sort(keys(
+                                      %{{
+                                         map({ ((/e/ ? 1 : 0) => 1) }
+                                             keys(%byFlags))
+                                      }}
+                    ));
+                    my @x = sort(keys(
+                                      %{{
+                                         map({ ((/x/ ? 1 : 0) => 1) }
+                                             keys(%byFlags))
+                                      }}
+                    ));
+                    ++$onlyLinkage if 1 == scalar(@x);
+                    ++$onlyExternal if 1 == scalar(@e);
+                    lcovutil::info(1,
+                                   "collapse FNA \"$filename\":" .
+                                       $entry->line() .
+                                       ' not merging ' .
+                                       join(', ', map({ "'$_'" } @$group)) .
+                                       ':  they differ in the '
+                                       .
+                                       (1 == scalar(@x) ? "'e'" :
+                                            1 == scalar(@e) ? "'x'" :
+                                            "'e' and 'x'") .
+                                       " flag\n");
+                }
+                foreach my $flags (sort(keys(%byFlags))) {
+                    my $winner =
+                        FunctionEntry::preferredName(@{$byFlags{$flags}});
+                    my @same =
+                        sort(grep({ $_ ne $winner } @{$byFlags{$flags}}));
+                    next unless @same;
+                    $winners{$winner} = $entry;
+                    foreach my $loser (@same) {
+                        lcovutil::info(1,
+                                       "collapse FNA \"$filename\":" .
+                                           $entry->line() .
+                                           " merged '$loser' into '$winner'\n");
+                        # every call the loser made is the winner's:  below,
+                        #   for every group of this function at once..
+                        $renames{$loser} = $winner;
+                        # ..and every call to it is a call to the winner:  at
+                        #   the end, once for each caller
+                        $rename{$loser} = $winner;
+                    }
+                    # ..which are the callers of any of them
+                    foreach my $name ($winner, @same) {
+                        foreach my $row ($entry->alias($name)->callers()) {
+                            my $from = $row->[0];
+                            $callers{$from->file() . "\0" . $from->line()} //=
+                                $from;
+                        }
+                    }
+                }
+            }
+            next unless %renames;
+            _renameAliases($functionMap, $entry, \%renames);
+            foreach my $map ($testMaps->($filename)) {
+                my $copy = $map->findKey($key);
+                _renameAliases($map, $copy, \%renames) if defined($copy);
+            }
+        }
+    }
+    if (%rename) {
+        my %targets = map({ ($_ => 1) } keys(%winners));
+        my %rows;
+        foreach my $id (sort(keys(%callers))) {
+            my $from = $callers{$id};
+            $removed += _renameCalleesOf($from, \%rename, \%targets);
+            # ..in every testcase as well
+            if ($self->contains($from->file())) {
+                foreach my $map ($testMaps->($from->file())) {
+                    my $copy = $map->findKey($from->line());
+                    _renameCalleesOf($copy, \%rename, \%targets)
+                        if defined($copy);
+                }
+            }
+            # ..and the callers of a winner are its own sites and the losers'
+            #   - some of them folded together
+            foreach my $site ($from->callSiteKeys()) {
+                my ($line, $column, $ordinal, $count, $callee, $file) =
+                    $from->callSiteData($site);
+                push(@{$rows{$callee}},
+                     ["$id\0$site", $from, $line, $column,
+                      $ordinal, $count, $file
+                     ]) if exists($winners{$callee});
+            }
+        }
+        foreach my $winner (sort(keys(%winners))) {
+            my $alias = $winners{$winner}->alias($winner);
+            $alias->clear_callers();
+            foreach
+                my $row (sort({ $a->[0] cmp $b->[0] } @{$rows{$winner} // []}))
+            {
+                my (undef, @caller) = @$row;
+                $alias->add_caller(@caller);
+            }
+        }
+    }
+    lcovutil::info(1,
+        "collapse_callgraph_alias:  $onlyLinkage group(s) of aliases not merged only because their 'e' flags differ, $onlyExternal only because their 'x' flags differ\n"
+    ) if $onlyLinkage || $onlyExternal;
+    return $removed;
+}
+
+sub resolveCallSites
+{
+    # Turn the caller-side call data into the callee-side view of it:  tell
+    #   every FunctionAlias which call sites called it.  Returns the number of
+    #   sites which resolved and the number which did not.
+    #
+    # The authoritative data is the other direction - the sites a function
+    #   contains, on that function's own entry - because that is local to one
+    #   file and so merges, filters and serializes with no cross-file step, and
+    #   because every removal is then a local edit.  This direction is derived,
+    #   and never merged, serialized or incrementally maintained:  so nothing
+    #   can dangle, because nothing persists.  It must run
+    #     - after the last input is merged, or a file read later re-adds sites
+    #       which an already-resolved alias has counted;
+    #     - after every filter and every removal, so that no removal has to be
+    #       propagated to another file;
+    #     - before any summary, since the callgraph metric reads the result;
+    #     - in the parent, never across a fork (see serialize).
+    #   Every alias is reset first, so this is idempotent:  anything which
+    #   invalidates the report can run it again instead of patching it.
+    my $self = shift;
+
+    # Index the callees, and reset the callee side while we are there
+    my ($symbol, $duplicated, $definedIn, $mergedNames) =
+        $self->_symbolIndex(1);
+    # ..then the calls to a merged name, which are calls to the retained name:
+    #   first, so that everything below sees one name for one callee
+    $self->_renameMergedCallees($symbol, $duplicated, $definedIn, $mergedNames)
+        if %$mergedNames;
+    # ..then the sites which are in a file this report has not got, which have to
+    #   go before anything counts them:  they cannot be written, so a summary
+    #   which counted them would not match the '.info' file of the same report
+    $self->_pruneUnwritableSites($symbol, $duplicated, $definedIn);
+    # ..then the calls which went out of the report, which is the other half of
+    #   the same question and is asked before the filter below so that the filter
+    #   is not credited with removing a site which was going anyway
+    $self->_pruneExternalCallees($symbol, $duplicated);
+    # ..then the filter, before anything counts a site:  a site it removes must be
+    #   gone from both views, and the index is unaffected (it indexes definitions,
+    #   not calls), so it does not have to be built again afterwards
+    $self->_filterUnknownCalleeCount();
+    # ..then the calls whose own sites are gone, which the index is also what
+    #   resolves.  Before the sites below, so that a callee gets its flag whether
+    #   or not it has a nameable caller as well
+    $self->_applyExternalCalls($symbol, $duplicated, $definedIn);
+
+    my $resolved   = 0;
+    my $unresolved = 0;
+    foreach my $filename ($self->files()) {
+        my $functionMap = $self->data($filename)->func();
+        foreach my $key ($functionMap->keylist()) {
+            my $entry = $functionMap->findKey($key);
+            foreach my $site ($entry->callSiteKeys()) {
+                my ($line, $column, $ordinal, $count, $callee, $siteFile) =
+                    $entry->callSiteData($site);
+                # '$filename' and not the site's own file, for a call written in
+                #   an '#include'd fragment:  the caller is defined is one
+                #   (of several) static functions with the same name -
+                #   in the translation unit where the call was compiled. The
+                #   site's file is where the call is written in, which the
+                #   header included by two units does not tell us
+                my ($alias) =
+                    TraceFile::_resolveCallee($symbol, $duplicated, $definedIn,
+                                              $filename, $callee);
+                # ..and the file the message below names is the other one:  it
+                #   is telling the user where to look at the source
+                my $where = defined($siteFile) ? $siteFile : $filename;
+                if (defined($alias)) {
+                    $alias->add_caller($entry, $line, $column,
+                                       $ordinal, $count, $siteFile);
+                    ++$resolved;
+                } elsif (exists($duplicated->{$callee})) {
+                    # Several files define this name, this file is not one of
+                    #   them, and the linkage does not single one of them out:
+                    #   the site is counted where it is, on its own caller, and
+                    #   is absent from every callee-side view.
+                    # Said out loud, unlike the case below, because it is a
+                    #   caller the callee's page should have listed and does not
+                    #   - a loss of information rather than the ordinary shape
+                    #   of a call out of the report.  A warning and not an error:
+                    #   the caller-side totals are unaffected, so the report is
+                    #   still correct as far as it goes
+                    # Two different data scenarios reach here and the advice is not
+                    #   the same for them:  no candidate carries the linkage
+                    #   assertion, which is what a capture that could not record
+                    #   it looks like and is fixable by capturing again;  or more
+                    #   than one does, which no single program can produce (one
+                    #   name, one external definition) and recapturing will not
+                    #   change.  The candidates are named either way, since the
+                    #   answer is one of them and only the user can say which
+                    my $candidates = $duplicated->{$callee};
+                    my @files      = sort(keys(%$candidates));
+                    my @external =
+                        grep({ $candidates->{$_}->is_external() } @files);
+                    my $linkage;
+                    if (@external) {
+                        $linkage = scalar(@external) .
+                            " of them are recorded as having external linkage - at most one definition of a name can have it in a program which links, so this data covers more than one program, or the linkage records disagree";
+                    } else {
+                        $linkage =
+                            "none of them is recorded as having external linkage (capture with '--callgraph-coverage' using gcc 14 or later to record it)";
+                    }
+                    # ..only the first few, when there are many:  the point is
+                    #   that the name is ambiguous, not the whole list
+                    my @named = @files;
+                    splice(@named, 3, scalar(@named) - 3, '...')
+                        if scalar(@named) > 3;
+                    # "this file" is the file the caller is defined in, which is
+                    #   the one the linkage rule asked about - and is named
+                    #   outright when the call is written somewhere else
+                    my $defining =
+                        defined($siteFile) ? "\"$filename\"" : 'this file';
+                    my $msg =
+                        "\"$where\":$line: call to '$callee' cannot be resolved:  ";
+                    $msg .= scalar(@files) .
+                        " file(s) define that name, $defining defines none of them, and $linkage.  ";
+                    $msg .= 'The candidates are: ' . join(', ', @named) . '.  ';
+                    $msg .=
+                        "The call is counted on '" .
+                        $entry->name() .
+                        "' and is missing from the callee's list of callers.";
+                    lcovutil::ignorable_warning(
+                                             $lcovutil::ERROR_INCONSISTENT_DATA,
+                                             $msg);
+                    ++$unresolved;
+                } else {
+                    # The callee is not described by this report at all:  the
+                    #   treatment 'printf' gets, and an ordinary thing rather
+                    #   than a problem, so it is only said on request.
+                    # Not normally reached:  _pruneExternalCallees has taken every
+                    #   such site out a moment ago, this being the same question it
+                    #   asks.  Kept as the honest answer for a site which somehow
+                    #   survives it - counted as unresolved rather than passed over
+                    lcovutil::info(2,
+                        "\"$where\":$line: call to '$callee' is not in this report\n"
+                    );
+                    ++$unresolved;
+                }
+            }
+        }
+    }
+    # ..and, if asked, the aliases which the resolved callgraph cannot tell
+    #   apart are merged:  a merged site is one fewer resolved
+    $resolved -=
+        $self->_collapseCallgraphAliases($symbol, $duplicated, $definedIn);
+    $callSitesResolved = 1;
+    return ($resolved, $unresolved);
+}
+
+sub checkCallgraphData
+{
+    # '--callgraph-coverage' asked for on data which has no call sites anywhere.
+    #   Unlike the contradictions parseOptions catches, this one is a property
+    #   of the input rather than of the options, so it cannot be known at option
+    #   time:  hence ERROR_EMPTY, the class "no valid records found in
+    #   tracefile" already uses.
+    #
+    # The condition is that NO file has a site.  A single file with none is
+    #   entirely ordinary - a header holding only inline definitions, a leaf
+    #   translation unit, a file all of whose functions were filtered - so a
+    #   per-file test would fire on perfectly good reports.
+    #
+    # Call this from the parent only, after the last input is merged and after
+    #   filtering, which is why it lives beside resolveCallSites and is called
+    #   from the same place:  a chunk which happens to hold no calls is not a
+    #   report with no calls, which is the same trap the ERROR_EMPTY in
+    #   _read_info documents.
+    #
+    # Ignoring it turns the metric off, as ignoring the option-time checks does.
+    #   Here that has a visible consequence:  otherwise every summary would
+    #   carry a callee column reading 0/0, which invites the reader to conclude
+    #   the code makes no calls, rather than that the metric was never measured.
+    #
+    # The message, the predicate and the turning-off are this type's row in
+    #   '@lcovutil::coverType' - the same check 'checkEmpty' makes for every
+    #   type.  This name stays because the callers which have only this metric
+    #   to ask about read better for it.
+    my $self = shift;
+
+    $self->checkEnabledMetric(lcovutil::COVER_TYPE_CALLGRAPH);
+}
+
+sub hasCallgraphData
+{
+    # Does this report carry any callgraph information at all?  See
+    #   checkCallgraphData for why the question is asked of the whole report
+    #   rather than file by file.
+    #
+    # Not the same question as 'callgraph_found() != 0', which counts call sites
+    #   only.  Resolution turns a call whose callee is not in the report into a
+    #   crossing - the 'c' flag on the calling function, and its mirror on an
+    #   alias which external callers reached - and stops counting it as a site.
+    #   So a report can hold nothing but crossings:  found is 0, and the report
+    #   still says that these functions call out of the boundary and those are
+    #   called from outside it.  Turning the metric off there would erase that,
+    #   because both flags are written only while it is on.
+    #
+    # The per-file question is FunctionMap::hasCallgraphData, and this is it
+    #   asked of every file - without the term which says that some other file
+    #   calls into this one, because a call into one file is a call site in
+    #   another and this loop has already found it there.
+    my $self = shift;
+
+    foreach my $filename ($self->files()) {
+        return 1 if $self->data($filename)->func()->hasCallgraphData();
+    }
+    return 0;
+}
+
+sub calledSymbols
+{
+    # The name of every symbol some call site in this report names, as a set.
+    #   What it answers is whether anything in the report calls into a given
+    #   file, which is one of the things which makes that file's callgraph data
+    #   real - see FunctionMap::hasCallgraphData.
+    #
+    # Names, rather than the callers resolution attaches to each callee, for two
+    #   reasons.  The '.info' writer asks this question, and geninfo writes
+    #   before resolution has run (see resolveCallSites), so an answer which
+    #   needed it would differ between a capture and a rewrite of the same data.
+    #   And a name which several files define counts for each of them, which errs
+    #   towards keeping a claim rather than dropping one - the direction an
+    #   ambiguity should be resolved in here, because the claim is what the
+    #   measurement actually supports
+    my $self = shift;
+    my %called;
+    foreach my $filename ($self->files()) {
+        my $functionMap = $self->data($filename)->func();
+        foreach my $key ($functionMap->keylist()) {
+            my $data = $functionMap->findKey($key);
+            foreach my $site ($data->callSiteKeys()) {
+                my $callee = ($data->callSiteData($site))[4];
+                $called{$callee} = 1;
+            }
+        }
+    }
+    return \%called;
+}
+
+sub dropUnmeasurableCallgraph
+{
+    # '--callgraph-coverage' asked for, and this run captured no call site at
+    #   all:  the metric is not measurable here, so turn it off rather than
+    #   leave it on with nothing in it.
+    #
+    # The reason was already reported where it was found - per object, as
+    #   ERROR_UNSUPPORTED for a build without '-fcallgraph-info', or per
+    #   function, as ERROR_INCONSISTENT for sites whose arcs an optimization
+    #   removed.  Having chosen to ignore that, the user does not need a second
+    #   error saying the same thing in more general terms; what they need is for
+    #   the run to continue in a coherent state, which is the state
+    #   'reject_metric' and 'checkCallgraphData' also leave it in:  off, and
+    #   writing no records for the metric.
+    #
+    # Decided in the parent, after the last object is merged, for two reasons.
+    #   The per-object error is raised inside a worker, and a worker's flag
+    #   settings do not cross back over the fork - only its coverage data does.
+    #   And one object without the data is ordinary in a build where another
+    #   object has it, so the answer is not a property of any single object.
+    my $self = shift;
+
+    return if !$lcovutil::callgraph_coverage || $self->hasCallgraphData();
+    lcovutil::info(
+        "--callgraph-coverage: no call site was captured - turning the metric off.\n"
+    );
+    $lcovutil::callgraph_coverage = 0;
+}
+
+# file name -> the flags of its languages;  cleared when an extension list
+#   changes - see 'lcovutil::set_extensions'
+our %languageCache;
+
+# The languages of file 'filename':  the OR of the 'lcovutil::IS_*' flags of
+#   each language whose extension list holds the file's extension
+sub language
+{
+    my $filename = shift;
+    my $known    = $languageCache{$filename};
+    return $known if defined($known);
+    my $idx   = rindex($filename, '.');
+    my $ext   = $idx == -1 ? '' : substr($filename, $idx);
+    my $flags = 0;
+    foreach my $l (keys(%lcovutil::languageExtensions)) {
         my $extensions = $lcovutil::languageExtensions{$l};
-        return 1
+        $flags |= $lcovutil::languageFlag{$l}
             if ($lcovutil::case_insensitive ? $ext =~ /\.($extensions)$/i :
                 $ext =~ /\.($extensions)$/);
     }
-    return 0;
+    return $languageCache{$filename} = $flags;
+}
+
+# Is file 'filename' in any of the languages 'flags' - an OR of 'lcovutil::IS_*'
+sub is_language
+{
+    my ($flags, $filename) = @_;
+    return 0 != (language($filename) & $flags);
 }
 
 # Read in the contents of the .info file specified by INFO_FILENAME. Data will
@@ -11955,13 +17282,20 @@ sub _scan_section_names($)
     return (undef, undef) if (1 != $nFiles);
     $section =~ /^[SK]F:(.*)$/m;
     my $sf = $1;
+    # ..remembered here rather than read as '$-[0]' below, because the
+    #   substitutions which follow overwrite it when they match
+    my $head = substr($section, 0, $-[0]);
     # '.' matches a CR, and '_read_info' strips trailing whitespace from the
     #   record before it looks at it (which is how a CRLF '.info' file is read at
     #   all), so strip it here too:  'SF:foo.c' and "SF:foo.c\r" are one source
     #   file to the reader and must be one name here.  Same test as there.
     $sf =~ s/\s+$//
         if (length($sf) && substr($sf, -1) lt '!');
-    my $head = substr($section, 0, $-[0]);
+    # 'SF:[<index>,]<name>':  drop the optional index, so that a section which
+    #   carries one is grouped with the sections of the same file which do not -
+    #   the name is what the partitioner compares.  Same expression as the
+    #   reader's - see the 'SF:' arm of '_read_info'.
+    $sf =~ s/^\d+,//;
     my ($tn) = $head =~ /^TN:(.*)$/m;
     $tn =~ s/\s+$//
         if (defined($tn) && length($tn) && substr($tn, -1) lt '!');
@@ -12088,8 +17422,188 @@ sub scan_sections($)
     return \@sections;
 }
 
+# A call site which named the file it is written in by index is held as one of
+#   these until the read is over - see '%pendingSites' in '_read_info'.  Name the
+#   fields rather than counting commas at each use.
+use constant {
+              PEND_OWNER    => 0,    # file the site's function is defined in
+              PEND_TESTNAME => 1,    # testcase the section belonged to
+              PEND_ALIAS    => 2,    # name the 'FNA:' record gave the function
+              PEND_LINE     => 3,
+              PEND_COLUMN   => 4,
+              PEND_ORDINAL  => 5,
+              PEND_COUNT    => 6,
+              PEND_CALLEE   => 7,
+              PEND_AT       => 8,    # '.info' line the 'FNC:' record is on
+              PEND_ALIASES  => 9,    # the aliases which make the call
+};
+
+# Work out which file each pending call site is written in, and return the sites
+#   with that file prefixed, for '_addDeferredSites' to install - see
+#   '%pendingSites' in '_read_info'.
+#
+# '$defined' is what the read saw:  index -> [['.info' line, file name], ...], in
+#   file order, with an entry for every 'SF:' record which gave that index a name.
+#   A site takes the FIRST definition at or after it, and the last one before it
+#   if there is none.  That is what makes the concatenation of two '.info' files
+#   readable:  an index is a property of one tracefile, so each half numbers the
+#   files it names for itself, and the definition which applies to a site is the
+#   one its own half gave.  The usual case - one writer, which defines a file's
+#   index on that file's own section - is a reference forward, since two files can
+#   call into each other and no order of the sections can avoid it.
+#
+# An index the read never saw defined is normally a malformed tracefile, and
+#   reported as one;  but a chunk of a parallel read sees only its own run of
+#   sections, so the record which defines the index may be in another chunk.  That
+#   is what '$rescan' is for, and the scan is cheap for the same reason
+#   'scan_sections' is:  it looks only at the file records, and it only runs for a
+#   chunk which really does hold a site it cannot resolve on its own.  A chunk is
+#   only ever built for a seekable input (see '_read_info'), so the handle can be
+#   rewound and re-read.
+sub _resolvePendingSites
+{
+    my ($self, $hdl, $pending, $defined, $tracefile, $rescan) = @_;
+
+    if ($rescan) {
+        # The definitions this read saw are not enough to decide which one
+        #   applies to a site:  the next one after it may be in a section which
+        #   went to another chunk, and so may the only one there is.  Replace them
+        #   with what the whole tracefile holds, for the indexes named here.
+        %$defined = ();
+        seek($hdl, 0, 0) or
+            die("cannot rewind $tracefile: $!\n");
+        $hdl->input_line_number(0);
+        my %resolved;    # written name -> the file name it resolves to
+        while (<$hdl>) {
+            next unless /^[SK]F:(\d+),(.+)$/;
+            my ($idx, $name) = ($1, $2);
+            next unless exists($pending->{$idx});
+            # trailing whitespace, for a CRLF file:  same test as the reader's
+            $name =~ s/\s+$//
+                if (length($name) && substr($name, -1) lt '!');
+            $resolved{$name} =
+                ReadCurrentSource::resolve_path(lcovutil::check_path_separator(
+                                                           $name, $tracefile, $.
+                                                ),
+                                                1
+                ) unless exists($resolved{$name});
+            push(@{$defined->{$idx}}, [$., $resolved{$name}]);
+        }
+    }
+    my @deferred;
+    foreach my $idx (sort({ $a <=> $b } keys(%$pending))) {
+        foreach my $site (@{$pending->{$idx}}) {
+            my $at = $site->[PEND_AT];
+            my $file;
+            foreach my $def (@{$defined->{$idx}}) {
+                $file = $def->[1];
+                last if $def->[0] >= $at;
+            }
+            unless (defined($file)) {
+                lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                    "\"$tracefile\":$at: no 'SF:' record defines source file index '$idx', named by the call to '"
+                        . $site->[PEND_CALLEE]
+                        . "'");
+                next;
+            }
+            push(@deferred, [$file, @$site]);
+        }
+    }
+    return \@deferred;
+}
+
+# Add the call sites which could not be added while the section they were read in
+#   was being read, because the file they are written in was named by an index
+#   whose meaning is only settled once the whole tracefile has been read - see
+#   '_resolvePendingSites'.
+#
+# The section has been installed by the time we get here, so the site goes in
+#   through the report rather than through the section's scratch map, which
+#   '_installSection' owns:  into the function data merged over all
+#   testcases, and into the map of the testcase the section belonged to.  Those
+#   are one object when the file 'isAliased', and adding the site to it twice
+#   would count the call twice.
+# A site whose function is not in the destination map is dropped rather than
+#   reported:  the map is what the section installed, so the only way for the
+#   name to be missing is for the function itself to have been dropped - which is
+#   the same reason '_pruneUnwritableSites' drops a site, and is not an error.
+sub _addDeferredSites
+{
+    my ($self, $deferred) = @_;
+
+    foreach my $site (@$deferred) {
+        my $siteFile = shift(@$site);
+        my $file     = $site->[PEND_OWNER];
+        # the file may be gone:  an empty one is dropped at the end of the read
+        next unless $self->contains($file);
+        my $traceInfo = $self->data($file);
+        my @maps      = ($traceInfo->func());
+        unless ($traceInfo->isAliased(TraceInfo::FUNCTION_DATA)) {
+            my $perTest = $traceInfo->testfnc();
+            push(@maps, $perTest->value($site->[PEND_TESTNAME]))
+                if $perTest->mapped($site->[PEND_TESTNAME]);
+        }
+        foreach my $map (@maps) {
+            my $entry = $map->findName($site->[PEND_ALIAS]);
+            next unless $entry;
+            # count errors are checked in the addCallSite method
+            $entry->addCallSite($site->[PEND_LINE], $site->[PEND_COLUMN],
+                                $site->[PEND_ORDINAL], $site->[PEND_COUNT],
+                                $site->[PEND_CALLEE], $siteFile,
+                                undef, $site->[PEND_ALIASES]);
+        }
+    }
+}
+
+# The location offset of a BRDA or MCDC record:  where the block is written,
+#   relative to the line which holds it - see BranchBlock::locationOffset.
+#   'location' is the optional '^<location>' field of the record.
+sub _recordLocationOffset
+{
+    my ($tracefile, $line, $location) = @_;
+    return 0 unless defined($location);
+    my $offset = $location - $line;
+    if (abs($offset) > BranchBlock::MAX_LOCATION_OFFSET) {
+        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+             "\"$tracefile\":$.: location $location of line $line is more than "
+                 . BranchBlock::MAX_LOCATION_OFFSET .
+                 " lines away in .info file record '$_' (location ignored)");
+        return 0;
+    }
+    return $offset;
+}
+
 # Die on error.
 #
+# The end line 'end' of the statement which the line coverpoint at 'line' of
+#   'traceInfo' counts, read from the DA record of 'tracefile' - see
+#   'TraceInfo::span'.  A span which is not a line after the coverpoint, at
+#   most MAX_SPAN_OFFSET lines away, is a format error, and is dropped.  The
+#   record of each testcase has the same span.
+sub _readSpan
+{
+    my ($traceInfo, $line, $end, $tracefile) = @_;
+    my $filename = $traceInfo->filename();
+    unless ($end =~ /^\d+$/ &&
+            $line < $end &&
+            $end - $line <= MAX_SPAN_OFFSET) {
+        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+            "\"$tracefile\":$.: unexpected statement end line '$end' for line coverpoint $filename:$line"
+        );
+        return;
+    }
+    my $span = $traceInfo->span();
+    if ($span->mapped($line) && $span->value($line) != $end) {
+        lcovutil::ignorable_error(
+                  $lcovutil::ERROR_INCONSISTENT_DATA,
+                  "statement span mismatch at $filename:$line in $tracefile: " .
+                      "$line-" .
+                      $span->value($line) .
+                      " -> $line-$end");
+    }
+    $span->replace($line, $end);
+}
+
 sub _read_info
 {
     my ($self, $tracefile, $readSourceCallback, $verify_checksum, $chunk) = @_;
@@ -12158,10 +17672,34 @@ sub _read_info
     my $fileData;
     my $functionMap;
     my $skipCurrentFile = 0;
+    # The calls made from the sections which are being skipped, as the
+    #   lcovutil::external_call records TraceFile::noteExternalCalls takes,
+    #   applied to the callees once the whole file has been read - see
+    #   TraceFile::noteExternalCalls
+    my @externalCalls;
+    # ..and, while one such section is being read, the callees it named and the
+    #   function names it defined:  see the '$skipCurrentFile' block below, and
+    #   '$closeSection', which turns the two into the pairs above
+    my @skippedCalls;
+    my %skippedNames;
     my %fnIdxMap;
+    # The source file indexes this tracefile defines:  index -> [['.info' line,
+    #   file name], ...].  A call site written in a file other than the one its
+    #   function is defined in names that file by index - see the 'SF:'
+    #   description in geninfo(1) - and the index means nothing outside this
+    #   tracefile, so it is resolved here and never stored.
+    my %sourceIndex;
+    # ..and the sites which named one:  index -> list of PEND_ records.  Held
+    #   until the whole file has been read, because that is when which definition
+    #   of an index applies to which site is settled - see
+    #   '_resolvePendingSites'.  Also the only table here which is a list per
+    #   index rather than one value:  every other record in a section is complete
+    #   in itself.
+    my %pendingSites;
     my $branchBlock;
     my $currentBlockLine;
     my $currentBlock;
+    my $currentBlockOffset;
     my $branchIndex;
 
     # A valid .info file is a sequence of sections:
@@ -12179,6 +17717,12 @@ sub _read_info
     my $inSection = 0;
     my $sectionLine;       # .info line of the 'SF:' which opened the section
     my $sectionEndLine;    # .info line of the 'end_of_record' which closed one
+     # The cases the open section has seen, and the count records ('LF:',
+     #   'BRF:', ...) among them by tag, so that '$closeSection' can check
+     #   '@sectionCountRecords'.  One array store per record:  the tag is looked
+     #   at again only for the handful of count records.
+    my @sectionCases;
+    my %sectionCounts;
 
     # The format messages below name the source file whose section is involved
     #   and the .info line where that section began or ended, so that a report
@@ -12230,6 +17774,22 @@ sub _read_info
     #   which have to recover from one that is not properly ended:  a second
     #   'SF:' arriving while a section is open, and end of file.
     my $closeSection = sub {
+        foreach my $required (@sectionCountRecords) {
+            my ($cases, $what, @tags) = @$required;
+            next unless grep({ $sectionCases[$_] } @$cases);
+            my @missing = grep({ !exists($sectionCounts{$_}) } @tags);
+            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                      "\"$tracefile\":$.: missing "
+                                          .
+                                          join(' and ',
+                                               map({ "'$_:'" } @missing)) .
+                                          " count record" .
+                                          (1 < @missing ? 's' : '') .
+                                          " for the $what coverpoints in " .
+                                          &$openSection()) if @missing;
+        }
+        @sectionCases  = ();
+        %sectionCounts = ();
         # A section whose file was excluded, or whose 'SF:' record had no file
         #   name, has nothing to close:  its records were skipped, and
         #   '$fileData' still refers to whichever file was read before it.
@@ -12271,7 +17831,17 @@ sub _read_info
             }
             # some paranoid checks
             $self->data($filename)->check_data();
+        } elsif (@skippedCalls) {
+            # The calls this skipped section made, less those which went to a
+            #   function it defined itself:  those went to a definition which is
+            #   being skipped too, so there is no callee left for them to be a
+            #   fact about
+            push(@externalCalls,
+                 map({ [$filename, $_->[0], $_->[1], {$testname => $_->[1]}] }
+                     grep({ !exists($skippedNames{$_->[0]}) } @skippedCalls)));
         }
+        @skippedCalls    = ();
+        %skippedNames    = ();
         $inSection       = 0;
         $skipCurrentFile = 0;
         $sectionEndLine  = $.;
@@ -12359,6 +17929,14 @@ sub _read_info
         #   end of the switch is exactly the old behaviour.
         if ($case == REC_FILE && $line =~ /^[SK]F:(.*)/) {
             my $sourceName = $1;
+            # 'SF:[<index>,]<name>':  the optional leading integer is the
+            #   shorthand a call site written in this file names it by - see
+            #   '%sourceIndex'.  The name is the rest of the record, so a name
+            #   which itself begins with digits and a comma - the one spelling
+            #   this cannot be told from an index - is written WITH an index by
+            #   'TraceFile::_callSiteFileIndex', and so is not ambiguous.
+            my $sfIndex;
+            $sfIndex = $1 if $sourceName =~ s/^(\d+),//;
             if ($inSection) {
                 lcovutil::ignorable_error(
                         $lcovutil::ERROR_FORMAT,
@@ -12399,6 +17977,14 @@ sub _read_info
             $sourceName =
                 lcovutil::check_path_separator($sourceName, $tracefile, $.);
             $filename = ReadCurrentSource::resolve_path($sourceName, 1);
+            # Remembered, not applied:  a record later in the file may define the
+            #   same index again, and which definition a site takes is decided
+            #   once the whole file has been read - see '_resolvePendingSites'.
+            #   Before the skip check below, because an excluded file can still be
+            #   the file a site is written in - the site is then dropped by
+            #   '_pruneUnwritableSites', which records it on the callee.
+            push(@{$sourceIndex{$sfIndex}}, [$., $filename])
+                if defined($sfIndex);
             # should this one be skipped?
             $skipCurrentFile = skipCurrentFile($filename);
             if ($skipCurrentFile) {
@@ -12410,17 +17996,18 @@ sub _read_info
             }
 
             # Retrieve data for new entry
-            %fnIdxMap         = ();
-            $branchBlock      = undef;
-            $currentBlockLine = -1;
-            $currentBlock     = -1;
+            %fnIdxMap           = ();
+            $branchBlock        = undef;
+            $currentBlockLine   = -1;
+            $currentBlock       = -1;
+            $currentBlockOffset = 0;
 
             if ($verify_checksum) {
                 # unconditionally 'close' the current file - in case we don't
                 #   open a new one.  If that happened, then we would be looking
                 #   at the source for some previous file.
                 $readSourceCallback->close();
-                if (is_language('c', $filename)) {
+                if (is_language(lcovutil::IS_C, $filename)) {
                     $readSourceCallback->open($filename);
                 }
             }
@@ -12486,7 +18073,38 @@ sub _read_info
                                &$closedSection());
             next;
         }
-        next if $skipCurrentFile;
+        # Noted for every record in a section - kept, skipped or of a type which
+        #   is turned off - since the count records are a property of the file
+        $sectionCases[$case] = 1;
+        $sectionCounts{substr($line, 0, $colon)} = 1 if $case == REC_SUMMARY;
+        if ($skipCurrentFile) {
+            # This file is not being kept - '--remove', '--extract', an exclude
+            #   pattern - but a call it makes is a fact about the *callee*, which
+            #   may well be kept.  This is the last chance to record it:  the
+            #   site itself goes away with the file, and nothing later can tell
+            #   that it was ever here.  Every call, taken or not:  what is recorded
+            #   is that the edge is there, and the count the site carried - see
+            #   FunctionAlias::external_calls.
+            # The section's own function names are collected beside its calls,
+            #   for the same reason TraceFile::_noteCallsFrom looks them up:  a
+            #   call to a name this section defines went to the definition which
+            #   is being skipped along with it.  Both are decided when the
+            #   section ends, since a record may name a function the section
+            #   defines further down
+            if ($lcovutil::callgraph_coverage && defined($filename)) {
+                if ($case == REC_FNC &&
+                    $line =~
+                    /^FNC:\d+(?:@\d+)?(?:#[\d.]+)?,\d+,\d+,\d+,([^,]+),(.+)$/) {
+                    push(@skippedCalls, [$2, $1]);
+                } elsif ($case == REC_FNA &&
+                         $line =~ /^FNA:\d+(?:[a-z]\w*)?,[^,]+,(.+)$/) {
+                    $skippedNames{$1} = 1;
+                } elsif ($case == REC_FN && $line =~ /^FN:\d+(?:,\d+)?,(.+)$/) {
+                    $skippedNames{$1} = 1;
+                }
+            }
+            next;
+        }
 
         # A record belonging to a cover type which is turned off.  There is
         #   nowhere to put its data, so drop it here - before its regular
@@ -12494,7 +18112,18 @@ sub _read_info
         #   It is dropped after the checks above, so that a record which is in
         #   the wrong PLACE is still reported as such whether or not its cover
         #   type is enabled;  only the record's own payload goes unexamined.
-        next if $case == REC_SKIP;
+        # Note the type first:  the data is in the input whether or not we are
+        #   keeping it, and 'TraceFile::empty' says so, since a '.info' file
+        #   full of records the command line drops may be missing
+        #   '--<type>-coverage' flag rather than a deliberate choice.
+        if ($case >= REC_SKIP) {
+            $lcovutil::coverTypeFound[$case - REC_SKIP] = 1;
+            next;
+        }
+        # ...and the same note for a type which IS enabled, so that the flag
+        #   means "some input contains this type" either way.
+        my $covType = $caseCoverType[$case];
+        $lcovutil::coverTypeFound[$covType] = 1 if defined($covType);
 
         # Switch statement
         # Please note:  if you add or change something here (lcov info file format) -
@@ -12512,8 +18141,13 @@ sub _read_info
         #   the expressions below, and it is what every 'last' in here exits.
         foreach ($line) {
             if ($case == REC_DA) {
-                /^DA:(\d+),([^,]+)(,([^,\s]+))?/ && do {
-                    my ($line, $count, $checksum) = ($1, $2, $4);
+                # 'DA:line,count[,checksum][,end]' - the checksum is empty
+                #   if there is an end and no checksum
+                /^DA:(\d+),([^,]+)(,([^,\s]*)(,(\S+))?)?/ && do {
+                    # make emacs happier with a /
+                    my ($line, $count, $checksum, $end) = ($1, $2, $4, $6);
+                    $checksum = undef
+                        if (defined($checksum) && '' eq $checksum);
                     if ($line <= 0) {
                         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                             "\"$tracefile\":$.: unexpected line number '$line' in .info file record '$_'"
@@ -12562,12 +18196,17 @@ sub _read_info
                         }
                         $fileData->check()->replace($line, $checksum);
                     }
+                    _readSpan($fileData, $line, $end, $tracefile)
+                        if defined($end);
                     last;
                 };
             } elsif ($case == REC_BRDA) {
-                /^BRDA:(\d+),([ef]?)(U?)(\d+),(.+)$/ && do {
+                /^BRDA:(\d+),([ef]?)(U?)(\d+)(?:\^(\d+))?,(.+)$/ && do {
                     # Branch coverage data found
-                    # line data is "lineNo,blockId,(branchIdx|branchExpr),taken
+                    # line data is "lineNo,blockId[^location],(branchIdx|branchExpr),taken
+                    #   - the optional location is the line the block is
+                    #     written at, if it is not lineNo:  see
+                    #     BranchBlock::locationOffset
                     #   - so grab the last two elements, split on the last comma,
                     #     and check whether we found an integer or an expression
                     # NOTES:
@@ -12592,7 +18231,7 @@ sub _read_info
                     #        know that two blocks with identical signatures
                     #        in different DBs are actually different (e.g.,
                     #        due to template instantiation)
-                    my ($line, $block, $d) = ($1, $4, $5);
+                    my ($line, $block, $location, $d) = ($1, $4, $5, $6);
                     my $type;
                     if (!defined($2) || '' eq $2) {
                         $type = BranchElement::VANILLA;
@@ -12656,30 +18295,47 @@ sub _read_info
                     #     generate an CNF or truth-table like entry corresponding
                     #     to the branch.
 
+                    my $offset =
+                        _recordLocationOffset($tracefile, $line, $location);
                     if (!defined($branchBlock) ||
-                        $block != $currentBlock ||
-                        $line != $currentBlockLine) {
+                        $block != $currentBlock    ||
+                        $line != $currentBlockLine ||
+                        $offset != $currentBlockOffset) {
                         if (defined($branchBlock)) {
                             $branchMap->insertBlock($branchBlock,
                                                     $currentBlockLine);
                         }
-                        $branchBlock      = BranchBlock->new();
-                        $currentBlockLine = $line;
-                        $currentBlock     = $block;
-                        $branchIndex      = 0;
+                        $branchBlock = BranchBlock->new();
+                        $branchBlock->setLocationOffset($offset) if $offset;
+                        $currentBlockLine   = $line;
+                        $currentBlock       = $block;
+                        $currentBlockOffset = $offset;
+                        $branchIndex        = 0;
                     }
                     $branchBlock->appendNew($branchIndex++, $taken, $expr,
                                             $type, $unreachable);
                     last;
                 };
             } elsif ($case == REC_MCDC) {
-                /^MCDC:(\d+),(U?)(\d+),([tf]),(\d+),(\d+),(.+)$/ && do {
-                    # lineNum, unreachable groupSize, sense, count, index, expression
+                /^MCDC:(\d+),(U?)(\d+)(?:\^(\d+))?,([tf]),(\d+),(\d+),(.+)$/ &&
+                    do {
+                    # lineNum, unreachable groupSize[^location], sense, count,
+                    #   index, expression
                     # 'sense' is t/f: was this expression sensitized
                     # 'filtered' indicates that this particular MC/DC element
                     #    was excluded by
-                    my ($line, $groupSize, $sense, $count, $idx, $expr) =
-                        ($1, $3, $4, $5, $6, $7);
+                    # the optional location is the line the group is written
+                    #   at, if it is not lineNum:  see MCDC_Block::groupKey
+                    my ($line, $groupSize, $location, $sense, $count, $idx,
+                        $expr)
+                        = ($1, $3, $4, $5, $6, $7, $8);
+                    if ($groupSize > 0xFFFFFF) {
+                        # see MCDC_Block::groupKey
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected MC/DC group size '$groupSize' in condition data record '$_' (skipped)."
+                        );
+                        last;
+                    }
                     my $unreachable = !$lcovutil::ignore_unreachable_flag &&
                         defined($2) &&
                         'U' eq $2;
@@ -12707,11 +18363,14 @@ sub _read_info
                         #  for consistency there.
                         $current_mcdc = $mcdcMap->new_mcdc($fileData, $line);
                     }
-                    $current_mcdc->insertExpr($filename, $groupSize,
+                    my $groupKey =
+                        MCDC_Block::groupKey($groupSize,
+                           _recordLocationOffset($tracefile, $line, $location));
+                    $current_mcdc->insertExpr($filename, $groupKey,
                                              $sense eq 't',
                                              $count, $idx, $expr, $unreachable);
                     last;
-                };
+                    };
             } elsif ($case == REC_FN) {
                 /^FN:(\d+),((\d+),)?(.+)$/ && do {
                     # Function data found, add to structure
@@ -12747,20 +18406,53 @@ sub _read_info
                 };
             } elsif ($case == REC_FNL) {
                 # new format...
-                /^FNL:(\d+),(\d+)(,(\d+))?$/ && do {
+                # The optional flag letters after the index are the per-function
+                #   booleans - see FunctionEntry::FLAG_EXTERNAL_CALLEES.  They
+                #   ride on the index for the same reason the 'FNA:' ones do, and
+                #   are applied when the 'FNA:' records which follow create the
+                #   entry:  there is no FunctionEntry yet here
+                /^FNL:(\d+)([a-z]*),(\d+)(,(\d+))?$/ && do {
                     my $fnIndex  = $1;
-                    my $lineNo   = $2;
-                    my $end_line = $4;
+                    my $lineNo   = $3;
+                    my $end_line = $5;
                     die("unexpected duplicate index $fnIndex")
                         if exists($fnIdxMap{$fnIndex});
-                    $fnIdxMap{$fnIndex} = [$lineNo, $end_line];
+                    # The letters are checked here, where the record they came
+                    #   from is the one a message would quote, and carried as the
+                    #   boolean they mean
+                    my $callsOut = 0;
+                    foreach my $flag (split(//, $2)) {
+                        if ($flag eq FunctionEntry::FLAG_EXTERNAL_CALLEES) {
+                            # ..this function called out of the boundary of the
+                            #   report it was written from - see
+                            #   FunctionEntry::has_external_callees
+                            $callsOut = 1;
+                        } else {
+                            # Kept rather than dropped, as an unknown 'FNA:' flag
+                            #   is:  the flags say nothing about any count, so the
+                            #   function itself is good data whatever this letter
+                            #   meant
+                            lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                                "\"$tracefile\":$.: unknown function flag '$flag' in .info file record '$_'"
+                            );
+                        }
+                    }
+                    $fnIdxMap{$fnIndex} =
+                        [$lineNo, $end_line, undef, $callsOut];
                     last;
                 };
             } elsif ($case == REC_FNA) {
-                /^FNA:(\d+),([^,]+),(.+)$/ && do {
+                # The optional flag letters after the index are the per-alias
+                #   facts a callgraph capture records - see
+                #   FunctionAlias::flags.  A letter may carry a count ('x5').
+                #   They ride on the index rather than on a field of their own
+                #   because the alias name is the last field and keeps its
+                #   commas
+                /^FNA:(\d+)((?:[a-z]\d*)*),([^,]+),(.+)$/ && do {
                     my $fnIndex = $1;
-                    my $hit     = $2;
-                    my $alias   = $3;
+                    my $flags   = $2;
+                    my $hit     = $3;
+                    my $alias   = $4;
                     die("unknown index $fnIndex")
                         unless exists($fnIdxMap{$fnIndex});
                     my ($lineNo, $end_line) = @{$fnIdxMap{$fnIndex}};
@@ -12768,8 +18460,198 @@ sub _read_info
                         $functionMap->define_function($alias, $lineNo,
                                                 $end_line, "\"$tracefile\":$.");
                     $fn->addAlias($alias, $hit);
+                    # Remember the entry this index names, for the 'FNC:'
+                    #   records which follow it:  every alias of an index is an
+                    #   alias of one FunctionEntry, so which of them got here
+                    #   first does not matter
+                    $fnIdxMap{$fnIndex}->[2] = $fn;
+                    # ..and the name, in record order:  that is how an 'FNC:'
+                    #   record of this index says which aliases make the call
+                    push(@{$fnIdxMap{$fnIndex}->[4]}, $alias);
+                    # ..and now there is an entry for the flags the 'FNL:' record
+                    #   carried for the function itself.  Set-only, so the second
+                    #   alias of the index simply says the same thing again
+                    $fn->set_external_callees() if $fnIdxMap{$fnIndex}->[3];
+                    if ($flags ne '') {
+                        my $aliasData = $fn->alias($alias);
+                        my $isExtern  = FunctionAlias::FLAG_EXTERNAL;
+                        my $isCalled  = FunctionAlias::FLAG_EXTERNAL_CALLERS;
+                        my $isDeduced = FunctionAlias::FLAG_DEDUCED_CALLERS;
+                        while ($flags =~ /([a-z])(\d*)/g) {
+                            my ($flag, $number) = ($1, $2);
+                            if ($number ne '' && $flag ne $isCalled) {
+                                # only 'x' carries a count
+                                $flag .= $number;
+                            }
+                            if ($flag eq $isExtern) {
+                                # ..has external linkage, which is what lets a
+                                #   call from a file that defines no function of
+                                #   that name resolve to it - see
+                                #   TraceFile::resolveCallSites
+                                $aliasData->set_external();
+                            } elsif ($flag eq $isCalled) {
+                                # ..was called from a site this data cannot name
+                                #   - see FunctionAlias::has_external_callers -
+                                #   which made this many calls, where that is
+                                #   known
+                                $aliasData->add_external_calls(
+                                                 $number ne '' ? $number : '-');
+                            } elsif ($flag eq $isDeduced) {
+                                # ..was called more often than its sites
+                                #   account for.  Advisory:  recomputed from
+                                #   the counts of the report this is read into
+                                #   (lcovutil::deduced_external_calls), which a
+                                #   merge may have changed, so nothing is kept
+                            } else {
+                                # Kept rather than dropped:  the flags say
+                                #   nothing about the count, so the alias itself
+                                #   is good data whatever this letter meant
+                                lcovutil::ignorable_error(
+                                    $lcovutil::ERROR_FORMAT,
+                                    "\"$tracefile\":$.: unknown function flag '$flag' in .info file record '$_'"
+                                );
+                            }
+                        }
+                    }
                     last;
                 };
+            } elsif ($case == REC_FNM) {
+                # A name merged into an alias of the function named by the
+                #   index, and that name's share of the alias's count - see
+                #   FunctionAlias::merged.  The alias is named by its position
+                #   among the 'FNA:' records of the index, as an 'FNC:' record
+                #   names one, so that the merged name can be the last field
+                #   and keep its commas.  The alias has to have been read
+                #   already:  the writer puts these right after its 'FNA:'.
+                #   The count is '[^,]+' for the reason the 'FNA:' one is
+                /^FNM:(\d+)#(\d+),([^,]+),(.+)$/ && do {
+                    my ($fnIndex, $pos, $count, $name) = ($1, $2, $3, $4);
+                    my $known = $fnIdxMap{$fnIndex};
+                    my $alias = defined($known) ? $known->[4]->[$pos] : undef;
+                    if (!defined($alias)) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: merged alias record for function index '$fnIndex' alias '$pos' found before that alias is defined in .info file record '$_'"
+                        );
+                        last;
+                    }
+                    my ($normalized, $errno) =
+                        lcovutil::normalize_count($count);
+                    $known->[2]->_format_error($errno, $name, $count)
+                        if defined($errno);
+                    $known->[2]->alias($alias)->add_merged($name, $normalized);
+                    last;
+                };
+            } elsif ($case == REC_FNC) {
+                # A call site in the body of the function named by the index.
+                #   The count is '[^,]+' rather than '\d+' for the same reason
+                #   'FNDA:' is - Perl may have written a float - and because it
+                #   may be '-', the "count not known" marker (see SITE_COUNT);
+                #   addCallSite is what decides which values are acceptable.
+                #   The callee symbol is the record's single free-text field, so
+                #   it takes the rest of the line and may contain commas
+                # '@<index>' on the function index says that the call is WRITTEN
+                #   in another file - the one that source file index names - while
+                #   still being part of the body of this file's function:  an
+                #   inline function defined in a header, say.  It rides on the
+                #   leading field for the same reason the 'FNA:' flags do.
+                # '#<n>[.<n>...]' after that says which of the function's
+                #   aliases make the call, as positions among the 'FNA:'
+                #   records of the index in the order they were read - see
+                #   FunctionEntry::SITE_ALIASES.  Absent, it is all of them
+                # '^<line>' after that is the line of the statement the call is
+                #   part of, where that is not the line it is written on - see
+                #   FunctionEntry::SITE_STATEMENT
+                /^FNC:(\d+)(?:@(\d+))?(?:#(\d+(?:\.\d+)*))?(?:\^(\d+))?,(\d+),(\d+),(\d+),([^,]+),(.+)$/
+                    &&
+                    do {
+                    my $fnIndex   = $1;
+                    my $sfIndex   = $2;
+                    my $positions = $3;
+                    my $statement = $4;
+                    my $lineNo    = $5;
+                    my $column    = $6;
+                    my $ordinal   = $7;
+                    my $count     = $8;
+                    my $callee    = $9;
+
+                    if (!exists($fnIdxMap{$fnIndex})) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unknown function index '$fnIndex' in .info file record '$_'"
+                        );
+                        last;
+                    }
+                    my $fn = $fnIdxMap{$fnIndex}->[2];
+                    if (!defined($fn)) {
+                        # 'FNL:' established the index, but no 'FNA:' gave it a
+                        #   name, so there is no function to attach the site to
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: function index '$fnIndex' has no 'FNA:' record in .info file record '$_'"
+                        );
+                        last;
+                    }
+                    if ($lineNo <= 0) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected call site line '$lineNo' in .info file record '$_'"
+                        );
+                        last;
+                    }
+                    # ..a call written in another file is part of a statement
+                    #   of that file, which is not the one this section has the
+                    #   lines of - and a statement is no longer than
+                    #   MAX_STATEMENT_OFFSET.  The site is kept, on its own line
+                    if (defined($statement) &&
+                        (defined($sfIndex) ||
+                            abs($statement - $lineNo) >
+                            FunctionEntry::MAX_STATEMENT_OFFSET)
+                    ) {
+                        lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
+                            "\"$tracefile\":$.: unexpected call site statement line '$statement' in .info file record '$_'"
+                        );
+                        $statement = undef;
+                    }
+                    # The aliases which make the call.  Explicit list even when
+                    #   the record says "all of them"
+                    my $names = $fnIdxMap{$fnIndex}->[4];
+                    my $aliases;
+                    if (defined($positions)) {
+                        my @named;
+                        foreach my $p (split(/\./, $positions)) {
+                            if ($p >= scalar(@$names)) {
+                                lcovutil::ignorable_error(
+                                    $lcovutil::ERROR_FORMAT,
+                                    "\"$tracefile\":$.: function index '$fnIndex' has no alias '$p' in .info file record '$_'"
+                                );
+                                next;
+                            }
+                            push(@named, $names->[$p]);
+                        }
+                        # every position was bad and ignored:  drop the site,
+                        #   rather than give it to aliases nobody named
+                        last unless @named;
+                        $aliases = FunctionEntry::aliasSet(@named);
+                    } else {
+                        $aliases = FunctionEntry::aliasSet(@$names);
+                    }
+                    if (defined($sfIndex)) {
+                        # The site cannot be added yet:  the file it is written in
+                        #   is part of its identity, and which file the index
+                        #   names is not settled until the whole tracefile has
+                        #   been read - see '_resolvePendingSites'
+                        push(@{$pendingSites{$sfIndex}},
+                             [$filename, $testname, $fn->name(), $lineNo,
+                              $column, $ordinal, $count, $callee,
+                              $., $aliases
+                             ]);
+                        last;
+                    }
+                    # count errors are checked in the addCallSite method
+                    $fn->addCallSite($lineNo, $column,
+                                     $ordinal, $count,
+                                     $callee, undef,
+                                     undef, $aliases,
+                                     $statement);
+                    last;
+                    };
             } elsif ($case == REC_VER) {
                 /^VER:(.+)$/ && do {
                     # revision control version string found
@@ -12788,7 +18670,28 @@ sub _read_info
                 };
             }
 
-            /^(FN|BR|L|MC)[HF]/ && do {
+            # The count records ('LF:', 'FNCH:', ...):  every one of them is
+            #   recomputed from the coverpoints, so the value in the file is
+            #   ignored.  Both this and the regular expression below reach the
+            #   same conclusion;  the expression is what catches a count tag
+            #   which is not in '%recordCase'.
+            if ($case == REC_SUMMARY) {
+                # Not quite everything is ignored:  for the types which have a
+                #   count record of their own ('%recordDeclaresCoverType') the
+                #   counts are summed over the inputs, because the total
+                #   number of coverpoints seen is used for error checking.
+                # Only recorded for enabled types.
+                if (/^(\w+):(\d+)/ &&
+                    exists($recordDeclaresCoverType{$1})) {
+                    my $covType = $recordDeclaresCoverType{$1};
+                    $lcovutil::coverTypeInputTotal[$covType] =
+                        ($lcovutil::coverTypeInputTotal[$covType] || 0) + $2
+                        if ${$lcovutil::coverType[$covType]->{flag}};
+                }
+                last;
+            }
+
+            /^(FN|BR|L|MC)C?[HF]/ && do {
                 last;    # ignore count records
             };
 
@@ -12817,6 +18720,17 @@ sub _read_info
         &$closeSection();
     }
 
+    # The call sites which named the file they are written in by index:  now that
+    #   the whole file has been read, work out which file each index means, and
+    #   add the sites to the sections they were read in - which have been
+    #   installed by now
+    if (%pendingSites) {
+        my $deferred =
+            $self->_resolvePendingSites(\*INFO, \%pendingSites, \%sourceIndex,
+                                        $tracefile, defined($chunk));
+        $self->_addDeferredSites($deferred);
+    }
+
     # Calculate lines_found and lines_hit for each file
     foreach $filename ($self->files()) {
         #$data = $result{$filename};
@@ -12842,6 +18756,11 @@ sub _read_info
         }
     }
 
+    # The calls made from the sections this read skipped, recorded on the
+    #   callees which were kept.  Here rather than as each is seen, because a
+    #   callee's own section may come after the excluded caller's
+    $self->noteExternalCalls(\@externalCalls);
+
     # A chunk which read nothing useful is not an empty tracefile:  the rest of
     #   the file went to other chunks.  The parent asks the same question of the
     #   merged result - see 'AggregateTraces::_parallel_parse'.
@@ -12865,10 +18784,12 @@ sub write_info_file($$$)
 {
     my ($self, $filename, $do_checksum) = @_;
 
-    if ($self->empty()) {
-        lcovutil::ignorable_error($lcovutil::ERROR_EMPTY,
-                                  "coverage DB is empty");
-    }
+    # Not only for the tools which read '.info' files - they have already asked
+    #   this, on the way in, and 'checkEmpty' says everything at most once - but
+    #   for the ones which build a tracefile from something else and write it:
+    #   the '*2lcov' translators and geninfo.  This is their equivalent point,
+    #   the last one before the data leaves the process.
+    $self->checkEmpty();
     my $file = InOutFile->out($filename);
     my $hdl  = $file->hdl();
     $self->write_info($hdl, $do_checksum);
@@ -12890,6 +18811,20 @@ sub write_info($$$)
     my $srcReader;
     $srcReader = ReadCurrentSource->new()
         if ($verify_checksum);
+    # A call site written in a file this report has not got has no record to be
+    #   written as, so it is turned into the callee's flag before anything is
+    #   printed - and the files which a record does have to name are given the
+    #   index it names them by.  Both are no-ops for a report with no cross-file
+    #   call site, which is every report the capture of a project whose functions
+    #   are all written where they are defined produces
+    $self->_pruneUnwritableSites();
+    my $sourceIndex = $self->_callSiteFileIndex();
+    # ..and the symbols this report calls, which is what says whether a file
+    #   whose own functions hold no site was measured at all - see
+    #   FunctionMap::hasCallgraphData.  Only where the metric is on, because
+    #   nothing else reads it
+    my $calledSymbols =
+        $lcovutil::callgraph_coverage ? $self->calledSymbols() : undef;
     foreach my $comment ($self->comments()) {
         print(INFO_HANDLE '#', $comment, "\n");
     }
@@ -12904,8 +18839,12 @@ sub write_info($$$)
         my ($testdata, $sumcount, $funcdata,
             $checkdata, $testfncdata, $testbrdata,
             $sumbrcount, $sum_mcdc, $testmcdc) = $entry->get_info();
+        my $span = $entry->span();
         # munge the source file name, if requested
         $source_file = ReadCurrentSource::resolve_path($source_file, 1);
+        # whether this file's calls were measured - asked once, and only if a
+        #   'd' flag needs it (see _deducedExternalCalls)
+        my $measured;
 
         # Please note:  if you add or change something here (lcov info file format) -
         #   then please make corresponding changes to the '_read_info' method, above
@@ -12917,7 +18856,14 @@ sub write_info($$$)
             my $mcdc      = $testmcdc->value($testname);
 
             print(INFO_HANDLE "TN:$testname\n");
-            print(INFO_HANDLE "SF:$source_file\n");
+            # ..with this file's index, when some record has to name it - see
+            #   '_callSiteFileIndex'.  The field is optional and is written only
+            #   when it is needed, so a report which needs none is byte for byte
+            #   the report this always wrote
+            my $sfIndex = $sourceIndex->{$filename};
+            print(INFO_HANDLE 'SF:',
+                  (defined($sfIndex) ? "$sfIndex," : ''),
+                  $source_file, "\n");
             print(INFO_HANDLE "VER:" . $entry->version() . "\n")
                 if defined($entry->version());
             if (defined($srcReader)) {
@@ -12939,13 +18885,16 @@ sub write_info($$$)
                 my $fnIndex = -1;
                 my $f_found = 0;
                 my $f_hit   = 0;
+                my $c_found = 0;
+                my $c_hit   = 0;
                 foreach my $key (@functionOrder) {
-                    my $data    = $functionMap->findKey($key);
-                    my $aliases = $data->aliases();
+                    my $data = $functionMap->findKey($key);
+                    # sort enables diff of output data files, for testing
+                    my @aliases = sort($data->aliasNames());
                     my $line    = $data->line();
 
                     if ($line <= 0) {
-                        my $alias = (sort keys %$aliases)[0];
+                        my $alias = $aliases[0];
                         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                             "\"$source_file\": unexpected line number '$line' for function $alias"
                         );
@@ -12956,28 +18905,163 @@ sub write_info($$$)
                         defined($data->end_line()) ?
                         ',' . $data->end_line() :
                         '';
-                    # print function leader
-                    print(INFO_HANDLE "FNL:$fnIndex,$line$endLine\n");
+                    # print function leader, with the flags which belong to the
+                    #   function rather than to one of its names - see
+                    #   FunctionEntry::FLAG_EXTERNAL_CALLEES.  Only under
+                    #   '--callgraph-coverage', for the reason the 'FNA:'
+                    #   flags are written only there
+                    my $fnFlags =
+                        ($lcovutil::callgraph_coverage &&
+                         $data->has_external_callees()) ?
+                        FunctionEntry::FLAG_EXTERNAL_CALLEES :
+                        '';
+                    print(INFO_HANDLE "FNL:$fnIndex$fnFlags,$line$endLine\n");
                     ++$f_found;
-                    my $counted = 0;
-                    foreach my $alias (sort keys %$aliases) {
-                        my $hit = $aliases->{$alias};
+                    my $counted  = 0;
+                    my $aliasPos = 0;
+                    foreach my $alias (@aliases) {
+                        my $aliasData = $data->alias($alias);
+                        my ($name, $hit, $flags) = $aliasData->write_data();
+                        # ..and whether this symbol was called from outside the
+                        #   boundary by deduction rather than by record.  Asked
+                        #   of the file's summary, which is the map the call
+                        #   sites were resolved into (TraceFile::
+                        #   resolveCallSites) - a testcase's map never is - so
+                        #   every section says what the report as a whole does.
+                        #   Nothing is said where the sites were not resolved:
+                        #   geninfo writes one translation unit, whose callers
+                        #   in other units it cannot see, so the difference
+                        #   would read as an external caller for every function
+                        #   which another file calls
+                        $flags .= FunctionAlias::FLAG_DEDUCED_CALLERS
+                            if $lcovutil::callgraph_coverage &&
+                            _deducedExternalCalls($funcdata, $name, \$measured,
+                                                  $calledSymbols);
                         ++$f_hit if $hit > 0 && !$counted;
                         $counted ||= $hit > 0;
-                        # print the alias
-                        print(INFO_HANDLE "FNA:$fnIndex,$hit,$alias\n");
+                        # print the alias, with the flags a callgraph capture
+                        #   asserted for it - see FunctionAlias::flags.  Only
+                        #   under '--callgraph-coverage', because call data is
+                        #   the only thing which reads them and a report which
+                        #   asked
+                        #   for none should not grow fields
+                        $flags = '' unless $lcovutil::callgraph_coverage;
+                        print(INFO_HANDLE "FNA:$fnIndex$flags,$hit,$name\n");
+                        # ..and the names merged into it with their shares of
+                        #   its hit count, by its position among the 'FNA:'
+                        #   records of the index - see the reader.
+                        #   Whether or not there is call data:  they are what
+                        #   the name represents, which a report of functions
+                        #   alone shows too
+                        my $merged = $aliasData->merged();
+                        print(INFO_HANDLE
+                              "FNM:$fnIndex#$aliasPos,$merged->{$_},$_\n")
+                            foreach sort(keys(%{$merged // {}}));
+                        ++$aliasPos;
+                    }
+                    next unless $lcovutil::callgraph_coverage;
+                    # Then this function's call sites, in source order so that
+                    #   the output can be diffed.  They come after the aliases
+                    #   because they belong to the entry rather than to any one
+                    #   of its names - and the reader needs the 'FNA:' record to
+                    #   have created the entry before it can attach a site to it
+                    # The position of each alias among the 'FNA:' records just
+                    #   written, which is how a site names the aliases which
+                    #   make it - see FunctionEntry::SITE_ALIASES.  Only for a
+                    #   function with more than one alias:  the single alias
+                    #   of the  rest makes every call there is
+                    my %position;
+                    if (scalar(@aliases) > 1) {
+                        my $p = 0;
+                        %position = map({ $_ => $p++ } @aliases);
+                    }
+                    foreach my $site ($data->sortedCallSiteKeys()) {
+                        my ($siteLine, $col, $ord, $count, $callee, $siteFile,
+                            $siteAliases, $statement)
+                            = $data->callSiteData($site);
+                        # A call written somewhere other than the file this
+                        #   section is for names that file by its index, as a
+                        #   suffix on the function index.  A suffix rather than a
+                        #   field of its own for the reason the 'FNA:' flags are
+                        #   one (see FunctionAlias::FLAG_EXTERNAL):  the callee
+                        #   name is the last field and takes the rest of the
+                        #   line, because a demangled name contains commas
+                        my $where = '';
+                        if (defined($siteFile)) {
+                            my $idx = $sourceIndex->{$siteFile};
+                            # '_pruneUnwritableSites' has removed every site
+                            #   whose file has no section, so every one left has
+                            #   an index
+                            die("no source index for \"$siteFile\"")
+                                unless defined($idx);
+                            $where = '@' . $idx;
+                        }
+                        # ..and which aliases make the call, where that is not
+                        #   all of them:  so a report which has no template
+                        #   whose instantiations call different things is byte
+                        #   for byte the report this always wrote
+                        if (%position && defined($siteAliases)) {
+                            my @at =
+                                sort({ $a <=> $b }
+                                 map({ $position{$_} // () }
+                                     FunctionEntry::aliasSetNames($siteAliases))
+                                );
+                            $where .= '#' . join('.', @at)
+                                if @at && scalar(@at) < scalar(@aliases);
+                        }
+                        # ..and the line its coverpoint is allocated to, where
+                        #   that is not its own - see SITE_STATEMENT
+                        $where .= '^' . $statement if defined($statement);
+                        print(INFO_HANDLE
+                                "FNC:$fnIndex$where,$siteLine,$col,$ord,$count,$callee\n"
+                        );
+                        ++$c_found;
+                        # '-' is in found and never in hit, which is what
+                        #   numCallSitesHit answers too - the two have to agree,
+                        #   because 'FNCH:' is what a reader believes
+                        ++$c_hit if lcovutil::site_count_hit($count);
                     }
                 }
                 print(INFO_HANDLE "FNF:$f_found\n");
                 print(INFO_HANDLE "FNH:$f_hit\n");
+                # ..and the call totals, where there is a measurement for them
+                #   to be the total of.  A file nothing was recorded about gets
+                #   no pair rather than a zero one:  'FNCF:0' asserts that this
+                #   file's calls were counted and that there were none, which is
+                #   not what is known about a unit compiled without the callgraph
+                #   data - see FunctionMap::hasCallgraphData.
+                # A file with no function of its own is the exception, and not
+                #   really one:  there is nothing in it for a site to belong to,
+                #   so its zero is arithmetic on an empty set rather than a
+                #   measurement, exactly as the 'FNF:0' beside it is.  That is
+                #   the shape of an '#include'd fragment, whose section carries
+                #   the lines its text holds while the calls in that text belong
+                #   to functions of the file which includes it.
+                # Asked of the map being written, not of the file:  each section
+                #   is one testcase's data and stands on its own
+                # Inputs which counted their call sites and found none are the
+                #   third way to have a basis for writing the pair:  it is the
+                #   same assertion, handed to us rather than derived here, and
+                #   passing it on is what keeps the next tool in the pipeline
+                #   from mistaking the measurement for a missing capture.  The
+                #   'BRF:' below is written for the same reason.
+                my $callsCountedNone =
+                    lcovutil::inputCountedNone(lcovutil::COVER_TYPE_CALLGRAPH);
+                if ($lcovutil::callgraph_coverage &&
+                    (0 == $f_found ||
+                        $callsCountedNone ||
+                        $functionMap->hasCallgraphData($calledSymbols))
+                ) {
+                    print(INFO_HANDLE "FNCF:$c_found\n");
+                    print(INFO_HANDLE "FNCH:$c_hit\n");
+                }
             }
+            my $br_found = 0;
+            my $br_hit   = 0;
             # $branchMap is undef if there are no branches in the scope
             if ($lcovutil::br_coverage &&
                 defined($branchMap)) {
                 # Write branch related data
-                my $br_found = 0;
-                my $br_hit   = 0;
-
                 foreach my $line (sort({ $a <=> $b } $branchMap->keylist())) {
                     lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
                         "\"$source_file\": unexpected line number '$line' in branch data record."
@@ -12988,6 +19072,10 @@ sub write_info($$$)
                     # of branches and then by type (exception vs normal)
                     my $blockId = 0;
                     foreach my $block ($brdata->blocks(1)) {
+                        # the line the block is written at, if it is not
+                        #   this one - see BranchBlock::locationOffset
+                        my $offset   = $block->locationOffset();
+                        my $location = $offset ? '^' . ($line + $offset) : '';
                         foreach my $br (@{$block->elements()}) {
                             # one call for all five fields - see
                             #   BranchElement::write_data
@@ -12996,11 +19084,12 @@ sub write_info($$$)
                                 = $br->write_data();
                             # mostly for Verilog:  if there is a branch expression: use it.
                             $type = '' if 'b' eq $type;
-                            printf(INFO_HANDLE "BRDA:%u,%s%s%u,%s,%s\n",
+                            printf(INFO_HANDLE "BRDA:%u,%s%s%u%s,%s,%s\n",
                                    $line,
                                    $type,
                                    $excluded ? 'U' : '',
                                    $blockId,
+                                   $location,
                                    defined($branch_expr) ? $branch_expr :
                                        $branch_id,
                                    $taken);
@@ -13014,16 +19103,20 @@ sub write_info($$$)
                         ++$blockId;
                     }
                 }
-                if ($br_found > 0) {
-                    print(INFO_HANDLE "BRF:$br_found\n");
-                    print(INFO_HANDLE "BRH:$br_hit\n");
-                }
             }
+            # The total.  Zero is important when the inputs counted branches
+            # and found none - used for error checking - see above.
+            if ($lcovutil::br_coverage &&
+                ($br_found > 0 ||
+                    lcovutil::inputCountedNone(lcovutil::COVER_TYPE_BRANCH))
+            ) {
+                print(INFO_HANDLE "BRF:$br_found\n");
+                print(INFO_HANDLE "BRH:$br_hit\n");
+            }
+            my $mcdc_found = 0;
+            my $mcdc_hit   = 0;
             if ($mcdc &&
                 $lcovutil::mcdc_coverage) {
-
-                my $mcdc_found = 0;
-                my $mcdc_hit   = 0;
                 foreach my $line (sort({ $a <=> $b } $mcdc->keylist())) {
                     if ($line <= 0) {
                         lcovutil::ignorable_error($lcovutil::ERROR_FORMAT,
@@ -13032,8 +19125,13 @@ sub write_info($$$)
                     }
                     my $m      = $mcdc->value($line);
                     my $groups = $m->groups();
-                    foreach my $groupSize (sort keys %$groups) {
-                        my $exprs = $groups->{$groupSize};
+                    foreach my $groupKey (sort keys %$groups) {
+                        my $exprs = $groups->{$groupKey};
+                        # the line the group is written at, if it is not
+                        #   this one - see MCDC_Block::groupKey
+                        my ($groupSize, $offset) =
+                            MCDC_Block::parseGroupKey($groupKey);
+                        $groupSize .= '^' . ($line + $offset) if $offset;
                         my $index = -1;
                         foreach my $e (@$exprs) {
                             $mcdc_found += 2;
@@ -13056,10 +19154,14 @@ sub write_info($$$)
                         }
                     }
                 }
-                if ($mcdc_found != 0) {
-                    print(INFO_HANDLE "MCF:$mcdc_found\n");
-                    print(INFO_HANDLE "MCH:$mcdc_hit\n");
-                }
+            }
+            # as 'BRF:' above
+            if ($lcovutil::mcdc_coverage &&
+                ($mcdc_found != 0 ||
+                    lcovutil::inputCountedNone(lcovutil::COVER_TYPE_MCDC))
+            ) {
+                print(INFO_HANDLE "MCF:$mcdc_found\n");
+                print(INFO_HANDLE "MCH:$mcdc_hit\n");
             }
             # Write line related data
             my $found = 0;
@@ -13085,6 +19187,10 @@ sub write_info($$$)
                     }
                     $chk = ',' . $chk if ($chk);
                 }
+                # the end of the statement the coverpoint counts - after an
+                #   empty checksum field if there is no checksum
+                my $end = $span->value($line);
+                $chk = ($chk ? $chk : ',') . ",$end" if defined($end);
                 print(INFO_HANDLE "DA:$line,$l_hit$chk\n");
                 $found++;
                 $hit++
@@ -13288,7 +19394,7 @@ sub _partition_sections($$$)
     }
     $nChunks = 2 if ($nChunks < 2);
 
-    # Longest-processing-time-first: the same shape as the genhtml scheduler,
+    # Longest-processing-time-first: the same as the genhtml scheduler,
     #   and within 4/3 of the optimal makespan with no parameters to tune.
     #   Because groups arrive in descending order and each goes to the lightest
     #   chunk, a group which is itself larger than a chunk's fair share ends up
@@ -13783,10 +19889,12 @@ sub _parallel_parse($$$$$)
     }
     # The children filtered their own data - see the comment above - so tell the
     #   caller's 'applyFilters' that there is nothing left for it to do.  The
-    #   merge does not propagate this, since in general the two sides of a merge
-    #   have not had the same operations applied to them.
+    #   merge propagates only the consistency check (see 'merge_tracefile'):  in
+    #   general the two sides of a merge have not had the same filtering applied
+    #   to them.
     $total_trace->[TraceFile::STATE] |=
-        TraceFile::DID_FILTER | TraceFile::DID_DERIVE;
+        TraceFile::DID_FILTER | TraceFile::DID_DERIVE |
+        TraceFile::DID_CONSISTENCY;
     # ..in input order, as the serial read reports them
     return grep({ exists($effective{$_}) } @$filelist);
 }
@@ -13831,8 +19939,9 @@ sub _process_segment($$$;$)
         }
         my $current;
         eval {
+            # checked when everything has been read and merged
             $current = TraceFile->load($tracefile, $readSourceFile,
-                                       $lcovutil::verify_checksum, 1, $runs);
+                                       $lcovutil::verify_checksum, 1, $runs, 1);
             lcovutil::debug("after load $tracefile: memory: " .
                             lcovutil::current_process_size() . "\n")
                 if $lcovutil::debug;    # predicate to avoid function call...
@@ -14155,6 +20264,24 @@ sub merge
     $lcovutil::profileData{filter} =
         ($lcovutil::profileData{filter} // 0) + $filterTime
         unless defined($chunks);
+
+    # Everything the caller asked for has now been read, merged and filtered, and
+    #   the caller has not looked at it yet:  this is the point at which to say
+    #   that it does not hold what the command line asked for, or that it holds
+    #   something the command line is discarding.
+    # Two exceptions:
+    #   - '--map-functions' never fills '$total_trace' in.  The children hand
+    #     back '$function_mapping' instead, so the trace is empty by
+    #     construction and contains no coverpoints of any type.
+    #   - a baseline is not a report.  genhtml reads one to work out what
+    #     changed.  It may have been captured with fewer metrics than the
+    #     current data - so "you asked for branches and there are
+    #     none here" is about the wrong file.  What the baseline DID contain is
+    #     already recorded in '@lcovutil::coverTypeFound' - and the
+    #     current data's check still uses that.
+    $total_trace->checkEmpty()
+        unless ($function_mapping ||
+                'ReadBaselineSource' eq ref($readSourceFile));
 
     return ($total_trace, \@effective);
 }

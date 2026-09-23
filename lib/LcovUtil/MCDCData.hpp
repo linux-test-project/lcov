@@ -29,6 +29,55 @@
 #include "CountArith.hpp"
 
 // ============================================================================
+// MC/DC group keys
+//
+// The groups of an MC/DC block are keyed by group size and by the location
+// of the group:  the offset of the line it is written at from its multi-line
+// leader which holds the block (see BranchBlock::locationOffset).
+// Two groups of the same size at different locations are different groups.
+// The key packs the size into the low 24 bits and the offset (an int8) into
+// the high 8, so the key of a group at offset 0 is its size alone.
+// The Perl form of the key is "<size>" or "<size>^<offset>" 
+//  - see mcdcKeyString and MCDC_Block::groupKey.
+// ============================================================================
+
+inline int32_t mcdcGroupKey(int32_t size, int32_t offset) noexcept
+{
+    return static_cast<int32_t>(
+        (static_cast<uint32_t>(size) & 0xFFFFFFu) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(offset)) << 24));
+}
+
+inline int32_t mcdcKeySize(int32_t key) noexcept
+{
+    return static_cast<int32_t>(static_cast<uint32_t>(key) & 0xFFFFFFu);
+}
+
+inline int32_t mcdcKeyOffset(int32_t key) noexcept
+{
+    return static_cast<int8_t>(static_cast<uint32_t>(key) >> 24);
+}
+
+inline std::string mcdcKeyString(int32_t key)
+{
+    std::string s = std::to_string(mcdcKeySize(key));
+    int32_t offset = mcdcKeyOffset(key);
+    if (offset != 0) {
+        s += '^';
+        s += std::to_string(offset);
+    }
+    return s;
+}
+
+// The line the group with key 'key' of the block on line 'line' is written
+// at - the line a message about the group names.  Matches pure-Perl
+// MCDC_Block::groupLine.
+inline int32_t mcdcKeyLine(int32_t key, int32_t line) noexcept
+{
+    return line + mcdcKeyOffset(key);
+}
+
+// ============================================================================
 // MCDC_Expression
 //
 // Value type representing one expression slot within an MC/DC group.
@@ -111,8 +160,9 @@ private:
 // MCDC_Block
 //
 // Value type representing all MC/DC expression data for a single source line.
-// Expressions are partitioned into groups keyed by group_size; within each
-// group the vector is indexed by the expression's idx field.
+// Expressions are partitioned into groups keyed by group key (see
+// mcdcGroupKey); within each group the vector is indexed by the expression's
+// idx field.
 // ============================================================================
 
 class MCDC_Block {
@@ -180,7 +230,8 @@ public:
 
     // True iff this block and 'you' have the same group structure (same sizes
     // and same per-group vector lengths), making them safe to merge.
-    bool is_compatible(const MCDC_Block& you) const;
+    // key of a shared group whose expressions differ from yours (0: none)
+    int32_t incompatible_group(const MCDC_Block& you) const;
 
     // Aggregate (found, hit) over all expression/sense pairs.
     // When count_excluded is false, pairs flagged as excluded are skipped.

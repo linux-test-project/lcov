@@ -758,6 +758,10 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
+# done with 'errs':  the literal '*' in the name of its .gcno link is not
+#   something everything which later walks this directory can cope with
+#   (upload-artifact refuses the whole upload)
+rm -rf errs
 
 # test filename containing spaces
 rm -rf ./mytest

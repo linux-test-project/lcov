@@ -56,6 +56,13 @@ master_doc = 'index'
 # Disable syntax highlighting - use plain fixed-width font for code blocks
 highlight_language = 'none'
 
+# Disable the smart-quotes transform.  These documents describe command line
+# options and shell syntax, so the substitutions it makes are wrong more often
+# than they are decorative:  '--option' becomes an en dash, and the escape
+# handling drops the backslash from a literal '\'.  Sphinx already excludes the
+# 'man' and 'text' builders from the transform;  this extends that to HTML.
+smartquotes = False
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.
@@ -381,6 +388,323 @@ The example demonstrates:
 
 
 .. include:: ../example/README.rst
+
+
+Glossary
+========
+
+Terms of art which the man pages use without further explanation.
+Where a term has a precise meaning in a compiler or a language standard,
+the definition below is the one {ToolName} uses - which is sometimes
+narrower than general usage.
+
+.. glossary::
+   :sorted:
+
+   alias
+      One of several function names which the coverage data reports at the
+      same source file and line, and which {ToolName} treats as
+      names of one function:  most often the instantiations of a C++
+      template, or the several mangled names which a compiler emits for
+      one source function.  The shortest name of the group is used as its
+      leader;  see the ``--merge-aliases`` and ``--suppress-aliases``
+      options of ``genhtml``.  In a tracefile, each alias is an ``FNA``
+      record, and all the aliases of a function share the index of the
+      ``FNL`` record which declares it.
+
+   anchor
+   leader
+      The line of a multi-line statement which holds the statement's
+      coverage data when ``merge_continuation_lines`` is enabled:  the
+      line its :term:`continuation line` coverpoints are merged into, and
+      where branch and MC/DC data written on its other lines is counted.
+      Normally the statement's first line.  See *Statement merging* in
+      :manpage:`geninfo(1)`.
+
+
+   baseline
+      The earlier coverage report which a :term:`differential coverage`
+      report compares the current one against;  see the ``--baseline-file``
+      option of ``genhtml``.
+
+   branch coverage
+      Whether each outcome of each conditional branch in the code was
+      taken at least once.  Note that a single source line may contain
+      several branches, and also that the compiler sometimes generates
+      branches which do not correspond to code written by the programmer
+      (exception cleanup, for example).
+      Branch filters are used to suppress these.
+
+   callee
+      The function which a call goes to - the *destination* of the
+      :term:`callgraph` edge.  See :term:`call site`.
+
+   caller
+      The function which contains a :term:`call site` - the *source* of the
+      :term:`callgraph` edge.
+
+   callgraph
+      A directed graph of the calls in your code:  a node for each
+      function, and an edge for each call, drawn from the :term:`caller`
+      to the :term:`callee`.  An edge is a particular caller/callee pair
+      at a particular :term:`call site`, so two calls to the same callee
+      from two places in the same caller are two distinct edges.
+
+      A {ToolName} report describes only part of the whole graph:  the
+      part inside the :term:`callgraph boundary`.
+
+   callgraph boundary
+      The edge of the part of the :term:`callgraph` a {ToolName} report
+      describes.  A function is outside the boundary either because it is
+      in code which was not instrumented - third party library code, the
+      runtime, a :term:`translation unit` which was never captured - or
+      because the user deliberately put it outside, *this being the
+      library API I care about, and everything outside it external*.
+
+      Either the source, the destination, or both ends of an edge may be
+      outside the boundary:  an edge with both ends outside simply does
+      not appear in the report.
+      An edge whose source (caller) is outside the boundary is recorded
+      as the *has external caller* property of its destination node
+      (which is within the boundary).  Similarly, an edge whose
+      destination (callee) is outside the boundary is recorded as the
+      *has external callee* property of its source node (which is within
+      the boundary).  These properties say only that there is at least one
+      external source or destination (no exact count).
+
+      When data is available, the tools keep track of the number of times
+      a particular destination within the boundary is called from a
+      source outside. Additionally, 
+      whether a particular boundary-crossing edge has been executed
+      or not can often be deduced from line and branch coverage data
+      of the corresponding statement in the coverage report - see the
+      discussion in :manpage:`genhtml(1)` and :manpage:`geninfo(1)`.
+
+   callgraph coverage
+      Data about which functions called which other functions, and from
+      where:  for each function, the call sites it was called from and
+      the number of times each of those calls was executed.  Enabled with
+      ``--callgraph-coverage``;  see :manpage:`geninfo(1)`.  Supported
+      only by certain compilers.
+
+   callgraph info
+      The calls which the compiler itself recorded for a
+      :term:`translation unit`:  GCC's ``-fcallgraph-info``, written beside
+      the ``.gcno`` as a ``.ci`` file.  It names the :term:`callee` of each
+      :term:`call site` and the file, line and column the call is written
+      at - none of which the execution counts say - and it says which of
+      the unit's symbols have :term:`external linkage`.  The GCC callgraph
+      data holds only the compile-time structure of the callgraph - not
+      runtime execution counts of the particular edges.
+
+   pairing
+      Matching each call the :term:`callgraph info` lists with the
+      execution count ``gcov`` reports for it, so that a
+      :term:`call site` has both a :term:`callee` and a count.  The two
+      halves of :term:`callgraph coverage` come from different files which
+      have to be combined to be useful;  pairing is by location, at line
+      granularity, because the two input files do not necessarily record
+      the same column.
+
+      A call which cannot be matched is *unpaired*.  There are three
+      ways this can happen:
+
+      -  the compiler deleted the arc which ``gcov`` uses to count the call -
+         the call was inlined, or ``-fipa-pure-const`` proved the callee
+         ``nothrow`` and removed its exceptional edge - so the callgraph
+         info lists a call for which there is no count;
+
+      -  the compiler generated a call the source does not make - a copy, a
+         conversion, an exception edge:  ``gcov`` counts it and the
+         callgraph info has no edge for it, so there is no callee to record
+         it under;
+
+      -  ``gcov`` attributed the call to no function, and the callgraph info
+         does not attribute its line to exactly one either.  This is typically
+         caused by a fragment which is included into more than one function
+         body (*e.g.*, via a ``#include`` within a function body, so that
+         the code is included in more than one place - **don't do that!**).
+
+      One unpaired call makes every call on its line unpaired, since
+      pairing the counts which do remain with some of the calls on the line
+      would put a count on the wrong callee.  An unpaired call has no count
+      (recorded as a ``-`` count of an ``FNC`` record).
+      The record is retained or dropped depending on the
+      ``--callgraph-partial-data`` flag (default is to drop).
+      A mismatch is reported as an
+      ``inconsistent`` error, once per :term:`caller`.
+
+      A call to a callee declared ``pure`` or ``const`` is not a mismatch:
+      ``gcov`` never counts such a call - the compiler may make it once or
+      not at all and emits no arc for it - so the call is dropped when the
+      declaration the compiler pointed to says so.  See
+      :manpage:`geninfo(1)`.
+
+   call site
+      A particular location in the code at which one function calls another -
+      identified by source file, line, column, and, when the same line
+      and column contain more than one call, an ordinal which
+      distinguishes them.  A call site belongs to the :term:`caller` and
+      names the :term:`callee`;  its count is the number of times that
+      particular call was executed by your testcases.
+
+   comdat
+      An object file section which the compiler may emit in more than one
+      object file and of which the linker then keeps a single copy.  This
+      is how inline functions, template instantiations, and other
+      entities whose definition may legally appear in several translation
+      units are emitted.  Such a symbol is not ``static``, but because
+      each translation unit that uses it contains its own definition, it
+      can look file-local in the coverage data.
+
+   continuation line
+      A line of a statement which spans several lines, other than the
+      statement's first line - the later lines of an expression, a
+      condition or an argument list split across lines.  With
+      ``merge_continuation_lines``, the line coverpoint of a continuation
+      line is merged into the statement's :term:`anchor` when the hit
+      counts allow.  See *Line merging* in :manpage:`geninfo(1)`.
+
+   compilation unit
+   CU
+      The unit at which the compiler records debug information for the
+      code it generated (a DWARF ``DW_TAG_compile_unit``).  For C and C++
+      there is normally one compilation unit per
+      :term:`translation unit`, but a single object file can contain
+      several - with link-time optimization, for example - so the two
+      terms are not interchangeable.
+
+   condition
+      One of the operands of a :term:`decision`:  a subexpression whose
+      own value contributes to the value of the decision.  In
+      ``if (a && (b || c))`` the conditions are ``a``, ``b`` and ``c``.
+
+   decision
+      A boolean expression which controls the flow of the program - the
+      expression of an ``if``, a loop condition, a ternary, and so on.
+      Also called an *expression* in the MC/DC parts of this
+      documentation.
+
+   demangle
+      To turn the encoded symbol name which the compiler emitted
+      (``_ZN3Foo3barEi``) back into the name which the programmer wrote
+      (``Foo::bar(int)``).  See the ``--demangle-cpp`` option.
+
+   differential coverage
+      A report which compares the current coverage data against a
+      :term:`baseline`, and which classifies lines, branches and
+      functions by whether they are new or changed and by whether their
+      coverage changed:  the ``UNC``, ``LBC``, ``UIC``, ``UBC``, ``GBC``,
+      ``GIC``, ``GNC``, ``CBC``, ``EUB`` and ``ECB`` categories described
+      in :manpage:`genhtml(1)`.
+
+   external linkage
+      The property of a symbol which the linker can resolve references to
+      from other translation units - the opposite of a ``static``
+      function, which is file-local.  In callgraph coverage this matters
+      because a function with external linkage can be called from code
+      which is not part of the report.
+
+   filter
+      A rule which drops coverage points that the compiler generated but
+      which correspond to something the user did not write - *e.g.*,
+      exception handling code - or does not care about - *e.g.*, "somebody
+      else's module".  See
+      the ``--filter`` option of ``geninfo`` and ``genhtml``.
+
+   TLA
+      Three letter acronym:  the code which a
+      :term:`differential coverage` report attaches to each line, branch
+      or function - ``UNC``, ``GNC``, ``CBC``, and the rest - encoding
+      whether the code is new or changed and whether its coverage is changed
+      between the baseline and now.  The full list and how they are colorized
+      in the HTML report are in :manpage:`genhtml(1)`.
+
+   found
+   hit
+      The two numbers behind every coverage rate:  *found* is the number
+      of instrumented items of that kind (lines, functions, branches, MC/DC
+      senses) and *hit* is how many of them were exercised at least once.
+      The rate is *hit* / *found*.
+
+   independence pair
+      A pair of evaluations of a :term:`decision` which differ in the
+      value of one :term:`condition` and in the value of the decision, and
+      which therefore demonstrate that that condition can independently
+      affect the outcome.  This is what :term:`MC/DC` requires of every
+      condition.
+
+   instrumentation
+      The counters which the compiler (or interpreter, or simulator) adds
+      to the program so that it records what it executed.  For GCC and
+      LLVM this is what ``--coverage`` turns on.
+
+   MC/DC
+      Modified condition/decision coverage:  a metric which requires that
+      every :term:`condition` in every :term:`decision` be shown to
+      independently affect the value of that decision - see
+      :term:`independence pair`.  It is stronger than branch coverage,
+      which asks only that the decision itself have gone both ways.
+      Enabled with ``--mcdc-coverage``;  the details of what the compilers
+      report, and how {ToolName} displays it, are in
+      :manpage:`genhtml(1)`.
+
+   section
+      The part of a tracefile which holds the data for one source file:
+      everything from that file's ``SF`` record to the following
+      ``end_of_record``.
+
+   segment
+      A part of a multi-line statement which is treated as a separate
+      statement on
+      its own:  when the line coverpoints of a statement cannot all be
+      merged into its :term:`anchor` - because their hit counts disagree,
+      or a line is the start line of a function - the statement is
+      partitioned, and each line coverpoint which is kept starts a segment
+      which runs to the line before the next.  Each segment has its own
+      :term:`statement span`.
+
+   sensitized
+      Said of a :term:`condition` at a particular evaluation of its
+      :term:`decision`:  the condition was evaluated, and had its value
+      been the other one, the value of the decision would have been
+      different.  A condition which was evaluated but whose value
+      could not have changed the outcome - because a later operand of an
+      ``||`` was already true, say - was not sensitized.
+
+   statement span
+   span
+      The lines from the first to the last line of the statement - or the
+      :term:`segment` - which a line coverpoint stands for, comment and
+      blank lines inside it included.  Recorded, with
+      ``merge_continuation_lines``, as the optional *<end>* field of the
+      ``DA`` record of the coverpoint, which is on the statement's first
+      line.  ``genhtml`` uses it to treat the statement as a whole:  a
+      change to any line of the span makes the statement's coverpoints
+      new code, and the statement's date and owner are those of the most
+      recent change to any line of the span.  See *Statement spans* in
+      :manpage:`geninfo(1)` and :manpage:`genhtml(1)`.
+
+   testcase
+      A named body of coverage data within a tracefile:  the name given
+      by ``lcov --test-name``, under which the data of one test run is
+      filed.  Merging tracefiles keeps the per-testcase data, so a report
+      can show which tests reached a given line.
+
+   tracefile
+      The plain text file - conventionally ``*.info`` - in which
+      {ToolName} stores coverage data.  It is the input and the output of
+      ``lcov``, the output of ``geninfo`` and of the ``*2lcov``
+      translators, and the input of ``genhtml``.  The record format is
+      documented in :manpage:`geninfo(1)`.
+
+   translation unit
+   TU
+      One source file together with everything the preprocessor pulled
+      into it - that is, the text which the compiler actually compiles.
+      It is the scope in which ``static`` means file-local, and the unit
+      which a single compiler invocation turns into a single object file.
+      Compare :term:`compilation unit`.
 
 
 AUTHOR

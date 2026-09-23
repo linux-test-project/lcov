@@ -29,6 +29,8 @@ The lcov tracefile (".info" file) format is described in :manpage:`geninfo(1)`.
        [ --gcov-tool *tool* ]
        [ --branch-coverage ]
        [ --mcdc-coverage ]
+       [ --callgraph-coverage ]
+       [ --callgraph-partial-data ]
        [ --demangle-cpp [ *param* ] ]
        [ --checksum ]
        [ --no-checksum ]
@@ -56,7 +58,8 @@ The lcov tracefile (".info" file) format is described in :manpage:`geninfo(1)`.
        [ --comment *comment_string* ]
        [ --large-file *regexp* ]
 
-Generate tracefile (from compiler-generated data) with all counter values set to zero:
+Generate tracefile (from compiler-generated data) with all counter values set to
+zero:
 
 ::
 
@@ -84,17 +87,21 @@ Aggregate multiple coverage tracefiles into one:
        [ --map-functions ]
        [ --branch-coverage ]
        [ --mcdc-coverage ]
+       [ --callgraph-coverage ]
        [ --checksum ]
        [ --no-checksum ]
        [ --sort-input ]
 
-Depending on your use model, it may not be necessary to create aggregate coverage data files.
-For example, if your regression tests are split into multiple suites, you may want to keep separate suite data and to compare both per-suite and aggregate results over time.
-``genhtml`` allows you specify tracefiles via one or more glob patterns - which enables you
-generate aggregate reports without explicitly generating aggregated trace files.
-See the ``genhtml`` man page.
+Depending on your use model, it may not be necessary to create aggregate
+coverage data files. For example, if your regression tests are split into
+multiple suites, you may want to keep separate suite data and to compare both
+per-suite and aggregate results over time. ``genhtml`` allows you specify
+tracefiles via one or more glob patterns - which enables you generate aggregate
+reports without explicitly generating aggregated trace files. See 
+:manpage:`genhtml(1)`.
 
-Generate new tracefile from existing tracefile, keeping only data from files matching pattern:
+Generate new tracefile from existing tracefile, keeping only data from files
+matching pattern:
 
 ::
 
@@ -103,7 +110,8 @@ Generate new tracefile from existing tracefile, keeping only data from files mat
        [ --checksum ]
        [ --no-checksum ]
 
-Generate new tracefile from existing tracefile, removing data from files matching pattern:
+Generate new tracefile from existing tracefile, removing data from files
+matching pattern:
 
 ::
 
@@ -112,7 +120,8 @@ Generate new tracefile from existing tracefile, removing data from files matchin
        [ --checksum ]
        [ --no-checksum ]
 
-Generate new tracefile from existing tracefiles by performing set operations on coverage data:
+Generate new tracefile from existing tracefiles by performing set operations on
+coverage data:
 
 ::
 
@@ -122,11 +131,14 @@ Generate new tracefile from existing tracefiles by performing set operations on 
 
 The output will reflect
 
-   *(union of files matching lh_glob_patterns)* *intersect* *(union of files matching rh_glob_patterns)*
+   *(union of files matching lh_glob_patterns)* *intersect* *(union of files
+   matching rh_glob_patterns)*
 
-such that coverpoints found in both sets are merged (summed) whereas coverpoints found in only one set are dropped.
-Note that branch blocks are defined to be the same if and only if their block ID and the associated branch expressions list are identical.
-Functions are defined to be the same if their name and location are identical.
+such that coverpoints found in both sets are merged (summed) whereas coverpoints
+found in only one set are dropped. Note that branch blocks are defined to be the
+same if and only if their block ID and the associated branch expressions list
+are identical. Functions are defined to be the same if their name and location
+are identical.
 
 ::
 
@@ -136,9 +148,11 @@ Functions are defined to be the same if their name and location are identical.
 
 The output will reflect
 
-   *(union of files matching lh_glob_patterns)* *subtract* *(union of files matching rh_glob_patterns)*
+   *(union of files matching lh_glob_patterns)* *subtract* *(union of files
+   matching rh_glob_patterns)*
 
-such that coverpoints found only in the set on the left will be retained and all others are dropped.
+such that coverpoints found only in the set on the left will be retained and all
+others are dropped.
 
 Summarize tracefile content:
 
@@ -168,6 +182,7 @@ Common lcov options - supported by all the above use cases:
        [ --tempdir *dirname* ]
        [ --branch-coverage ]
        [ --mcdc-coverage ]
+       [ --callgraph-coverage ]
        [ --config-file *config-file* ]
        [ --rc *keyword*\ =\ *value* ]
        [ --profile [ *profile-file* ] ]
@@ -182,14 +197,16 @@ Common lcov options - supported by all the above use cases:
 DESCRIPTION
 -----------
 
-``lcov`` is a graphical front-end for GCC's coverage testing tool gcov. It collects
-line, function and branch coverage data for multiple source files and creates
-HTML pages containing the source code annotated with coverage information.
-It also adds overview pages for easy navigation within the file structure.
+``lcov`` is a graphical front-end for GCC's coverage testing tool gcov. It
+collects line, function and branch coverage data for multiple source files and
+creates HTML pages containing the source code annotated with coverage
+information. It also adds overview pages for easy navigation within the file
+structure.
 
-Use ``lcov`` to collect coverage data and ``genhtml`` to create HTML pages. Coverage data can either be collected from the
-currently running Linux kernel or from a user space application. To do this,
-you have to complete the following preparation steps:
+Use ``lcov`` to collect coverage data and ``genhtml`` to create HTML pages.
+Coverage data can either be collected from the currently running Linux kernel or
+from a user space application. To do this, you have to complete the following
+preparation steps:
 
 For Linux kernel coverage:
 
@@ -211,15 +228,12 @@ conventionally be rounded to 0% or 100% are instead printed as nearest
 non-boundary value. This behavior is in accordance with that of the
 :manpage:`gcov(1)` tool.
 
-By default,
-``lcov`` and related tools generate and collect line and function coverage data.
-Branch data is not collected or displayed by default; all tools support the
-``--branch-coverage``
-and
-``--mcdc-coverage``
-options to enable branch and MC/DC coverage, respectively - or you can permanently enable branch coverage by adding the appropriate
-settings to your personal, group, or site lcov configuration file.  See man
-:manpage:`lcovrc(5)` for details.
+By default, ``lcov`` and related tools generate and collect line and function
+coverage data. Branch, MC/DC and callgraph data are not collected or displayed
+by default.  Use the the ``--branch-coverage``, ``--mcdc-coverage``, or
+``--callgraph-coverage`` flags, or add the corresponding setting to your
+personal, group, or site |ToolName| configuration file to enable them if
+desired. See man :manpage:`lcovrc(5)` for details.
 
 OPTIONS
 -------
@@ -259,9 +273,9 @@ options can also be specified in a configuration file - see man
    In this example, use /home/user/project as base directory.
 
    This option is required when using lcov on projects built with libtool or
-   similar build environments that work with a base directory, *i.e.* environments,
-   where the current working directory when invoking the compiler is not the same
-   directory in which the source code file is located.
+   similar build environments that work with a base directory, *i.e.*
+   environments, where the current working directory when invoking the compiler
+   is not the same directory in which the source code file is located.
 
    Note that this option will not work in environments where multiple base
    directories are used. In that case use configuration file setting
@@ -295,7 +309,8 @@ options can also be specified in a configuration file - see man
    then from each alternate directory name in the order specified.
    The first location matching location is used.
 
-   This option can be specified multiple times, to add more directories to the source search path.
+   This option can be specified multiple times, to add more directories to the
+   source search path.
 
 ``-c``
 ``--capture``
@@ -306,8 +321,8 @@ options can also be specified in a configuration file - see man
    resulting coverage data to the standard output. Use the --directory
    option to capture counts for a user space program.
 
-   The result of the capture operation will be written to stdout or the tracefile
-   specified with -o.
+   The result of the capture operation will be written to stdout or the
+   tracefile specified with -o.
 
    When combined with the
    ``--all``
@@ -316,9 +331,8 @@ options can also be specified in a configuration file - see man
    ``--initial``
    flag, below.
 
-   See man
-   :manpage:`geninfo(1)`)
-   for more details about the capture process and available options and parameters.
+   See man :manpage:`geninfo(1)`) for more details about the capture process and
+   available options and parameters.
 
    Capture of a large project can be parallelized with the *--parallel*
    option. How work is batched across the forked children - and how a large
@@ -337,7 +351,8 @@ options can also be specified in a configuration file - see man
 
    Collect and/or retain branch coverage data.
 
-   This is equivalent to using the option "--rc branch_coverage=1"; the option was added to better match the genhtml interface.
+   This is equivalent to using the option "--rc branch_coverage=1"; the option
+   was added to better match the genhtml interface.
 
 ``--mcdc-coverage``
 
@@ -354,6 +369,41 @@ options can also be specified in a configuration file - see man
    See the MC/DC section of man
    :manpage:`genhtml(1)`
    for more details
+
+``--callgraph-coverage``
+``--callgraph``
+
+   Collect and retain callgraph (call site) data.
+
+   This is equivalent to using the option "--rc callgraph_coverage=1".
+   Callgraph coverage is supported for GCC versions 10 and higher, on code
+   compiled with ``-fcallgraph-info=su,da``;
+   it is not available from LLVM.
+
+   A function which is not defined in the report - ``printf`` from the
+   standard library, for example - is outside the :term:`callgraph boundary`,
+   and an edge with one end outside it is not recorded as a call site:  there
+   is no function in the report for the site to name.  Such a function does
+   not appear in the coverage data at all - however the callgraph does record
+   whether a function inside the boundary has callers outside it, calls
+   callees outside it, or both.
+
+   See the ``--callgraph-coverage`` sections of man :manpage:`geninfo(1)`
+   and man :manpage:`genhtml(1)`
+   for details of how the data is collected and recorded.
+
+``--callgraph-partial-data``
+
+   Retain the call sites of a function whose callgraph info and ``gcov`` data do
+   not describe the same calls, rather than discarding that function's callgraph
+   data. Note that |ToolName| will raise an ``inconsistent`` error when such
+   data is detected; if the error is suppressed
+   (``--ignore-errors inconsistent``), then this flag tells the tool whether to
+   retain or discard or the inconsistent node and edges in the callgraph. See
+   the ``--callgraph-partial-data`` section of man :manpage:`geninfo(1)` for
+   details of which calls survive and how an uncounted call is recorded.
+
+   This is equivalent to using the option "--rc callgraph_partial_data=1".
 
 ``--checksum``
 ``--no-checksum``
@@ -400,8 +450,8 @@ options can also be specified in a configuration file - see man
 
    ``auto``
 
-      Apply auto-detection to determine if compatibility mode is required. Note that
-      auto-detection is not available for all compatibility modes.
+      Apply auto-detection to determine if compatibility mode is required. Note
+      that auto-detection is not available for all compatibility modes.
 
    If no value is specified, 'on' is assumed as default value.
 
@@ -442,17 +492,17 @@ options can also be specified in a configuration file - see man
 
    Specify whether to enable libtool compatibility mode.
 
-   Use --compat-libtool to enable libtool compatibility mode or --no-compat-libtool
-   to disable it. The libtool compatibility mode is
-   ``enabled``
-   by default.
+   Use --compat-libtool to enable libtool compatibility mode or
+   --no-compat-libtool to disable it. The libtool compatibility mode is
+   ``enabled`` by default.
 
    When libtool compatibility mode is enabled, lcov will assume that the source
    code relating to a .da file located in a directory named ".libs" can be
    found in its parent directory.
 
    If you have directories named ".libs" in your build environment but don't use
-   libtool, disable this option to prevent problems when capturing coverage data.
+   libtool, disable this option to prevent problems when capturing coverage
+   data.
 
 ``--config-file`` *config-file*
 
@@ -472,24 +522,19 @@ options can also be specified in a configuration file - see man
    ``lcov``
    with different configuration file options in parallel.
 
-   Note that this option must be specified in full - abbreviations are not supported.
+   Note that this option must be specified in full - abbreviations are not
+   supported.
 
 ``--profile`` [*profile-data-file*]
 
-   Tell the tool to keep track of performance and other configuration data.
-   If the optional
-   *profile-data-file*
-   is not specified, then the profile data is written to a file named with the same
-   basename as the
-   *--output-filename*, with suffix
-   *".json"*
-   appended.
-   Profile data is useful if you are trying to optimize the
-   ``lcov``
-   implementation (see ``$LCOV_ROOT/share/lcov/support-scripts/spreadsheet.py``), and can also enable faster 
-   *--parallel* execution (see the
-   *"--history-script"*
-   section of this man page).
+   Tell the tool to keep track of performance and other configuration data. If
+   the optional *profile-data-file* is not specified, then the profile data is
+   written to a file named with the same basename as the *--output-filename*,
+   with suffix *".json"* appended. Profile data is useful if you are trying to
+   optimize the ``lcov`` implementation (see
+   ``$LCOV_ROOT/share/lcov/support-scripts/spreadsheet.py``), and can also
+   enable faster *--parallel* execution (see the *"--history-script"* section of
+   this man page).
 
 ``--history-script`` *callback*
 
@@ -530,12 +575,11 @@ specified at a time.
    will be interpreted as shell wildcard patterns (note that they may need to be
    escaped accordingly to prevent the shell from expanding them first).
 
-   Note: The pattern must be specified to match the
-   ``absolute``
-   path of each source file.
-   If you specify a pattern which does not seem to be correctly applied - files that you expected to be excluded still appear in the output - you can look for warning messages in the log file.
-   ``lcov``
-   will emit a warning for every pattern which is not applied at least once.
+   Note: The pattern must be specified to match the ``absolute`` path of each
+   source file. If you specify a pattern which does not seem to be correctly
+   applied - files that you expected to be excluded still appear in the output -
+   you can look for warning messages in the log file. ``lcov`` will emit a
+   warning for every pattern which is not applied at least once.
 
    Can be combined with the
    ``--include``
@@ -544,18 +588,32 @@ specified at a time.
 
 ``--erase-functions`` *regexp*
 
-   Exclude coverage data from lines which fall within a function whose name matches the supplied regexp.  Note that this is a mangled or demangled name, depending on whether the --demangle-cpp option is used or not.
+   Exclude coverage data from lines which fall within a function whose name
+   matches the supplied regexp.  Note that this is a mangled or demangled name,
+   depending on whether the --demangle-cpp option is used or not.
 
-   Note that this option requires that you use a gcc version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the
-   ``derive_function_end_line``
-   discussion in man
-   :manpage:`lcovrc(5)`.
+   Note that this option requires that you use a gcc version which is new enough
+   to support function begin/end line reports or that you configure the tool to
+   derive the required data - see the ``derive_function_end_line`` discussion in
+   man :manpage:`lcovrc(5)`.
+
+   With callgraph coverage, an erased function is outside the boundary of the
+   report exactly as the functions of an excluded file are:  the calls it
+   made leave the report with it, each surviving function it called is
+   marked as having an external caller, and each surviving
+   function which called it is marked as having an external callee it.  See the
+   ``--callgraph-coverage``
+   section of man
+   :manpage:`genhtml(1)`.
 
 ``--substitute`` *regexp_pattern*
 
-   Apply Perl regexp
-   *regexp_pattern*
-   to source file names found during processing.  This is useful, for example, when the path name reported by gcov does not match your source layout and the file is not found, or in more complicated environments where the build directory structure does not match the source code layout or the layout in the projects's revision control system.
+   Apply Perl regexp *regexp_pattern* to source file names found during
+   processing.  This is useful, for example, when the path name reported by gcov
+   does not match your source layout and the file is not found, or in more
+   complicated environments where the build directory structure does not match
+   the source code layout or the layout in the projects's revision control
+   system.
 
    Use this option in situations where geninfo cannot find the correct
    path to source code files of a project. By providing a
@@ -567,35 +625,34 @@ specified at a time.
    ``--resolve-script``
    option.
 
-   One or more
-   *--substitution*
-   patterns and/or a
-   *--resolve-script*
-   may be specified.  When multiple patterns are specified, they are applied in the order specified, substitution patterns first followed by the resolve callback.
-   The file search order is:
+   One or more *--substitution* patterns and/or a *--resolve-script* may be
+   specified.  When multiple patterns are specified, they are applied in the
+   order specified, substitution patterns first followed by the resolve
+   callback. The file search order is:
 
    1. Look for file name (unmodified).
-      
+
       If the file exits: return it.
 
-   2. Apply all substitution patterns in order - the result of the first pattern is used as the input of the second pattern, and so forth.
-      
+   2. Apply all substitution patterns in order - the result of the first pattern
+      is used as the input of the second pattern, and so forth.
+
       If a file corresponding to the resulting name exists:  return it.
 
    3. Apply the 'resolve' callback to the final result of pattern substitutions.
-      
+
       If a file corresponding to the resulting name exists:  return it.
 
    4. Otherwise:  return original (unmodified) file name.
-      
-      Depending on context, the unresolved file name may or may not result in an error.
+
+      Depending on context, the unresolved file name may or may not result in an
+      error.
 
    Substitutions are used in multiple contexts by lcov/genhtml/geninfo:
 
    -  during
-      *--capture*,
-      applied to source file names found in gcov-generated coverage data files (see man
-      :manpage:`gcov(1)`).
+      *--capture*, applied to source file names found in gcov-generated coverage
+      data files (see man :manpage:`gcov(1)`).
 
    -  during
       *--capture*,
@@ -610,7 +667,7 @@ specified at a time.
    -  applied to file names found in lcov data files (".info" files) -
       *e.g.*,
       during lcov data aggregation or HTML and text report generation.
-      
+
       For example, substituted names are used to find source files for
       text-based filtering (see the
       *--filter*
@@ -666,61 +723,44 @@ specified at a time.
 
    This will change all "/tmp/build" strings in the path to "/usr/src".
 
-   Patterns are applied after the directory separator in a name has been translated to this platform's, so a pattern which is to match input captured on the other platform is written with the separator used here - *e.g.,* \-\-substitute 's#^C:/##' to remove a Windows drive letter.  See
-   ``cross_platform_read``
-   in man
-   :manpage:`lcovrc(5)`.
+   Patterns are applied after the directory separator in a name has been
+   translated to this platform's, so a pattern which is to match input captured
+   on the other platform is written with the separator used here - *e.g.,*
+   \-\-substitute 's#^C:/##' to remove a Windows drive letter.  See
+   ``cross_platform_read`` in man :manpage:`lcovrc(5)`.
 
 ``--omit-lines`` *regexp*
 
    Exclude coverage data from lines whose content matches
    *regexp*.
 
-   Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (*e.g.*, some complicated macro).  Multiple patterns can be
-   specified by using multiple
-   ``--omit-lines`` command line switches. The
-   *regexp*
-   will be interpreted as perl regular expressions (note that they may need to be
-   escaped accordingly to prevent the shell from expanding them first).
-   If you want the pattern to explicitly match from the start or end of the line, your regexp should start and/or end with "^" and/or "$".
+   Use this switch if you want to exclude line and branch coverage data for some
+   particular constructs in your code (*e.g.*, some complicated macro).
+   Multiple patterns can be specified by using multiple ``--omit-lines`` command
+   line switches. The *regexp* will be interpreted as perl regular expressions
+   (note that they may need to be escaped accordingly to prevent the shell from
+   expanding them first). If you want the pattern to explicitly match from the
+   start or end of the line, your regexp should start and/or end with "^" and/or
+   "$".
 
-   Note that the
-   ``lcovrc``
-   config file setting
-   ``lcov_excl_line = regexp``
-   is similar to
-   ``--omit-lines.``.
-   ``--omit-lines``
-   is useful if there are multiple teams each of which want to exclude certain patterns.
-   ``--omit-lines``
-   is additive and can be specified across multiple config files whereas each call to
-   ``lcov_excl_line``
-   overrides the previous value - and thus teams must coordinate.
+   Note that the ``lcovrc`` config file setting ``lcov_excl_line = regexp`` is
+   similar to ``--omit-lines.``. ``--omit-lines`` is useful if there are
+   multiple teams each of which want to exclude certain patterns.
+   ``--omit-lines`` is additive and can be specified across multiple config
+   files whereas each call to ``lcov_excl_line`` overrides the previous value -
+   and thus teams must coordinate.
 
 ``--external``
 ``--no-external``
 
    Specify whether to capture coverage data for external source files.
 
-   External source files are files which are not located in one of the directories
-   specified by
-   *--directory*
-   or
-   *--base-directory*.
-   Use
-   *--external*
-   to include
-   coverpoints in external source files while capturing coverage data or
-   *--no-external*
-   to exclude them.
-   If your
-   *--directory*
-   or
-   *--base-directory*
-   path contains a soft link, then actual target directory is not considered to be
-   "internal" unless the
-   *--follow*
-   option is used.
+   External source files are files which are not located in one of the
+   directories specified by *--directory* or *--base-directory*. Use
+   *--external* to include coverpoints in external source files while capturing
+   coverage data or *--no-external* to exclude them. If your *--directory* or
+   *--base-directory* path contains a soft link, then actual target directory is
+   not considered to be "internal" unless the *--follow* option is used.
 
    The
    *--no-external*
@@ -764,14 +804,12 @@ specified at a time.
 
    3. contains non-zero coverage data for a specific line, function or branch
 
-   Note that the list of retained files may depend on the order they are processed.  For example, if
-   *A*
-   and
-   *B*
-   contain identical coverage data, then the first one we see will be retained and the second will be pruned.
-   The file processing order is nondeterministic when the
-   ``--parallel``
-   option is used - implying that the pruned result may differ from one execution to the next in this case.
+   Note that the list of retained files may depend on the order they are
+   processed.  For example, if *A* and *B* contain identical coverage data, then
+   the first one we see will be retained and the second will be pruned. The file
+   processing order is nondeterministic when the ``--parallel`` option is used -
+   implying that the pruned result may differ from one execution to the next in
+   this case.
 
    ``--prune-tests`` must be specified together with
    ``--add-tracefile``.
@@ -787,11 +825,9 @@ specified at a time.
    coverage data for each function from the list of tracefiles specified by
    ``--add-tracefile``.
 
-   This option must be specified together with
-   ``--add-tracefile``.
-   When specified,
-   ``lcov``
-   will emit the list of functions and associated tracefiles rather than combined tracefile data.
+   This option must be specified together with ``--add-tracefile``. When
+   specified, ``lcov`` will emit the list of functions and associated tracefiles
+   rather than combined tracefile data.
 
 ``--context-script`` *script*
 
@@ -800,7 +836,7 @@ specified at a time.
    to collect additional tool execution context information - to aid in
    infrastructure debugging and/or tracking.
 
-   See the genhtml man page for more details on the context script.
+   See :manpage:`genhtml(1)` for more details on the context script.
 
 ``--criteria-script`` *script*
 
@@ -808,10 +844,10 @@ specified at a time.
    *script*
    to test for coverage acceptance criteria.
 
-   See the genhtml man page for more details on the criteria script.
-   Note that lcov does not keep track of date and owner information (see the
-   *--annotate-script*
-   entry in the genhtml man page) - so this information is not passed to the lcov callback.
+   See :manpage:`genhtml(1)` for more details on the criteria script. Note that
+   lcov does not keep track of date and owner information (see the
+   *--annotate-script* entry in :manpage:`genhtml(1)`) - so this information is
+   not passed to the lcov callback.
 
 ``--resolve-script`` *script*
 
@@ -830,12 +866,11 @@ specified at a time.
 
 ``--version-script`` *script*
 
-   Use
-   *script*
-   to get a source file's version ID from revision control when
-   extracting data and to compare version IDs for the purpose of error checking when merging .info files.
+   Use *script* to get a source file's version ID from revision control when
+   extracting data and to compare version IDs for the purpose of error checking
+   when merging .info files.
 
-   See the genhtml man page for more details on the version script.
+   See :manpage:`genhtml(1)` for more details on the version script.
 
 ``--unreachable-script`` *module*
 
@@ -853,19 +888,16 @@ specified at a time.
    *"module"*
    is required to be a Perl module.
 
-   See the genhtml man page for more details.
+   See :manpage:`genhtml(1)` for more details.
 
 ``--comment`` *comment_string*
 
-   Append
-   *comment_string*
-   to list of comments emitted into output result file.
-   This option may be specified multiple times.
-   Comments are printed at the top of the file, in the order they were specified.
+   Append *comment_string* to list of comments emitted into output result file.
+   This option may be specified multiple times. Comments are printed at the top
+   of the file, in the order they were specified.
 
-   Comments may be useful to document the conditions under which the trace file was
-   generated:  host, date, environment,
-   *etc.*
+   Comments may be useful to document the conditions under which the trace file
+   was generated:  host, date, environment, *etc.*
 
    Note that this option has no effect for lcov operations which do not write an
    output result file:
@@ -875,9 +907,8 @@ specified at a time.
    and
    *--map-functions*.
 
-   See the
-   ``geninfo``
-   man page for a description of the comment format in the result file.
+   See :manpage:`geninfo(1)` for a description of the comment format in
+   the result file.
 
 ``-e`` *tracefile pattern*
 ``--extract`` *tracefile pattern*
@@ -897,8 +928,8 @@ specified at a time.
    ``absolute``
    path of each source file.
 
-   The result of the extract operation will be written to stdout or the tracefile
-   specified with -o.
+   The result of the extract operation will be written to stdout or the
+   tracefile specified with -o.
 
    Only one of  -z, -c, -a, -e, -r, -l, --diff or --summary may be
    specified at a time.
@@ -928,19 +959,15 @@ specified at a time.
 
 ``--sort-input``
 
-   Specify whether to sort file names before capture and/or aggregation.
-   Sorting reduces certain types of processing order-dependent output differences.
-   See the
-   ``sort_input``
-   section in
-   man
-   :manpage:`lcovrc(5)`.
+   Specify whether to sort file names before capture and/or aggregation. Sorting
+   reduces certain types of processing order-dependent output differences. See
+   the ``sort_input`` section in man :manpage:`lcovrc(5)`.
 
 ``--gcov-tool`` *tool*
 
    Specify the location of the gcov tool.
 
-   See the geninfo man page for more details.
+   See :manpage:`geninfo(1)` for more details.
 
 ``-h``
 ``--help``
@@ -952,34 +979,36 @@ specified at a time.
    Include source files matching
    *pattern*.
 
-   Use this switch if you want to include coverage data for only a particular set
-   of source files matching any of the given patterns. Multiple patterns can be
-   specified by using multiple
-   ``--include`` command line switches. The
-   *patterns*
-   will be interpreted as shell wildcard patterns (note that they may need to be
-   escaped accordingly to prevent the shell from expanding them first).
+   Use this switch if you want to include coverage data for only a particular
+   set of source files matching any of the given patterns. Multiple patterns can
+   be specified by using multiple ``--include`` command line switches. The
+   *patterns* will be interpreted as shell wildcard patterns (note that they may
+   need to be escaped accordingly to prevent the shell from expanding them
+   first).
 
    Note: The pattern must be specified to match the
    ``absolute``
    path of each source file.
 
-   If you specify a pattern which does not seem to be correctly applied - files that you expected to be included in the output do not appear - lcov will generate an error message of type 'unused'.  See the --ignore-errors option for how to make lcov ignore the error or turn it into a warning.
+   If you specify a pattern which does not seem to be correctly applied - files
+   that you expected to be included in the output do not appear - lcov will
+   generate an error message of type 'unused'.  See the --ignore-errors option
+   for how to make lcov ignore the error or turn it into a warning.
 
 ``--msg-log`` [*log_file_name*]
 
-   Specify location to store error and warning messages (in addition to writing to STDERR).
-   If
-   *log_file_name*
-   is not specified, then default location is used.
+   Specify location to store error and warning messages (in addition to writing
+   to STDERR). If *log_file_name* is not specified, then default location is
+   used.
 
 ``--ignore-errors`` *errors*
 
    Specify a list of errors after which to continue processing.
 
-   Use this option to specify a list of one or more classes of errors after which
-   lcov should continue processing instead of aborting.
-   Note that the tool will generate a warning (rather than a fatal error) unless you ignore the error two (or more) times:
+   Use this option to specify a list of one or more classes of errors after
+   which lcov should continue processing instead of aborting. Note that the tool
+   will generate a warning (rather than a fatal error) unless you ignore the
+   error two (or more) times:
 
    ::
 
@@ -990,7 +1019,8 @@ specified at a time.
 
    ``branch``
 
-      branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+      branch ID (2nd field in the .info file 'BRDA' entry) does not follow
+      expected integer sequence.
 
    ``callback``
 
@@ -998,12 +1028,11 @@ specified at a time.
 
    ``child``
 
-      child process returned non-zero exit code during
-      *--parallel*
-      execution.  This typically indicates that the child encountered an error:  see the log file immediately above this message.
-      In contrast:  the
-      ``parallel``
-      error indicates an unexpected/unhandled exception in the child process - not a 'typical' lcov error.
+      child process returned non-zero exit code during *--parallel* execution.
+      This typically indicates that the child encountered an error:  see the log
+      file immediately above this message. In contrast:  the ``parallel`` error
+      indicates an unexpected/unhandled exception in the child process - not a
+      'typical' lcov error.
 
    ``corrupt``
 
@@ -1011,52 +1040,67 @@ specified at a time.
 
    ``count``
 
-      An excessive number of messages of some class have been reported - subsequent messages of that type will be suppressed.
-      The limit can be controlled by the 'max_message_count' variable. See man
+      An excessive number of messages of some class have been reported -
+      subsequent messages of that type will be suppressed. The limit can be
+      controlled by the 'max_message_count' variable. See man
       :manpage:`lcovrc(5)`.
 
    ``deprecated``
 
-      You are using a deprecated option.
-      This option will be removed in an upcoming release - so you should change your
-      scripts now.
+      You are using a deprecated option. This option will be removed in an
+      upcoming release - so you should change your scripts now.
 
    ``empty``
 
-      the .info data file is empty (*e.g.*, because all the code was 'removed' or excluded.
+      the .info data file is empty (*e.g.*, because all the code was 'removed'
+      or excluded.
+
+      This is not always a problem:  the source
+      may simply not contain any branches, MC/DC expressions or call sites.
+      A producer which looked for them and found none will have recorded a
+      zero count record - ``BRF:0``, ``MCF:0``, ``FNCF:0``.
+      If the counts
+      in the input files add up to zero, the absence of coverpoints is
+      assumed to have been measured and the ``empty`` message is not issued.
+      If there were more than zero the coverpoints
+      in the input and this run's filters or patterns removed all of them,
+      or when there was no data in the report for the type (*e.g.*, no
+      ``BRF`` record at all) - then the message is issued.
+
+      Function coverage has no such record: ``FNF:0`` is what an ordinary
+      header of macros says about itself, so it cannot carry this meaning, and
+      a report with no function in it is always reported.
 
    ``excessive``
 
-      your coverage data contains a suspiciously large 'hit' count which is unlikely
-      to be correct - possibly indicating a bug in your toolchain.
-      See the
-      *excessive_count_threshold*
-      section in man
-      :manpage:`lcovrc(5)`
-      for details.
+      your coverage data contains a suspiciously large 'hit' count which is
+      unlikely to be correct - possibly indicating a bug in your toolchain. See
+      the *excessive_count_threshold* section in man :manpage:`lcovrc(5)` for
+      details.
 
    ``fork``
 
       Unable to create child process during
       *--parallel*
       execution.
-      
+
       If the message is ignored (
       *--ignore-errors fork*
       ), then genhtml
       will wait a brief period and then retry the failed execution.
-      
-      If you see continued errors, either turn off or reduce parallelism, set a memory limit, or find a larger server to run the task.
+
+      If you see continued errors, either turn off or reduce parallelism, set a
+      memory limit, or find a larger server to run the task.
 
    ``format``
 
-      Unexpected syntax or value found in .info file - for example, negative number or
-      zero line number encountered.
+      Unexpected syntax or value found in .info file - for example, negative
+      number or zero line number encountered.
 
       A count field which is not a legal integer (for example 'nan' or 'inf') is
-      likewise treated as zero if this message is ignored;  a count which is a number
-      but not an integer is truncated toward zero, and one too large to store is
-      saturated to 9223372036854775807 (0x7ffffffffffffff).
+      likewise treated as zero if this message is ignored;  a count which is a
+      number but not an integer is truncated toward zero, and one too large to
+      store is saturated to 9223372036854775807 (0x7ffffffffffffff).
 
    ``gcov``
 
@@ -1068,19 +1112,23 @@ specified at a time.
 
    ``inconsistent``
 
-      your coverage data is internally inconsistent:  it makes two or more mutually
-      exclusive claims.  For example, some expression is marked as both an exception branch and not an exception branch.  (See man
-      :manpage:`genhtml(1)`
-      for more details.
+      your coverage data is internally inconsistent:  it makes two or more
+      mutually exclusive claims.  For example, some expression is marked as both
+      an exception branch and not an exception branch.  (See man
+      :manpage:`genhtml(1)` for more details.
 
-      A warning of this type is also issued when, after all input data has been merged,
-      some source file has data for two or more testcases but one of its coverage types
-      has data for only some of them - for example, both testcases have line coverage
-      data for the file, but only one of them has branch data.  This usually means that
-      the tracefiles being combined were captured with different coverage types enabled,
-      and it means that the per-testcase tables for that file are not directly
-      comparable.  The message is issued once per source file per coverage type per
-      testcase::
+      The data consistency checks, and the settings which control them and the
+      corrections made when this message is ignored, are described in the *Data
+      consistency* section of :manpage:`geninfo(1)`.
+
+      A warning of this type is also issued when, after all input data has been
+      merged, some source file has data for two or more testcases but one of its
+      coverage types has data for only some of them - for example, both
+      testcases have line coverage data for the file, but only one of them has
+      branch data.  This usually means that the tracefiles being combined were
+      captured with different coverage types enabled, and it means that the
+      per-testcase tables for that file are not directly comparable.  The
+      message is issued once per source file per coverage type per testcase::
 
          lcov: WARNING: (inconsistent) no branch data for testcase_name in path/to/file.c
 
@@ -1088,15 +1136,18 @@ specified at a time.
 
    ``internal``
 
-      internal tool issue detected.  Please report this bug along with a testcase.
+      internal tool issue detected.  Please report this bug along with a
+      testcase.
 
    ``mismatch``
 
       Inconsistent entries found in trace file:
 
-      - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match, or
+      - branch expression (3rd field in the .info file 'BRDA' entry) of merge
+        data does not match, or
 
-      - function execution count (FNDA:...) but no function declaration (FN:...).
+      - function execution count (FNDA:...) but no function declaration
+        (FN:...).
 
    ``missing``
 
@@ -1106,36 +1157,39 @@ specified at a time.
 
       negative 'hit' count found.
 
-      A negative count is not a legal value for any cover type, so if this message is
-      ignored, the count is treated as zero.
+      A negative count is not a legal value for any cover type, so if this
+      message is ignored, the count is treated as zero.
 
       Note that negative counts may be caused by a known GCC bug - see
 
         https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
 
-      and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
+      and try compiling with "-fprofile-update=atomic". You will need to
+      recompile, re-run your tests, and re-capture coverage data.
 
    ``package``
 
-      a required perl package is not installed on your system.  In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+      a required perl package is not installed on your system.  In some cases,
+      it is possible to ignore this message and continue - however, certain
+      features will be disabled in that case.
 
    ``parallel``
 
-      various types of errors related to parallelism -
-      *i.e.*,
-      a child process died due to an error.  The corresponding error message appears in the log file immediately before the
-      *parallel*
-      error.
+      various types of errors related to parallelism - *i.e.*, a child process
+      died due to an error.  The corresponding error message appears in the log
+      file immediately before the *parallel* error.
 
-      If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the --parallel flag and try again.  If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
+      If you see an error related to parallel execution that seems invalid, it
+      may be a good idea to remove the --parallel flag and try again.  If
+      removing the flag leads to a different result, please report the issue
+      (along with a testcase) so that the tool can be fixed.
 
    ``parent``
 
-      the parent process exited while child was active during
-      *--parallel*
+      the parent process exited while child was active during *--parallel*
       execution.  This happens when the parent has encountered a fatal error -
-      *e.g.*
-      an error in some other child which was not ignored.  This child cannot continue working without its parent - and so will exit.
+      *e.g.* an error in some other child which was not ignored.  This child
+      cannot continue working without its parent - and so will exit.
 
    ``range``
 
@@ -1151,25 +1205,24 @@ specified at a time.
 
    ``unreachable``
 
-      a coverpoint (line, branch, function, or MC/DC) within an "unreachable" region is executed (hit); either the code, directive placement, or both are wrong.
-      If the error is ignored, the offending coverpoint is retained (not excluded) or not, depending on the value of the
-      *retain_unreachable_coverpoints_if_executed*
-      configuration parameter.
-      See man
-      :manpage:`lcovrc(5)`
-      and the
-      *"Exclusion markers"*
-      section of man
-      :manpage:`geninfo(1)`
-      for more information.
+      a coverpoint (line, branch, function, or MC/DC) within an "unreachable"
+      region is executed (hit); either the code, directive placement, or both
+      are wrong. If the error is ignored, the offending coverpoint is retained
+      (not excluded) or not, depending on the value of the
+      *retain_unreachable_coverpoints_if_executed* configuration parameter. See
+      man :manpage:`lcovrc(5)` and the *"Exclusion markers"* section of man
+      :manpage:`geninfo(1)` for more information.
 
    ``unsupported``
 
-      the requested feature is not supported for this tool configuration.  For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
+      the requested feature is not supported for this tool configuration.  For
+      example, function begin/end line range exclusions use some GCOV features
+      that are not available in older GCC releases.
 
    ``unused``
 
-      the include/exclude/erase/omit/substitute pattern did not match any file pathnames.
+      the include/exclude/erase/omit/substitute pattern did not match any file
+      pathnames.
 
    ``usage``
 
@@ -1177,25 +1230,24 @@ specified at a time.
 
    ``utility``
 
-      a tool called during processing returned an error code (*e.g.*, 'find' encountered an unreadable directory).
+      a tool called during processing returned an error code (*e.g.*, 'find'
+      encountered an unreadable directory).
 
    ``version``
 
-      revision control IDs of the file which we are trying to merge are not the same - line numbering and other information may be incorrect.
+      revision control IDs of the file which we are trying to merge are not the
+      same - line numbering and other information may be incorrect.
 
-   Also see man
-   :manpage:`lcovrc(5)`
-   for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed.  This can be used to reduce log file volume.
+   Also see man :manpage:`lcovrc(5)` for a discussion of the 'max_message_count'
+   parameter which can be used to control the number of warnings which are
+   emitted before all subsequent messages are suppressed.  This can be used to
+   reduce log file volume.
 
 ``--expect-message-count message_type:expr[,message_type:expr]``
 
-   Give
-   ``lcov``
-   a constraint on the number of messages of one or more types which are expected to
-   be produced during execution.  If the constraint is not true, then generate an
-   error of type
-   *"count"*
-   (see above).
+   Give ``lcov`` a constraint on the number of messages of one or more types
+   which are expected to be produced during execution.  If the constraint is not
+   true, then generate an error of type *"count"* (see above).
 
    See man
    :manpage:`genhtml(1)`
@@ -1217,26 +1269,24 @@ specified at a time.
 
 ``--preserve``
 
-   Preserve intermediate data files generated by various steps in the tool - *e.g.*, for debugging.  By default, these files are deleted.
+   Preserve intermediate data files generated by various steps in the tool -
+   *e.g.*, for debugging.  By default, these files are deleted.
 
 ``--filter`` *filters*
 
    Specify a list of coverpoint filters to apply to input data.
-   See the genhtml man page for details.
+   See :manpage:`genhtml(1)` for details.
 
 ``--demangle-cpp`` [*param*]
 
-   Demangle C++ function names.  See the genhtml man page for details.
+   Demangle C++ function names.  See :manpage:`genhtml(1)` for details.
 
 ``-i``
 ``--initial``
 
-   Capture initial zero coverage data - *i.e.*, from the compile-time '.gcno' data
-   files.
-   Also see the
-   ``--all``
-   flag, which tells the tool to capture both compile-time ('.gcno') and runtime
-   ('.gcda') data at the same time.
+   Capture initial zero coverage data - *i.e.*, from the compile-time '.gcno'
+   data files. Also see the ``--all`` flag, which tells the tool to capture both
+   compile-time ('.gcno') and runtime ('.gcda') data at the same time.
 
    Run lcov with -c and this option on the directories containing .bb, .bbg
    or .gcno files before running any test case. The result is a "baseline"
@@ -1315,6 +1365,8 @@ specified at a time.
    List the contents of the
    *tracefile*.
 
+   Each enabled metric gets a column.
+
    Only one of  -z, -c, -a, -e, -r, -l, --diff or --summary may be
    specified at a time.
 
@@ -1355,27 +1407,35 @@ specified at a time.
 ``-v``
 ``--verbose``
 
-   Increment informational message verbosity.  This is mainly used for script and/or flow debugging - *e.g.*, to figure out which data file are found, where.
-   Also see the --quiet flag.
+   Increment informational message verbosity.  This is mainly used for script
+   and/or flow debugging - *e.g.*, to figure out which data file are found,
+   where. Also see the --quiet flag.
 
-   Messages are sent to stdout unless there is no output file (*i.e.*, if the coverage data is written to stdout rather than to a file) and to stderr otherwise.
+   Messages are sent to stdout unless there is no output file (*i.e.*, if the
+   coverage data is written to stdout rather than to a file) and to stderr
+   otherwise.
 
 ``-q``
 ``--quiet``
 
    Decrement informational message verbosity.
 
-   Decreased verbosity will suppress 'progress' messages for example - while error and warning messages will continue to be printed.
+   Decreased verbosity will suppress 'progress' messages for example - while
+   error and warning messages will continue to be printed.
 
 ``--debug``
 
-   Increment 'debug messages' verbosity.  This is useful primarily to developers who want to enhance the lcov tool suite.
+   Increment 'debug messages' verbosity.  This is useful primarily to developers
+   who want to enhance the lcov tool suite.
 
 ``--parallel`` [*integer*]
 ``-j`` [*integer*]
 
-   Specify parallelism to use during processing (maximum number of forked child processes).  If the optional integer parallelism parameter is zero or is missing, then use to use up the number of cores on the machine.  Default is to use a single process (no parallelism).
-   
+   Specify parallelism to use during processing (maximum number of forked child
+   processes).  If the optional integer parallelism parameter is zero or is
+   missing, then use to use up the number of cores on the machine.  Default is
+   to use a single process (no parallelism).
+
    Also see the
    *memory, memory_percentage, max_fork_fails*
    and
@@ -1396,18 +1456,21 @@ specified at a time.
    for the size at which a single file is split, how many pieces are used, and
    the cases in which it is read serially anyway.
 
-   A previously generated execution profile may help to enable better utilization
-   and faster parallel execution.  See the
-   *"--profile"*
-   and
-   *"--history"*
-   sections of this man page.
+   A previously generated execution profile may help to enable better
+   utilization and faster parallel execution.  See the *"--profile"* and
+   *"--history"* sections of this man page.
 
 ``--memory`` *integer*
 
-   Specify the maximum amount of memory to use during parallel processing, in Mb.  Effectively, the process will not fork() if this limit would be exceeded.  Default is 0 (zero) - which means that there is no limit.
+   Specify the maximum amount of memory to use during parallel processing, in
+   Mb.  Effectively, the process will not fork() if this limit would be
+   exceeded.  Default is 0 (zero) - which means that there is no limit.
 
-   This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does now know a priori what the permissible maximum is.  This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+   This option may be useful if the compute farm environment imposes strict
+   limits on resource utilization such that the job will be killed if it tries
+   to use too many parallel children - but the user does now know a priori what
+   the permissible maximum is.  This option enables the tool to use maximum
+   parallelism - up to the limit imposed by the memory restriction.
 
    The configuration file
    *memory_percentage*
@@ -1455,9 +1518,11 @@ specified at a time.
 
 ``--summary`` *tracefile*
 
-   Show summary coverage information for the specified tracefile.
+   Show summary coverage information for the specified tracefile,
+   one line per enabled metric.
 
-   Note that you may specify this option more than once.
+   Note that you may specify more than one tracefile; these are combined
+   to form the summary which is reported.
 
    Only one of  -z, -c, -a, -e, -r, -l, --diff or --summary may be
    specified at a time.
@@ -1479,8 +1544,8 @@ specified at a time.
 
    Specify test name to be stored in the tracefile.
 
-   This name identifies a coverage data set when more than one data set is merged
-   into a combined tracefile (see option -a).
+   This name identifies a coverage data set when more than one data set is
+   merged into a combined tracefile (see option -a).
 
    Valid test names can consist of letters, decimal digits and the underscore
    character ("_").
@@ -1526,13 +1591,20 @@ specified at a time.
 
 ``--tempdir`` *dirname*
 
-   Write temporary and intermediate data under the indicated directory.  Default is the platform temporary directory: $TMPDIR, $TEMP or $TMP if one of them names a writeable directory, otherwise "/tmp" on Unix or "C:\\temp" on Windows.
+   Write temporary and intermediate data under the indicated directory.  Default
+   is the platform temporary directory: $TMPDIR, $TEMP or $TMP if one of them
+   names a writeable directory, otherwise "/tmp" on Unix or "C:\\temp" on
+   Windows.
 
-   A uniquely named subdirectory of *dirname* is created for the run, and the data is written there - so several runs can share one *dirname* without colliding.  *dirname* itself is created if it does not exist.
+   A uniquely named subdirectory of *dirname* is created for the run, and the
+   data is written there - so several runs can share one *dirname* without
+   colliding.  *dirname* itself is created if it does not exist.
 
-   Unless *--preserve* is specified, the generated subdirectory and its contents are removed when ``lcov`` exits.
+   Unless *--preserve* is specified, the generated subdirectory and its contents
+   are removed when ``lcov`` exits.
 
-   This option can also be configured permanently using the configuration file option *lcov_tmp_dir*.
+   This option can also be configured permanently using the configuration file
+   option *lcov_tmp_dir*.
 
 FILES
 -----

@@ -231,6 +231,23 @@ if [ 0 == $? ] ; then
     fi
 fi
 
+# use RC option to disable branch coverage - make sure that works
+eval ${PYCOVER} ${PY2LCOV_TOOL} -o rc.info --cmd $CMD --exclude test.py functions.dat --rc branch_coverage=0
+if [ 0 != $? ] ; then
+    echo "coverage no_functions failed"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
+grep 'BRDA' rc.info
+if [ 0 == $? ] ; then
+    echo "RC didn't work"
+    if [ 0 == $KEEP_GOING ] ; then
+        exit 1
+    fi
+fi
+
 # ===========================================================================
 # Deriving function names from the indentation of the Python source
 #

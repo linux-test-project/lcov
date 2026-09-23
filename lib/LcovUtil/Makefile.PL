@@ -240,14 +240,29 @@ END_MSG
     }
 }
 
+my $optimize = '-O2';
 if ($ENV{COVERAGE}) {
+    # no optimization:  it merges, moves and deletes the blocks and arcs the
+    #   coverage data is counted by - a line whose code is folded into a
+    #   neighbor has no coverpoint of its own, a branch the compiler can decide
+    #   has none, an inlined call is not in the CFG, and a call to a function
+    #   proven not to throw loses the exceptional arc gcov counts it by.  On
+    #   this library, -O0 has about 30% more branches and 3% more lines than
+    #   -O2.
+    # 'OPTIMIZE' rather than 'CCFLAGS', which comes earlier on the compile line
+    $optimize = '-O0';
     # enable MC/DC if gcc >= 14
     $cov_flags = ' --coverage';
-    if (defined($cxx_major) && $cxx_major >= 14) {
-        $cov_flags .= ' -fcondition-coverage';
+    if (defined($cxx_major)) {
+        $cov_flags .= ' -fcondition-coverage'
+          if ($cxx_major >= 14);
+        # the call graph:  the '.ci' files beside the '.gcno'.  gcc/10 writes
+        #   them, but geninfo needs gcov/14 to pair them with call counts
+        $cov_flags .= ' -fcallgraph-info=su,da'
+          if ($cxx_major >= 14);
     }
     # For coverage measurement, compile methods out-of-line in separate .cpp files
-    push @objects, 'BranchData.o', 'MCDCData.o';
+    push @objects, 'BranchData.o', 'MCDCData.o', 'FunctionData.o';
 } else {
     # For normal XS build, use inline methods
     $define .= ' -DLCOV_XS_INLINE';
@@ -264,7 +279,9 @@ WriteMakefile(
     XSOPT         => '-C++',
     CC            => $cxx,
     LD            => $cxx,
-    CCFLAGS       => "$std_flag -O2" . $cov_flags,
+    CCFLAGS       => $std_flag . $cov_flags,
+    OPTIMIZE      => $optimize,
     LDDLFLAGS     => $Config{lddlflags} . $cov_flags . $cxx_runtime_flags,
-    clean         => { FILES => 'LcovUtil.c *.gcno *.gcda *.o *.gcov' },
+    # ..'*.ci' is what '-fcallgraph-info' leaves beside the '.gcno'
+    clean         => { FILES => 'LcovUtil.c *.gcno *.gcda *.o *.gcov *.ci' },
 );

@@ -184,9 +184,10 @@ fi
 
 
 # differential report with empty diff file
+#   (an 'empty' error is the point here, so it must not be ignored)
 touch diff.txt
-echo genhtml $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info
-$COVER $GENHTML_TOOL $DIFFCOV_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
+echo genhtml $EMPTY_CHECK_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info
+$COVER $GENHTML_TOOL $EMPTY_CHECK_OPTS initial.info -o empty --diff diff.txt --annotate $ANNOTATE_SCRIPT --baseline-file initial.info 2>&1 | tee empty_diff.log
 if [ 0 == ${PIPESTATUS[0]} ] ; then
     echo "ERROR: genhtml did not fail empty diff check"
     if [ 0 == $KEEP_GOING ] ; then

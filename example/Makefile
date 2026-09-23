@@ -24,10 +24,18 @@ endif
 #   $(CXX) does not decide what these objects can be built with.
 ENABLE_MCDC := $(shell test `$(CC) -dumpversion | cut -d. -f1` -ge 14 && echo 1 || echo 0)
 
+# callgraph-coverage also enabled in gcc/14 and above
+ENABLE_CALLEE := $(shell test `$(CC) -dumpversion | cut -d. -f1` -ge 14 && echo 1 || echo 0)
+
 ifeq ($(ENABLE_MCDC), 1)
 CFLAGS += -fcondition-coverage
 LDFLAGS += -fcondition-coverage
 LCOV_FLAGS += --mcdc-coverage
+endif
+
+ifeq ($(ENABLE_CALLEE), 1)
+CFLAGS += -fcallgraph-info=su,da
+LCOV_FLAGS += --callgraph-coverage
 endif
 
 # path differs depending on whether we are in the install dir or not
@@ -572,5 +580,5 @@ endif
 
 clean:
 	$(call echocmd,"  CLEAN   lcov/example")
-	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.info output example descriptions \
+	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.ci *.info output example descriptions \
 	  $(REPO) $(HTML_example_dir) hierarchical $(COMPILER_STAMP)

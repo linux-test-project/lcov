@@ -76,6 +76,7 @@ Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 SEE ALSO
 --------
 
-:manpage:`lcov(1)`, :manpage:`genhtml(1)`, :manpage:`geninfo(1)`, :manpage:`gendesc(1)`, :manpage:`gcov(1)`
+:manpage:`lcov(1)`, :manpage:`genhtml(1)`, :manpage:`geninfo(1)`,
+:manpage:`gendesc(1)`, :manpage:`gcov(1)`
 
 https://github.com/linux-test-project/lcov

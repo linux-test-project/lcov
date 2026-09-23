@@ -5,8 +5,9 @@ genhtml - generate HTML view from |ToolName| coverage data files
 NAME
 ----
 
-genhtml 
- Generate HTML view from |ToolName| coverage data files - including differential coverage analysis, age and author binning, and various visualization options.
+genhtml
+ Generate HTML view from |ToolName| coverage data files - including differential
+ coverage analysis, age and author binning, and various visualization options.
 
 
 SYNOPSIS
@@ -38,6 +39,7 @@ SYNOPSIS
         [ --function-coverage ] [ --no-function-coverage ]
         [ --branch-coverage ] [ --no-branch-coverage ]
         [ --mcdc-coverage ]
+        [ --callgraph-coverage ]
         [ --demangle-cpp [ param ] ]
         [ --msg-log [ log_file_name ] ]
         [ --ignore-errors errors ]
@@ -96,7 +98,10 @@ SYNOPSIS
 DESCRIPTION
 -----------
 
-``genhtml`` creates an HTML view of coverage data found in tracefiles ``geninfo`` and ``lcov`` tools which are found from glob-match pattern(s) *tracefile_pattern*. See :manpage:`geninfo(1)` for a description of the tracefile format.
+``genhtml`` creates an HTML view of coverage data found in tracefiles
+``geninfo`` and ``lcov`` tools which are found from glob-match pattern(s)
+*tracefile_pattern*. See :manpage:`geninfo(1)` for a description of the
+tracefile format.
 
 Features include:
 
@@ -104,13 +109,16 @@ Features include:
 
 - Annotation of reports with date and owner information ("binning")
 
-The basic concepts of differential coverage and date/owner binning are described in the paper found at *https://arxiv.org/abs/2008.07947*
+The basic concepts of differential coverage and date/owner binning are described
+in the paper found at *https://arxiv.org/abs/2008.07947*
 
 
 Differential coverage
 ~~~~~~~~~~~~~~~~~~~~~
 
-Differential coverage compares two versions of source code - the baseline and the current versions - and the coverage results for each to segment the code into categories.
+Differential coverage compares two versions of source code - the baseline and
+the current versions - and the coverage results for each to segment the code
+into categories.
 
 To create a differential coverage report, ``genhtml`` requires
 
@@ -118,15 +126,23 @@ To create a differential coverage report, ``genhtml`` requires
 
 2. a patch file in unified format specified using ``--diff-file``.
 
-Both *tracefile_pattern* and *baseline-file* are treated as glob patterns which match one or more files.
+Both *tracefile_pattern* and *baseline-file* are treated as glob patterns which
+match one or more files.
 
-The difference in coverage between the set of *tracefiles* and *baseline-files* is classified line-by-line into categories based on changes in 2 aspects:
+The difference in coverage between the set of *tracefiles* and *baseline-files*
+is classified line-by-line into categories based on changes in 2 aspects:
 
-1. **Test coverage results**:\  a line of code can be tested (1), untested (0), or unused (#). An unused line is a source code line that has no associated coverage data, for example due to a disabled #ifdef statement.
+1. **Test coverage results**:\  a line of code can be tested (1), untested (0),
+   or unused (#). An unused line is a source code line that has no associated
+   coverage data, for example due to a disabled #ifdef statement.
 
-2. **Source code changes**:\  a line can be unchanged, added (+ =>), or removed (=> -). Note that the diff-file format used by ``genhtml`` reports changes in lines as removal of old line and addition of new line.
+2. **Source code changes**:\  a line can be unchanged, added (+ =>), or removed
+   (=> -). Note that the diff-file format used by ``genhtml`` reports changes in
+   lines as removal of old line and addition of new line.
 
-Below are the resulting 12 categories, sorted by priority (assuming that untested code is more interesting than tested code, and new code is more interesting than old code):
+Below are the resulting 12 categories, sorted by priority (assuming that
+untested code is more interesting than tested code, and new code is more
+interesting than old code):
 
 
 **UNC**
@@ -139,7 +155,8 @@ Below are the resulting 12 categories, sorted by priority (assuming that unteste
    Uncovered Included Code (# => 0): previously unused code is untested.
 
 **UBC**
-   Uncovered Baseline Code (0 => 0): unchanged code was untested before, is untested now.
+   Uncovered Baseline Code (0 => 0): unchanged code was untested before, is
+   untested now.
 
 **GBC**
    Gained Baseline Coverage (0 => 1): unchanged code is tested now.
@@ -151,7 +168,8 @@ Below are the resulting 12 categories, sorted by priority (assuming that unteste
    Gained New Coverage (+ => 1): newly added code is tested.
 
 **CBC**
-   Covered Baseline Code (1 => 1): unchanged code was tested before and is still tested.
+   Covered Baseline Code (1 => 1): unchanged code was tested before and is still
+   tested.
 
 **EUB**
    Excluded Uncovered Baseline (0 => #): previously untested code is unused now.
@@ -160,36 +178,154 @@ Below are the resulting 12 categories, sorted by priority (assuming that unteste
    Excluded Covered Baseline (1 => #): previously tested code is unused now.
 
 **DUB**
-   Deleted Uncovered Baseline (0 => -): previously untested code has been deleted.
+   Deleted Uncovered Baseline (0 => -): previously untested code has been
+   deleted.
 
-   Note: Because these lines are not represented in the current source version, they are only represented in the classification summary table.
+   Note: Because these lines are not represented in the current source version,
+   they are only represented in the classification summary table.
 
 **DCB**
    Deleted Covered Baseline (1 => -): previously tested code has been deleted.
 
-   Note: Because these lines are not represented in the current source version, they are only represented in the classification summary table.
+   Note: Because these lines are not represented in the current source version,
+   they are only represented in the classification summary table.
 
-The differential coverage report colorizes categorized regions in the source code view using unique colors for each. You can use the ``--simplified-colors`` option to instead use one color for 'covered' code and another for 'uncovered'.
+The differential coverage report colorizes categorized regions in the source
+code view using unique colors for each. You can use the ``--simplified-colors``
+option to instead use one color for 'covered' code and another for 'uncovered'.
 
 
 Date and owner binning
 ~~~~~~~~~~~~~~~~~~~~~~
 
-**Date binning** annotates coverage reports with age-of-last-change information to distinguish recently added or modified code which has not been tested from older, presumed stable code which is also not tested. **Owner binning** adds annotation identifying the author of changes.
+**Date binning** annotates coverage reports with age-of-last-change information
+to distinguish recently added or modified code which has not been tested from
+older, presumed stable code which is also not tested. **Owner binning** adds
+annotation identifying the author of changes.
 
-Both age and ownership reporting can be used to enhance team efforts to maintain good coverage discipline by spotlighting coverage shortfalls in recently modified code, even in the absence of baseline coverage data.
+Both age and ownership reporting can be used to enhance team efforts to maintain
+good coverage discipline by spotlighting coverage shortfalls in recently
+modified code, even in the absence of baseline coverage data.
 
-To enable date and owner binning, the ``--annotate-script`` option must be used to specify a script that provides source code line age and ownership information.
+To enable date and owner binning, the ``--annotate-script`` option must be used
+to specify a script that provides source code line age and ownership
+information.
 
-For each source line, age is the interval since the most recent modification date and the owner is the user identity responsible for the most recent change to that line.
+For each source line, age is the interval since the most recent modification
+date and the owner is the user identity responsible for the most recent change
+to that line.
 
-Line coverage overall totals and counts for each of the 12 classification categories are collected for each of the specified age ranges (see the ``--date-bins`` option, below).
+Line coverage overall totals and counts for each of the 12 classification
+categories are collected for each of the specified age ranges (see the
+``--date-bins`` option, below).
+
+Statement spans
+~~~~~~~~~~~~~~~
+
+A line coverpoint may be associated with a statement which spans several
+lines - its :term:`span <statement span>`, which is recorded in the coverage
+data when *merge_continuation_lines*
+is enabled (see *Statement spans* in :manpage:`geninfo(1)`, and
+:manpage:`lcovrc(5)`). The coverpoint is on the first line of the statement.
+genhtml uses the spans of the current and the baseline data:
+
+- **Differential categories**: a statement, any of whose constituent lines
+  has changed is considered to have changed - and is thus "new code".
+  A statement is changed if the diff inserts any line of its span, or
+  deletes a baseline line inside the span of the baseline version of the
+  statement. The line coverpoint of a changed statement is categorized as
+  *UNC* or *GNC*, despite that its leader (or any constituent line) may
+  be unchanged.  The branch, MC/DC and call site coverpoints of the
+  multi-line statement are recategorized in the same way, even if their
+  particular location is unchanged.  This is the fail-safe choice, as a
+  change to any part of a statement may change how its conditions are
+  evaluated and thus change the semantics of the code. Where the
+  coverpoints of a statement were partitioned into segments, each segment is
+  a statement of its own.
+
+  If the baseline data has no span data for any line in any file - then it was
+  captured with *merge_continuation_lines* disabled, and only the current
+  data has spans.
+  In that case:
+
+  - if *merge_continuation_lines* is enabled in this ``genhtml``
+    execution, then the tool will do the required processing to capture
+    baseline span data (*i.e.*, to merge continuation lines in the baseline
+    source) - and report generation will continue (with merged data) when
+    that is complete.
+  
+  - if *merge_continuation_lines* is **not** enabled, then each
+    baseline line coverpoint is then compared with the current
+    statement which starts on the line it maps to, whatever the extent of 
+    that statement: the difference in span is not itself considered
+    a change.
+
+    The statement *is* considered changed if the diff file shows insertions
+    in any line of its current span, or deletions of a baseline line between
+    within the current span region.
+
+  If the baseline has span data anywhere, then it is assumed to have been
+  captured with spans everywhere: a baseline coverpoint without a span is a
+  single-line statement, whose span ends where the line does.
+
+- **Functions**: a function whose start and end lines are known is changed -
+  and is categorized as *UNC* or *GNC* in place of *UBC*, *GBC* or *CBC* - if
+  the diff inserts a line of source code within the current function, or
+  deletes one within the baseline function. A line is source code if it has
+  a line coverpoint or lies in the span of a multi-line statement of in that
+  version: a blank or comment line outside any statement is not source code.
+  A line which the diff says is unchanged is never a change, even if only one
+  of the two versions has a coverpoint on the line - for example, because
+  only one of the two compilers emitted a coverpoint for a closing brace, or
+  because a different compile-time configuration includes or excludes code of
+  an unchanged function.
+  A baseline function is compared with the current function which starts
+  at the same line.  If there is none, two compilers may disagree on the
+  start line of an unchanged declaration - say, one reports the line of the
+  return type, the other the line of the function name (when the function
+  return type and function name do not appear on the same line). A baseline
+  function which starts on an unchanged line where no current function
+  starts is paired with a current function which starts on an unchanged
+  line where no baseline function starts, has an alias in common with it, and
+  whose line range overlaps it; the closest such function is chosen. The
+  pair is then categorized as above, rather than as a deleted and an
+  added function (*EUB* or *ECB*, and *UIC* or *GIC*).
+
+- **Date and owner**: the date and the owner of each coverpoint of a 
+  multi-line statement are those of the most recent change to any line in
+  its span.  If there are multiple lines with the same timestamp, then
+  the lowest numbered line wins.
+
+- **Source view**: the row of the statement's first line shows the owner and
+  date of the statement, and its tooltip gives the annotation of the line
+  which supplied them, followed by *(statement <first>-<last>)* and then the
+  line's own annotation - if the two differ. The other lines of the
+  statement show their own annotation. The source text of each later line
+  of the statement has the color of the statement's category, in
+  differential and non-differential reports alike; its count, category and
+  date/owner columns are empty, as the line has no coverpoint of its own.
+
+The span includes comment and blank lines inside the statement: a change to a
+comment within a statement is considered to have changed the statement.
+
+Note that making any edits within a span results in all coverpoints associated
+with the span to be attributed to the author of the edit - even if the
+only change is to whitespace.  This may result in surprising coverage
+reports and/or unexpected automail from your CI/CD system, complaining
+about changes to your code.
+
+Capturing span data is not free, costing both CPU time and
+memory.  It is thus probably only worth doing if you are using differential
+categorization, date/owner binning, or both.
+
 
 
 Script conventions
 ~~~~~~~~~~~~~~~~~~
 
-Some ``genhtml`` options expect the name of an external script or tool as argument. These scripts are then run as part of the associated function. This includes the following options:
+Some ``genhtml`` options expect the name of an external script or tool as
+argument. These scripts are then run as part of the associated function. This
+includes the following options:
 
 ::
 
@@ -203,27 +339,38 @@ Some ``genhtml`` options expect the name of an external script or tool as argume
    --unreachable-script
    --version-script
 
-While each script performs a separate function there are some common aspects in the way these options are handled:
+While each script performs a separate function there are some common aspects in
+the way these options are handled:
 
-1. If the callback script name ends in ``.pm`` then the script is assumed to be a Perl module.
+1. If the callback script name ends in ``.pm`` then the script is assumed to be
+   a Perl module.
 
-   A perl module may offer performance advantages over an external script, as it is compiled once and loaded into the interpreter and because it can load and maintain internal state.
+   A perl module may offer performance advantages over an external script, as it
+   is compiled once and loaded into the interpreter and because it can load and
+   maintain internal state.
 
-   The module is expected to export a method 'new', which is called with the script name and the script parameters (if any) as arguments. It is expected to return an object which implements several standard methods:
+   The module is expected to export a method 'new', which is called with the
+   script name and the script parameters (if any) as arguments. It is expected
+   to return an object which implements several standard methods:
 
    ``$callback_obj =`` *packagename* ``->new(perl_module_file, args);``
 
    version-script
       ``$version = $callback_obj->extract_version($source_file_ename);``
 
-      ``$match = $version->check_version($old_version, $new_version, $source_file_name);``
+      ``$match = $version->check_version($old_version, $new_version,
+      $source_file_name);``
 
-      *$match* is expected to be 1 (true) if the version keys refer to the came file and 0 (false) otherwise.
+      *$match* is expected to be 1 (true) if the version keys refer to the came
+      file and 0 (false) otherwise.
 
    *$version*
-      is a string representing a unique identifier of the particular version of the file
+      is a string representing a unique identifier of the particular version of
+      the file
 
-   See example implementations ``*$|TOOL_NAME|_HOME/share/lcov/support-scripts/gitversion.pm`` and ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/getp4version.pm``.
+   See example implementations
+   ``*$|TOOL_NAME|_HOME/share/lcov/support-scripts/gitversion.pm`` and
+   ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/getp4version.pm``.
 
    annotate-script
       ``($status, $array) = $callback_obj->annotate($source_file_name);``
@@ -231,7 +378,8 @@ While each script performs a separate function there are some common aspects in 
       where
 
       *$status*
-         is 0 if the command succeeded and nonzero otherwise. *$status* is interpreted in same way as the return code from 'system(..)'
+         is 0 if the command succeeded and nonzero otherwise. *$status* is
+         interpreted in same way as the return code from 'system(..)'
 
       *$array*
          is a list of line data of the form:
@@ -241,102 +389,208 @@ While each script performs a separate function there are some common aspects in 
       and
 
       *$text*
-         is the source text from the corresponding line (without newline termination)
+         is the source text from the corresponding line (without newline
+         termination)
 
       *$abbrev*
-         is the "abbreviated author name" responsible for this line of code. This is the name that will be used in the various HTML tables. For example, for brevity/readability, you may want to strip the domain from developers who are inside your organization. If there is no associated author, then the value should be *\"NONE\"*.
+         is the "abbreviated author name" responsible for this line of code.
+         This is the name that will be used in the various HTML tables. For
+         example, for brevity/readability, you may want to strip the domain from
+         developers who are inside your organization. If there is no associated
+         author, then the value should be *\"NONE\"*.
 
       *$full_name*
-         is the "full author name" which is used in annotation tooltips. See the *genhtml_annotate_tooltip* entry in :manpage:`lcovrc(5)`. *$fullname* may be *undef* if the full name and abbreviated names are the same.
+         is the "full author name" which is used in annotation tooltips. See the
+         *genhtml_annotate_tooltip* entry in :manpage:`lcovrc(5)`. *$fullname*
+         may be *undef* if the full name and abbreviated names are the same.
 
       *$when*
-         is the timestamp associated with the most recent edit of the corresponding line and may be *\"NONE\"* if there is no associated time.
+         is the timestamp associated with the most recent edit of the
+         corresponding line and may be *\"NONE\"* if there is no associated
+         time.
 
       *$changelist*
-         is the commit identifier associated with the most recent change to this line, or *\"NONE\"* if there isn't one.
+         is the commit identifier associated with the most recent change to this
+         line, or *\"NONE\"* if there isn't one.
 
-   See example implementations ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/gitblame.pm`` and ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/p4annotate.pm``.
+   See example implementations
+   ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/gitblame.pm`` and
+   ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/p4annotate.pm``.
 
    context-script
       ``$hash = $callback_obj->context();``
 
-      where *$hash* is a reference to a hash of key/value pairs which are meaningful to you. This data is stored in the *profile* database. See the 'profile' section in :manpage:`lcovrc(5)` for more information.
+      where *$hash* is a reference to a hash of key/value pairs which are
+      meaningful to you. This data is stored in the *profile* database. See the
+      'profile' section in :manpage:`lcovrc(5)` for more information.
 
-      If your callback is not a perl module - for example, is a shellscript - then it should return a string such that the first word on each line is the key and the remainder is the associated data. If a key is repeated, then the corresponding data strings are concatenated, separated by newline.
+      If your callback is not a perl module - for example, is a shellscript -
+      then it should return a string such that the first word on each line is
+      the key and the remainder is the associated data. If a key is repeated,
+      then the corresponding data strings are concatenated, separated by
+      newline.
 
-      If you want to record only system information, then a shell callback is likely sufficient. If you want to record any tool-specific/internal information, then you will need to implement a perl module so that your callback will be able to access the information.
+      If you want to record only system information, then a shell callback is
+      likely sufficient. If you want to record any tool-specific/internal
+      information, then you will need to implement a perl module so that your
+      callback will be able to access the information.
 
-      Note that the constructor of your *context-script* callback (or of any callback) can perform any additional actions which are required - for example, to write additional files, to query or set tool-specific information, *etc.* For example, the example implementation, below, has an option to append comments to the generated .info file.
+      Note that the constructor of your *context-script* callback (or of any
+      callback) can perform any additional actions which are required - for
+      example, to write additional files, to query or set tool-specific
+      information, *etc.* For example, the example implementation, below, has an
+      option to append comments to the generated .info file.
 
-      See the example implementation ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/context.pm``.
+      See the example implementation
+      ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/context.pm``.
 
    criteria-script
-      ``($status, $array) = $callback_obj->check_criteria($obj_name, $type, $json);``
+      ``($status, $array) = $callback_obj->check_criteria($obj_name, $type,
+      $json);``
 
       where
 
       *$obj_name*
-         is the source file or directory name, or "top" of the object whose coverage criteria is being checked.
+         is the source file or directory name, or "top" of the object whose
+         coverage criteria is being checked.
 
       *$type*
          is the object type - either *\"file\"*, *\"directory\"*, or *\"top\"*.
 
       *$json*
-         is the coverage data associated with this object, in JSON format - see below.
+         is the coverage data associated with this object, in JSON format - see
+         below.
 
       *$status*
-         is the return status of the operation, interpreted the same way as the *annotate* callback status, described above.
+         is the return status of the operation, interpreted the same way as the
+         *annotate* callback status, described above.
 
       *$array*
-         is a reference to a possibly empty list of strings which will be reported by genhtml. The strings are expected to explain why the coverage criteria failed.
+         is a reference to a possibly empty list of strings which will be
+         reported by genhtml. The strings are expected to explain why the
+         coverage criteria failed.
 
-      See example implementations ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/criteria.pm``.
+      See example implementations
+      ``$|TOOL_NAME|_HOME/share/lcov/support-scripts/criteria.pm``.
 
    history-script
       ``$cpu_seconds = $callback_obj->history($element_name)``
 
-      where *$cpu_seconds* is the predicted time taken to process *$element_name* or *undef* if there is no prediction/the element is unknown.
+      where *$cpu_seconds* is the predicted time taken to process
+      *$element_name* or *undef* if there is no prediction/the element is
+      unknown.
 
-      See the sample implementation ``scripts/history.pm``,
-      which uses the *--profile* data generated by a previous ``genhtml`` execution to predict the time required this time.
+      See the sample implementation ``scripts/history.pm``, which uses the
+      *--profile* data generated by a previous ``genhtml`` execution to predict
+      the time required this time.
 
-      The prediction may improve load balancing - and thus improve overall runtime performance (*i.e.*, because we won't be waiting for some "long pole" task to complete while all other threads are idle.
+      The prediction may improve load balancing - and thus improve overall
+      runtime performance (*i.e.*, because we won't be waiting for some "long
+      pole" task to complete while all other threads are idle.
 
    resolve-script
       ``$newpath = $callback_obj->resolve($source_file_name)``
 
-      where *$newpath* is the correct path to the indicated source file or *undef* if the source file is not found by the callback.
+      where *$newpath* is the correct path to the indicated source file or
+      *undef* if the source file is not found by the callback.
 
    simplify-script
       ``$new_func_name = $callback_obj->simplify($orig_func_name)``
 
-      where *$new_func_name* is the function name which will appear in the function detail table and *$orig_func_name* is the (possibly demangled) function name found in the coverage DB.
+      where *$new_func_name* is the function name which will appear in the
+      function detail table and *$orig_func_name* is the (possibly demangled)
+      function name found in the coverage DB.
 
-      Note that the modified name is only used in the "function detail" table and does not modify information in the coverage DB.
+      Note that the modified name is only used in the "function detail" table
+      and does not modify information in the coverage DB.
 
    unreachable-script
-      ``$data_changed = $callback_obj->exclude($type, $source, $summary, $testdata);``
+      ``$data_changed = $callback_obj->exclude($type, $source, $testdata,
+      $summary);``
 
-      where *$data_changed* is non-zero if coverage data was changed in the callback, *$type* is either "branch" or "mcdc", *$source* is a "ReadCurrentSource" object, *$summary* is the coverage summary across all testcases, and *$testdata* is the per-testcase coverage data.
+      where *$data_changed* is non-zero if coverage data was changed in the
+      callback, *$type* is "branch", "mcdc" or "callgraph", *$source* is a
+      "ReadCurrentSource" object, *$testdata* is the per-testcase coverage data,
+      and *$summary* is the coverage summary across all testcases.
 
-      See the sample implementation ``.../scripts/unreach.pm``
-      for a simple example callback which uses source code annotations to indicate branch expressions and/or MC/DC conditions which are excluded. See the comment at the top of the file for script usage directions.
+      The callback is not executed for line or function coverpoints.
 
-      More sophisticated unreachability analysis is easy to visualize. For example, one could use reachability data from the compiler or another tool, rather than relying on user annotation.
+      The "branch" and "mcdc" types are offered once per testcase - so a
+      callback which marks a coverpoint is asked about the same source as many
+      times as the file has testcases, and must tolerate being asked again about
+      a coverpoint it has already dealt with. The "callgraph" type is offered
+      once per file, because removing a call site is not a mark which can be
+      applied twice: *$testdata* is then the complete per-testcase data of the
+      file rather than one testcase's share of it.
 
-      Note that the *--unreachable-script* callback must be a Perl module. Unlike the other callbacks, generic scripts are not supported.
+      The two kinds of coverpoint differ in what "excluded" does:
 
-2. The option may be specified as a single *split_char* separated string which is divided into words (see :manpage:`lcovrc(5)`), or as a list of arguments. The resulting command line is passed to a shell interpreter to be executed. The command line includes the script path followed by optional additional parameters separated by spaces. Care must be taken to provide proper quoting if script path or any parameter contains spaces or shell special characters.
+      - an excluded branch or MC/DC condition is retained and marked, so that
+        the report can show which of the outcomes at a location was not
+        required
+      - an excluded call site is removed outright, since a site carries
+        no such vector of outcomes. In particular:
 
-   Note that module callbacks must be called via the 'list' method: they cannot be called as an executable with a space-separated set of arguments.
+        - Call sites are removed from the per-testcase data and from the
+          summary together. Use ``lcovutil::excludeCallSite($testdata, $summary,
+          $funcKey, $siteKey)``, rather than removing a site from either of them
+          directly. *$funcKey* is a key of the caller's "FunctionMap" and
+          *$siteKey* a key of that function's call sites; the call returns
+          non-zero if a site was removed.
 
-   For convenience: your callback module may need to implement its own 'split_char' so that you can pass multiple parameters to your callback without interacting with genhtml's split mechanism.
+        - Callee found and hit totals are computed from the surviving call
+          sites.
+          An excluded call site is outside the boundary of the report by
+          definition, so the call is counted neither as one which was made
+          nor as one which was not.
 
-3. If an option is specified multiple times, then the parameters are *not* split, but are simply concatenated to form the command line - see the examples, below.
+        - The callee of an excluded call is marked as having been called
+          from outside the callgraph boundary - the same property used by
+          a call whose caller was erased.
 
-   For simplicity and ease of understanding: your command line should pass all arguments individually, or all as a comma-separated list - not a mix of the two.
+        - A call may be written in a file other than the one its caller is
+          defined - in an ``#include``\ d fragment. The *$source* the
+          callback is handed is the caller's file, so it is not the source
+          such a call is written on, and a callback which reads an
+          annotation out of the source cannot answer for those sites.
+          The sample script passes over them.
 
-4. ``genhtml`` passes any additional parameters specified via option arguments between the script path and the parameters required by the script's function.
+      See the sample implementation ``.../scripts/unreach.pm`` for a simple
+      example callback which uses source code annotations to indicate branch
+      expressions, MC/DC conditions and call sites which are excluded. See the
+      comment at the top of the file for script usage directions.
+
+      More sophisticated unreachability analysis is easy to visualize. For
+      example, one could use reachability data from the compiler or another
+      tool, rather than relying on user annotation.
+
+      Note that the *--unreachable-script* callback must be a Perl module.
+      Unlike the other callbacks, generic scripts are not supported.
+
+2. The option may be specified as a single *split_char* separated string which
+   is divided into words (see :manpage:`lcovrc(5)`), or as a list of arguments.
+   The resulting command line is passed to a shell interpreter to be executed.
+   The command line includes the script path followed by optional additional
+   parameters separated by spaces. Care must be taken to provide proper quoting
+   if script path or any parameter contains spaces or shell special characters.
+
+   Note that module callbacks must be called via the 'list' method: they cannot
+   be called as an executable with a space-separated set of arguments.
+
+   For convenience: your callback module may need to implement its own
+   'split_char' so that you can pass multiple parameters to your callback
+   without interacting with genhtml's split mechanism.
+
+3. If an option is specified multiple times, then the parameters are *not*
+   split, but are simply concatenated to form the command line - see the
+   examples, below.
+
+   For simplicity and ease of understanding: your command line should pass all
+   arguments individually, or all as a comma-separated list - not a mix of the
+   two.
+
+4. ``genhtml`` passes any additional parameters specified via option arguments
+   between the script path and the parameters required by the script's function.
 
 Example:
 
@@ -384,7 +638,8 @@ result in ``genhtml`` executing
 
       $annotateCallback = myModule->new(arg0, arg1);
 
-to initialize the class object - *arg0* and *arg1* passed as strings - and then to execute
+to initialize the class object - *arg0* and *arg1* passed as strings - and then
+to execute
 
    ::
 
@@ -414,72 +669,115 @@ Similarly, the command
       genhtml --annotate-script */bin/myMoodule.pm,arg0*
               --annotate-script arg1 ...
 
-would very likely result in an error when genhtml tries to find a script called ``/bin/mymodule.pm,arg0``.
+would very likely result in an error when genhtml tries to find a script called
+``/bin/mymodule.pm,arg0``.
 
-Note that multiple instances of each script may execute simultaneously if the ``--parallel`` option was specified. Therefore each script must either be reentrant or should arrange for its own synchronization, if necessary.
+Note that multiple instances of each script may execute simultaneously if the
+``--parallel`` option was specified. Therefore each script must either be
+reentrant or should arrange for its own synchronization, if necessary.
 
 In particular, if your callback is implemented via a perl module:
 
-   - the class object associated with the module will initialized once (in the parent process)
+   - the class object associated with the module will initialized once (in the
+     parent process)
 
-   - The callback will occur in the child process (possibly simultaneously with other child processes).
+   - The callback will occur in the child process (possibly simultaneously with
+     other child processes).
 
-   As a result: if your callback needs to pass data back to the parent, you will need to arrange a communication mechanism to do so.
+   As a result: if your callback needs to pass data back to the parent, you will
+   need to arrange a communication mechanism to do so.
 
 
 Callbacks and parallel execution
 --------------------------------
 
-Because callbacks may need to record data - *e.g.*, for error reporting or action summaries in the presence of parallel execution - ``genhtml`` (and ``lcov`` and ``geninfo``\ ) can call certain optional callback methods:
+Because callbacks may need to record data - *e.g.*, for error reporting or
+action summaries in the presence of parallel execution - ``genhtml`` (and
+``lcov`` and ``geninfo``\ ) can call certain optional callback methods:
 
    - ``$callback->start()``
 
-   is called when the child process begins execution. This method can be used to capture initial state - *e.g.*, to set the count of events in this child to zero. This method is optional.
+   is called when the child process begins execution. This method can be used to
+   capture initial state - *e.g.*, to set the count of events in this child to
+   zero. This method is optional.
 
    - ``my $data = $callback->save()``
 
-   is called when processing is complete, just before the child process exits. The scalar *$data* returned by your *$callback*\ ``->save()`` method *$callback*\ ``->restore()`` method when the child process is reaped.
+   is called when processing is complete, just before the child process exits.
+   The scalar *$data* returned by your *$callback*\ ``->save()`` method
+   *$callback*\ ``->restore()`` method when the child process is reaped.
 
    - ``$callback->restore($data)``
 
-   is called in the parent process when the child is reaped. *$data* is the data that was returned when your *$callback*\ ``->save()`` method was called in the child. (Serialization/deserialization has happened under the covers.)
+   is called in the parent process when the child is reaped. *$data* is the data
+   that was returned when your *$callback*\ ``->save()`` method was called in
+   the child. (Serialization/deserialization has happened under the covers.)
 
    - ``$callback->finalize()``
 
-   is called in the parent process when all calculations are complete and the parent setting up to report final results. This method is optional.
+   is called in the parent process when all calculations are complete and the
+   parent setting up to report final results. This method is optional.
 
-   Note that, unlike the other callback methods described in this section, *finalize()* is called in both parallel and serial execution contexts.
+   Note that, unlike the other callback methods described in this section,
+   *finalize()* is called in both parallel and serial execution contexts.
 
-Note that your callback must implement ``$callback->restore()`` if it implements ``$callback->save()``.
-``$callback->start()`` and ``$callback->finalize()`` are optional: if they are implemented, then they will be called.
+Note that your callback must implement ``$callback->restore()`` if it implements
+``$callback->save()``. ``$callback->start()`` and ``$callback->finalize()`` are
+optional: if they are implemented, then they will be called.
 
-These methods are available only for callbacks implemented a perl modules. If you callback is implemented as an executable script (say) - then you are free to implement parent/child data passing however you prefer.
+These methods are available only for callbacks implemented a perl modules. If
+you callback is implemented as an executable script (say) - then you are free to
+implement parent/child data passing however you prefer.
 
 
 Additional considerations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If the ``--criteria-script`` option is used, genhtml will use the referenced script to determine whether your coverage criteria have been met - and will return a non-zero status and print a message if the criteria are not met.
+If the ``--criteria-script`` option is used, genhtml will use the referenced
+script to determine whether your coverage criteria have been met - and will
+return a non-zero status and print a message if the criteria are not met.
 
-The ``--version-script`` option is used to verify that the same/compatible source code versions are displayed as were used to capture coverage data, as well as to verify that the same source code was used to capture coverage information which is going to be merged and to verify that the source version used for filtering operations is compatible with the version used to generate the data.
+The ``--version-script`` option is used to verify that the same/compatible
+source code versions are displayed as were used to capture coverage data, as
+well as to verify that the same source code was used to capture coverage
+information which is going to be merged and to verify that the source version
+used for filtering operations is compatible with the version used to generate
+the data.
 
-HTML output files are created in the current working directory unless the ``--output-directory`` option is used. If *tracefile* or *baseline-file* ends with ".gz", it is assumed to be GZIP-compressed and the gunzip tool will be used to decompress it transparently.
+HTML output files are created in the current working directory unless the
+``--output-directory`` option is used. If *tracefile* or *baseline-file* ends
+with ".gz", it is assumed to be GZIP-compressed and the gunzip tool will be used
+to decompress it transparently.
 
-Note that all source code files have to be present and readable at the exact file system location they were compiled, and all path references in the input data ".info" and "diff" files must match exactly (*i.e.*, exact string match).
+Note that all source code files have to be present and readable at the exact
+file system location they were compiled, and all path references in the input
+data ".info" and "diff" files must match exactly (*i.e.*, exact string match).
 
-Further, the ``--version-script``, ``--annotate-script``, and ``--criteria-script`` scripts use the same path strings. However, see the ``--substitute`` and ``--resolve-script`` options for a mechanism to adjust extracted paths so they match your source and/or revision control layout.
+Further, the ``--version-script``, ``--annotate-script``, and
+``--criteria-script`` scripts use the same path strings. However, see the
+``--substitute`` and ``--resolve-script`` options for a mechanism to adjust
+extracted paths so they match your source and/or revision control layout.
 
-You can use the *check_existence_before_callback* configuration option to tell the tool to check that the file exists before calling the ``--version-script`` or ``--annotate-script`` callback. See :manpage:`lcovrc(5)` for details.
+You can use the *check_existence_before_callback* configuration option to tell
+the tool to check that the file exists before calling the ``--version-script``
+or ``--annotate-script`` callback. See :manpage:`lcovrc(5)` for details.
 
 
 Additional options
 ~~~~~~~~~~~~~~~~~~
 
-Use option ``--diff-file`` to supply a unified diff file that represents the changes to the source code files between the version used to compile and capture the baseline trace files, and the version used to compile and capture the current trace files.
+Use option ``--diff-file`` to supply a unified diff file that represents the
+changes to the source code files between the version used to compile and capture
+the baseline trace files, and the version used to compile and capture the
+current trace files.
 
-Use option ``--css-file`` to modify layout and colors of the generated HTML output. Files are marked in different colors depending on the associated coverage rate.
+Use option ``--css-file`` to modify layout and colors of the generated HTML
+output. Files are marked in different colors depending on the associated
+coverage rate.
 
-By default, the coverage limits for low, medium and high coverage are set to 0-75%, 75-90% and 90-100% percent respectively. To change these values, use configuration file options.
+By default, the coverage limits for low, medium and high coverage are set to
+0-75%, 75-90% and 90-100% percent respectively. To change these values, use
+configuration file options.
 
    *genhtml_hi_limit* and *genhtml_med_limit*
 
@@ -491,15 +789,27 @@ or type-specific limits:
 
 See :manpage:`lcovrc(5)` for details.
 
-Also note that when displaying percentages, 0% and 100% are only printed when the values are exactly 0% and 100% respectively. Other values which would conventionally be rounded to 0% or 100% are instead printed as nearest non-boundary value. This behavior is in accordance with that of the :manpage:`gcov(1)` tool.
+Also note that when displaying percentages, 0% and 100% are only printed when
+the values are exactly 0% and 100% respectively. Other values which would
+conventionally be rounded to 0% or 100% are instead printed as nearest
+non-boundary value. This behavior is in accordance with that of the
+:manpage:`gcov(1)` tool.
 
-By default, ``genhtml`` reports will include both line and function coverage data. Neither branch or MC/DC data is displayed by default; you can use the ``--branch-coverage`` and ``--mcdc-coverage`` options to enable branch or MC/DC coverage, respectively - or you can permanently enable branch coverage by adding the appropriate settings to your personal, group, or site lcov configuration file. See the *branch_coverage* and *mcdc_coverage* sections of :manpage:`lcovrc(5)` for details.
+By default, ``genhtml`` reports will include both line and function coverage
+data but not branch, MC/DC or callgraph.  Use the ``--branch-coverage``,
+``--mcdc-coverage`` and ``--callgraph-coverage`` options to enable them) to
+enable them, or you can permanently enable them by adding the appropriate
+settings to your personal, group, or site lcov configuration file. See the
+*branch_coverage*, *mcdc_coverage* and *callgraph_coverage* sections of
+:manpage:`lcovrc(5)` for details.
 
 
 OPTIONS
 -------
 
-In general, (almost) all ``genhtml`` options can also be specified in your personal, group, project, or site configuration file - see :manpage:`lcovrc(5)` for details.
+In general, (almost) all ``genhtml`` options can also be specified in your
+personal, group, project, or site configuration file - see :manpage:`lcovrc(5)`
+for details.
 
 
 ``-h``, ``--help``
@@ -509,18 +819,25 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    Print version number, then exit.
 
 ``-v``, ``--verbose``
-   Increment informational message verbosity. This is mainly used for script and/or flow debugging - *e.g.*, to figure out which data files are found, where. Also see the --quiet flag.
+   Increment informational message verbosity. This is mainly used for script
+   and/or flow debugging - *e.g.*, to figure out which data files are found,
+   where. Also see the --quiet flag.
 
 ``-q``, ``--quiet``
    Decrement informational message verbosity.
 
-   Decreased verbosity will suppress 'progress' messages for example - while error and warning messages will continue to be printed.
+   Decreased verbosity will suppress 'progress' messages for example - while
+   error and warning messages will continue to be printed.
 
 ``--debug``
-   Increment 'debug messages' verbosity. This is useful primarily to developers who want to enhance the lcov tool suite.
+   Increment 'debug messages' verbosity. This is useful primarily to developers
+   who want to enhance the lcov tool suite.
 
 ``--validate``
-   Check the generated HTML to verify that there are no dead hyperlinks and no unused files in the output directory. The checks can also be enabled by setting environment variable ``LCOV_VALIDATE = 1``. This option is primarily intended for use by developers who modify the HTML report.
+   Check the generated HTML to verify that there are no dead hyperlinks and no
+   unused files in the output directory. The checks can also be enabled by
+   setting environment variable ``LCOV_VALIDATE = 1``. This option is primarily
+   intended for use by developers who modify the HTML report.
 
 ``--flat``, ``--hierarchical``
    Use the specified HTML report hierarchy layout.
@@ -533,7 +850,9 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    3. **source file detail**:\  annotated source code.
 
-   Option ``--hierarchical`` produces a multilevel report which follows the directory structure of the source code (similar to the file tool in Microsoft Windows).
+   Option ``--hierarchical`` produces a multilevel report which follows the
+   directory structure of the source code (similar to the file tool in Microsoft
+   Windows).
 
    Option ``--flat`` produces a two-level HTML report:
 
@@ -541,13 +860,20 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    2. **source file detail**:\  annotated source code.
 
-   The 'flat' view can reduce the number of clicks required to navigate around the coverage report - but is unwieldy except for rather small projects consisting of only a few source files. It can be useful in 'code review' mode, even for very large projects (see the *--select-script* option).
+   The 'flat' view can reduce the number of clicks required to navigate around
+   the coverage report - but is unwieldy except for rather small projects
+   consisting of only a few source files. It can be useful in 'code review'
+   mode, even for very large projects (see the *--select-script* option).
 
-   Most large projects follow a rational directory structure - which favors the 'hierarchical' report format. Teams responsible for a particular module can focus on a specific subdirectory or set of subdirectories.
+   Most large projects follow a rational directory structure - which favors the
+   'hierarchical' report format. Teams responsible for a particular module can
+   focus on a specific subdirectory or set of subdirectories.
 
-   Only one of options ``--flat`` or ``--hierarchical`` can be specified at the same time.
+   Only one of options ``--flat`` or ``--hierarchical`` can be specified at the
+   same time.
 
-   These options can also be persistently set via the lcovrc configuration file using either:
+   These options can also be persistently set via the lcovrc configuration file
+   using either:
 
    *genhtml_hierarchical* = 1
 
@@ -560,57 +886,108 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 ``-f``, ``--frames``
    Use HTML frames for source code view.
 
-   If enabled, a frameset is created for each source code file, providing an overview of the source code as a "clickable" image. Note that this option will slow down output creation noticeably because each source code character has to be inspected once. Note also that the GD.pm Perl module has to be installed for this option to work (it may be obtained from http://www.cpan.org).
+   If enabled, a frameset is created for each source code file, providing an
+   overview of the source code as a "clickable" image. Note that this option
+   will slow down output creation noticeably because each source code character
+   has to be inspected once. Note also that the GD.pm Perl module has to be
+   installed for this option to work (it may be obtained from
+   http://www.cpan.org).
 
-   This option can also be controlled from the *genhtml_frames* entry of the ``lcovrc`` file.
+   This option can also be controlled from the *genhtml_frames* entry of the
+   ``lcovrc`` file.
 
-   Please note that there is a bug in firefox and in chrome, such that enabling frames will disable hyperlinks from the 'directory' level summary table entry to the first line in the corresponding file in the particular category - *e.g.*, to the first 'MIS' line (vanilla coverage report - see the .i --show-navigation option, below), to the first 'UNC' branch (differential coverage report), etc. Hyperlinks from the summary table at the top of the 'source detail' page are not affected.
+   Please note that there is a bug in firefox and in chrome, such that enabling
+   frames will disable hyperlinks from the 'directory' level summary table entry
+   to the first line in the corresponding file in the particular category -
+   *e.g.*, to the first 'MIS' line (vanilla coverage report - see the .i
+   --show-navigation option, below), to the first 'UNC' branch (differential
+   coverage report), etc. Hyperlinks from the summary table at the top of the
+   'source detail' page are not affected.
 
 ``-s``, ``--show-details``
    Generate detailed directory view.
 
-   When this option is enabled, ``genhtml`` generates two versions of each source file file entry in the corresponding summary table:
+   When this option is enabled, ``genhtml`` generates two versions of each
+   source file file entry in the corresponding summary table:
 
-   - one containing the standard information plus a link to a "detailed" version, and
+   - one containing the standard information plus a link to a "detailed"
+     version, and
 
-   - a second which contains the number of coverpoints in the hit by each testcase.
+   - a second which contains the number of coverpoints in the hit by each
+     testcase.
 
-   Note that missed coverpoints are not shown in the per-testcase table entry data.
+   Note that missed coverpoints are not shown in the per-testcase table entry
+   data.
 
-   The corresponding summary table is found on the 'directory' page of the default 3-level genhtml report, or on the top-level page of the 'flat' report (see *genhtml --flat ...* ), or on the parent directory page of the 'hierarchical' report (see *genhtml --hierarchical ...* ).
+   The corresponding summary table is found on the 'directory' page of the
+   default 3-level genhtml report, or on the top-level page of the 'flat' report
+   (see *genhtml --flat ...* ), or on the parent directory page of the
+   'hierarchical' report (see *genhtml --hierarchical ...* ).
 
    Note that this option may significantly increase memory consumption.
 
 ``-b`` *baseline-file-pattern*, ``--baseline-file`` *baseline-file-pattern*
-   Use data in the files found from glob pattern *baseline-file-pattern* as coverage baseline.
+   Use data in the files found from glob pattern *baseline-file-pattern* as
+   coverage baseline.
 
-   ``--baseline-file`` may be specified multiple times - for example, if you have multiple trace data files for each of several test suites and you do not want to go through the additional step of merging all of them into a single aggregated data file.
+   ``--baseline-file`` may be specified multiple times - for example, if you
+   have multiple trace data files for each of several test suites and you do not
+   want to go through the additional step of merging all of them into a single
+   aggregated data file.
 
-   The coverage data files specified by *baseline-file-pattern* is read and used as the baseline for classifying the change in coverage represented by the coverage counts in *tracefile-patterns*. If *baseline-file-pattern* is a directory, then genhtml will search the directory for all files ending in '.info'. See the *info_file_extension* section in ``man(5) lcovrc`` for how to change this pattern.
+   The coverage data files specified by *baseline-file-pattern* is read and used
+   as the baseline for classifying the change in coverage represented by the
+   coverage counts in *tracefile-patterns*. If *baseline-file-pattern* is a
+   directory, then genhtml will search the directory for all files ending in
+   '.info'. See the *info_file_extension* section in ``man(5) lcovrc`` for how
+   to change this pattern.
 
-   In general, you should specify a diff file in unified diff format via ``--diff-file`` when you specify a *--baseline-file-pattern*. Without a diff file, genhtml will assume that there are no source differences between 'baseline' and 'current'. For example: this might be used to find incremental changes caused by the addition of more testcases, or to compare coverage results between gcc versions, or between gcc and llvm.
+   In general, you should specify a diff file in unified diff format via
+   ``--diff-file`` when you specify a *--baseline-file-pattern*. Without a diff
+   file, genhtml will assume that there are no source differences between
+   'baseline' and 'current'. For example: this might be used to find incremental
+   changes caused by the addition of more testcases, or to compare coverage
+   results between gcc versions, or between gcc and llvm.
 
 ``--baseline-title`` *title*
-   Use *title* as the descriptive label text for the source of coverage baseline data.
+   Use *title* as the descriptive label text for the source of coverage baseline
+   data.
 
 ``--baseline-date`` *date*
-   Use *date* as the collection date in text format for the coverage baseline data. If this argument is not specified, the default is to use the creation time of the first file matched by *baseline-file-pattern* as the baseline date. If there are multiple baseline files, then the creation date of the first file is used.
+   Use *date* as the collection date in text format for the coverage baseline
+   data. If this argument is not specified, the default is to use the creation
+   time of the first file matched by *baseline-file-pattern* as the baseline
+   date. If there are multiple baseline files, then the creation date of the
+   first file is used.
 
 ``--current-date`` *date*
-   Use *date* as the collection date in text format for the coverage baseline data. If this argument is not specified, the default is to use the creation time of the current *tracefile*.
+   Use *date* as the collection date in text format for the coverage baseline
+   data. If this argument is not specified, the default is to use the creation
+   time of the current *tracefile*.
 
 ``--diff-file`` *diff-file*
-   Use the *diff-file* as the definition for source file changes between the sample points for *baseline-file-pattern* and *tracefile(s)*.
+   Use the *diff-file* as the definition for source file changes between the
+   sample points for *baseline-file-pattern* and *tracefile(s)*.
 
    Note:
 
-   -  if filters are applied during the creation of a differential coverage report, (see the ,I --filter section, below), then those filters will be applied to the *baseline coverage data* (see the *--baseline-file* section, above) as well as to the *current coverage data*. It is important that the *diff-file* accurately reflect all source code changes so that the baseline coverage data can be correctly filtered.
+   -  if filters are applied during the creation of a differential coverage
+      report, (see the ,I --filter section, below), then those filters will be
+      applied to the *baseline coverage data* (see the *--baseline-file*
+      section, above) as well as to the *current coverage data*. It is important
+      that the *diff-file* accurately reflect all source code changes so that
+      the baseline coverage data can be correctly filtered.
 
-   -  Best practice is to use a *--version-script* callback to verify that source versions match before source-based filtering is applied.
+   -  Best practice is to use a *--version-script* callback to verify that
+      source versions match before source-based filtering is applied.
 
-   It is almost always a better idea to filter at capture or aggregate time - not at report generation.
+   It is almost always a better idea to filter at capture or aggregate time -
+   not at report generation.
 
-   A suitable *"universal diff"* input file for the *--diff-file* option can be generated using either the "p4udiff" or "gitdiff" sample scripts that are provided as part of this package, or by using revision control commands directly.
+   A suitable *"universal diff"* input file for the *--diff-file* option can be
+   generated using either the "p4udiff" or "gitdiff" sample scripts that are
+   provided as part of this package, or by using revision control commands
+   directly.
 
    The "p4udiff" or "gitdiff" sample scripts are found in:
 
@@ -620,9 +997,13 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
       ``scripts/gitdiff``
 
-   These scripts simply post-process the 'p4' or 'git' output to (optionally) remove files that are not of interest and to explicitly note files which have not changed.
+   These scripts simply post-process the 'p4' or 'git' output to (optionally)
+   remove files that are not of interest and to explicitly note files which have
+   not changed.
 
-   ``p4udiff`` accepts either a changelist ID or the literal string "sandbox"; "sandbox" indicates that there are modified files which have not been checked in. See "*gitdiff -- help*" and "*p4udiff -- help*" for more information.
+   ``p4udiff`` accepts either a changelist ID or the literal string "sandbox";
+   "sandbox" indicates that there are modified files which have not been checked
+   in. See "*gitdiff -- help*" and "*p4udiff -- help*" for more information.
 
    It is useful to note unchanged files denoted by lines of the form:
 
@@ -631,24 +1012,55 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
       diff [optional header strings]
       === file_path
 
-   in the p4diff/gitdiff output as this knowledge will help to suppress spurious 'path mismatch' warnings. See the ``--elide-path-mismatch`` and ``--build-directory`` entries, below.
+   in the p4diff/gitdiff output as this knowledge will help to suppress spurious
+   'path mismatch' warnings. See the ``--elide-path-mismatch`` and
+   ``--build-directory`` entries, below.
 
-   In general, you will specify ``--baseline-file`` when you specify ``--diff-file``. The *baseline_files* are used to compute coverage differences (*e.g.* gains and losses) between the baseline and current, where the *diff_file* is used to compute code changes: source text is identical between 'baseline' and 'current'. If you specify *baseline_files* but no *diff_file*, the tool will assume that there are no code changes between baseline and current. If you specify a *diff_file* but no *baseline_files*, the tool will assume that there is no baseline coverage data (no baseline code was covered); as result unchanged code (*i.e.*, which does not appear in the *diff_file* will be categorized as either GIC (covered) or UIC (not covered) while new or changed code will be categorized as either GNC or UNC.
+   In general, you will specify ``--baseline-file`` when you specify
+   ``--diff-file``. The *baseline_files* are used to compute coverage
+   differences (*e.g.* gains and losses) between the baseline and current, where
+   the *diff_file* is used to compute code changes: source text is identical
+   between 'baseline' and 'current'. If you specify *baseline_files* but no
+   *diff_file*, the tool will assume that there are no code changes between
+   baseline and current. If you specify a *diff_file* but no *baseline_files*,
+   the tool will assume that there is no baseline coverage data (no baseline
+   code was covered); as result unchanged code (*i.e.*, which does not appear in
+   the *diff_file* will be categorized as either GIC (covered) or UIC (not
+   covered) while new or changed code will be categorized as either GNC or UNC.
 
 ``--annotate-script`` *script*
    Use *script* to get source code annotation data.
 
-   Use this option to specify an external tool or command line that ``genhtml`` can use to obtain source code annotation data such as age and author of the last change for each source code line.
+   Use this option to specify an external tool or command line that ``genhtml``
+   can use to obtain source code annotation data such as age and author of the
+   last change for each source code line.
 
-   This option also instructs ``genhtml`` to add a summary table to the HTML report header that shows counts in the various coverage categories, associated with each date bin. In addition, each source code line will show age and owner information. Annotation data is also used to populate a 'tooltip' which appears when the mouse hovers over the associated source code. See the *genhtml_annotate_tooltip* entry in :manpage:`lcovrc(5)` for details.
+   This option also instructs ``genhtml`` to add a summary table to the HTML
+   report header that shows counts in the various coverage categories,
+   associated with each date bin. In addition, each source code line will show
+   age and owner information. Annotation data is also used to populate a
+   'tooltip' which appears when the mouse hovers over the associated source
+   code. See the *genhtml_annotate_tooltip* entry in :manpage:`lcovrc(5)` for
+   details.
 
-   The specified *script* is expected to obtain age and ownership information for each source code line from the revision management system and to output this information in the format described below.
+   The specified *script* is expected to obtain age and ownership information
+   for each source code line from the revision management system and to output
+   this information in the format described below.
 
-   If the annotate script fails and annotation errors are ignored via ``--ignore-errors``, then ``genhtml`` will try to load the source file normally. If the file is not present or not readable, and the ``--synthesize-missing`` flag is specified, then ``genhtml`` will synthesize fake data for the file.
+   If the annotate script fails and annotation errors are ignored via
+   ``--ignore-errors``, then ``genhtml`` will try to load the source file
+   normally. If the file is not present or not readable, and the
+   ``--synthesize-missing`` flag is specified, then ``genhtml`` will synthesize
+   fake data for the file.
 
-   ``genhtml`` will emit an error if you have specified an annotation script but no files are successfully annotated (see below). This can happen, for example, if your P4USER, P4CLIENT, or P4PORT environment variables are not set correctly - *e.g.*, if the Jenkins user who generates coverage reports is not the same and the user who checked out the code and owns the sandbox.
+   ``genhtml`` will emit an error if you have specified an annotation script but
+   no files are successfully annotated (see below). This can happen, for
+   example, if your P4USER, P4CLIENT, or P4PORT environment variables are not
+   set correctly - *e.g.*, if the Jenkins user who generates coverage reports is
+   not the same and the user who checked out the code and owns the sandbox.
 
-   Sample annotation scripts for Perforce ("p4annotate") and git ("gitblame") are provided as part of this package in the following locations:
+   Sample annotation scripts for Perforce ("p4annotate") and git ("gitblame")
+   are provided as part of this package in the following locations:
 
       ``scripts/p4annotate``
 
@@ -656,13 +1068,21 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
       ``scripts/gitblame``
 
-   Note that these scripts generate annotations from the file version checked in to the repository - not the locally modified file in the build directory. If you need annotations for locally modified files, you can shelve your changes in P4, or check them in to a local branch in git.
+   Note that these scripts generate annotations from the file version checked in
+   to the repository - not the locally modified file in the build directory. If
+   you need annotations for locally modified files, you can shelve your changes
+   in P4, or check them in to a local branch in git.
 
-   Both sample scripts accept a number of options - ``--cache``, ``--verify``, ``-b`` (or ``--ignore-whitespace``) and ``--log`` - which may be passed after the script name in the *script,args* form described in **Script conventions** above. See the **Callback Scripts** section of the |TOOL_NAME| documentation for details.
+   Both sample scripts accept a number of options - ``--cache``, ``--verify``,
+   ``-b`` (or ``--ignore-whitespace``) and ``--log`` - which may be passed after
+   the script name in the *script,args* form described in **Script conventions**
+   above. See the **Callback Scripts** section of the |TOOL_NAME| documentation
+   for details.
 
    **Creating your own script**
 
-   When creating your own script, please first see **Script considerations** above for general calling conventions and script requirements.
+   When creating your own script, please first see **Script considerations**
+   above for general calling conventions and script requirements.
 
    *script* is called by genhtml with the following command line:
 
@@ -674,55 +1094,85 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
          is the script executable
 
       ``additional_parameters``
-         includes any optional parameters specified (see **Script conventions** above)
+         includes any optional parameters specified (see **Script conventions**
+         above)
 
       ``source_file_name``
          is the source code file name
 
-   The *script* executable should output a line to the standard output stream in the following format for each line in file *source_file_name*:
+   The *script* executable should output a line to the standard output stream in
+   the following format for each line in file *source_file_name*:
 
       *commit_id* | *author_data* | *date* | *source_code*
 
    where
 
       ``commit_id``
-         is an ID identifying the last change to the line or NONE if this file is not checked in to your revision control system.
+         is an ID identifying the last change to the line or NONE if this file
+         is not checked in to your revision control system.
 
-         ``genhtml`` counts the file as not 'successfully annotated' if ``commit_id`` is *NONE* and as 'successfully annotated' otherwise.
+         ``genhtml`` counts the file as not 'successfully annotated' if
+         ``commit_id`` is *NONE* and as 'successfully annotated' otherwise.
 
       ``author_data``
          identifies the author of the last change.
 
-         For backward compatibility with existing annotate-script implementations, two *author_data* formats are supported:
+         For backward compatibility with existing annotate-script
+         implementations, two *author_data* formats are supported:
 
-         -  *string*:\  the string used as both the 'abbreviated name' (used as 'owner' name in HTML output and callbacks) and as 'full name' (used in tooltip callbacks)
+         -  *string*:\  the string used as both the 'abbreviated name' (used as
+            'owner' name in HTML output and callbacks) and as 'full name' (used
+            in tooltip callbacks)
 
-         -  *abbrev_string;full_name*:\  the *author_data* string contains both an 'abbreviated name' and a 'full name' - separated by a semicolon character (';').
+         -  *abbrev_string;full_name*:\  the *author_data* string contains both
+            an 'abbreviated name' and a 'full name' - separated by a semicolon
+            character (';').
 
-            This is useful when generating coverage reports for opensource software components where there are many 'External' contributors who you do not want to distinguish in 'owner' summary tables but you still want to know who the actual author was. (See the ``gitblame`` callback script for an example.)
+            This is useful when generating coverage reports for opensource
+            software components where there are many 'External' contributors who
+            you do not want to distinguish in 'owner' summary tables but you
+            still want to know who the actual author was. (See the ``gitblame``
+            callback script for an example.)
 
       ``date``
-         is the data of last change in W3CDTF format (<YYYY>-<MM>-<DD>T<hh>:<mm>:<ss><TZD>)
+         is the data of last change in W3CDTF format
+         (<YYYY>-<MM>-<DD>T<hh>:<mm>:<ss><TZD>)
 
       ``source_code``
          is the line's source code
 
-   The script should return 0 (zero) if processing was successful and non-zero if it encountered an error.
+   The script should return 0 (zero) if processing was successful and non-zero
+   if it encountered an error.
 
 ``--criteria-script`` *script*
    Use *script* to test for coverage acceptance criteria.
 
-   Use this option to specify an external tool or command line that ``genhtml`` can use to determine if coverage results meet custom acceptance criteria. Criteria checking results are shown in the standard output log of ``genhtml``\ . If at least one check fails, ``genhtml`` will exit with a non-zero exit code after completing its processing.
+   Use this option to specify an external tool or command line that ``genhtml``
+   can use to determine if coverage results meet custom acceptance criteria.
+   Criteria checking results are shown in the standard output log of
+   ``genhtml``\ . If at least one check fails, ``genhtml`` will exit with a
+   non-zero exit code after completing its processing.
 
-   A sample coverage criteria script is provided as part of this package in the following location:
+   A sample coverage criteria script is provided as part of this package in the
+   following location:
 
       ``scripts/criteria``
 
-   The sample script checks that top-level line coverage meets the criteria "UNC + LBC + UIC == 0" (added code and newly activated code must be tested, and existing tested code must not become untested).
+   The sample script checks that top-level line coverage meets the criteria
+   "UNC + LBC + UIC == 0" (added code and newly activated code must be tested,
+   and existing tested code must not become untested).
 
-   As another example, it is possible to create scripts that mimic the ``lcov --fail-under-lines`` feature by checking that the ratio of exercised lines to total lines ("(GNC + GIC + CBC) / (GNC + GIC + CBC + UNC + UIC + UBC)") is greater than the threshold - either only at the top level, in every directory, or wherever desired. Similarly, criteria may include branch and function coverage metrics.
+   As another example, it is possible to create scripts that mimic the
+   ``lcov --fail-under-lines`` feature by checking that the ratio of exercised
+   lines to total lines ("(GNC + GIC + CBC) / (GNC + GIC + CBC + UNC + UIC +
+   UBC)") is greater than the threshold - either only at the top level, in every
+   directory, or wherever desired. Similarly, criteria may include branch and
+   function coverage metrics.
 
-   By default the criteria script is called for all source code hierarchy levels, *i.e.*: top-level, directory, and file-level. The *criteria_callback_levels* configuration file option can be used to limit the hierarchy levels to any combination of 'top', 'directory', or 'file' levels.
+   By default the criteria script is called for all source code hierarchy
+   levels, *i.e.*: top-level, directory, and file-level. The
+   *criteria_callback_levels* configuration file option can be used to limit the
+   hierarchy levels to any combination of 'top', 'directory', or 'file' levels.
 
    Example:
 
@@ -730,7 +1180,10 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
       genhtml --rc criteria_callback_levels=directory,top ...
 
-   You can increase the amount of data passed to the criteria script using configuration file option *criteria_callback_data*. By default, only total counts are included. Specifying "date" adds per date-bin counts, "owner" adds per owner-bin counts.
+   You can increase the amount of data passed to the criteria script using
+   configuration file option *criteria_callback_data*. By default, only total
+   counts are included. Specifying "date" adds per date-bin counts, "owner" adds
+   per owner-bin counts.
 
    Example:
 
@@ -742,9 +1195,11 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
    **Creating your own script**
 
-   When creating your own script, please first see **Script considerations** above for general calling conventions and script requirements.
+   When creating your own script, please first see **Script considerations**
+   above for general calling conventions and script requirements.
 
-   *script* is run with the following command line for each source code file, leaf-directory, and top-level coverage results:
+   *script* is run with the following command line for each source code file,
+   leaf-directory, and top-level coverage results:
 
    ::
 
@@ -756,16 +1211,23 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
          is the script executable
 
       ``additional_parameters``
-         includes any optional parameters specified (see **Script conventions** above)
+         includes any optional parameters specified (see **Script conventions**
+         above)
 
       ``name``
-         is the name of the object for which coverage criteria should be checked, that is either the source code file name, directory name, or "top" if the script is called for top-level data
+         is the name of the object for which coverage criteria should be
+         checked, that is either the source code file name, directory name, or
+         "top" if the script is called for top-level data
 
       ``type``
-         is the type of source code object for which coverage criteria should be checked, that is one of "file", "directory", or "top"
+         is the type of source code object for which coverage criteria should be
+         checked, that is one of "file", "directory", or "top"
 
       ``coverage_data``
-         is either a coverage data hash or a JSON representation of coverage data hash of the corresponding source code object. If the callback is a Perl module, then the it is passes a hash object - other wise, it is passed a JSON representation of that data.
+         is either a coverage data hash or a JSON representation of coverage
+         data hash of the corresponding source code object. If the callback is a
+         Perl module, then the it is passes a hash object - other wise, it is
+         passed a JSON representation of that data.
 
    The JSON data format is defined as follows:
 
@@ -793,41 +1255,72 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    where
 
       ``type``
-         specifies the type of coverage as one of "line", "function", or "branch"
+         specifies the type of coverage as one of "line", "function", "branch",
+         "MC/DC", or "callgraph"
 
       ``bin_type``
-         specifies the type of per-bin coverage as one of "line_age", "function_age", or "branch_age" for date-bin data, and "line_owners" or "branch_owners" for owner-bin data
+         specifies the type of per-bin coverage as one of "line_age",
+         "function_age", or "branch_age" for date-bin data, and "line_owners" or
+         "branch_owners" for owner-bin data
 
       ``bin_id``
-         specifies the date-bin index for date-bin data, and owner ID for owner-bin data.
+         specifies the date-bin index for date-bin data, and owner ID for
+         owner-bin data.
 
       ``found``
-         defines the number of found lines, functions, or branches
+         defines the number of found lines, functions, branches, or call sites
 
       ``hit``
-         defines the number of hit lines, functions, or branches
+         defines the number of hit lines, functions, branches, or call sites
 
       ``category``
-         defines the number of lines, functions, or branches that fall in the specified category (see **Differential coverage** above)
+         defines the number of lines, functions, branches, or call sites that
+         fall in the specified category (see **Differential coverage** above)
 
    Note that data is only reported for non-empty coverage types and bins.
 
-   The script should return 0 (zero) if the criteria are met and non-zero otherwise.
+   The "callgraph" key is present only if ``--callgraph-coverage`` is enabled,
+   and its counts are call sites rather than functions - see the
+   ``--callgraph-coverage`` section, below. A call site is attributed to the
+   owner and the age of the line which contains it, so callgraph data appears in
+   both the date and the owner bins.
 
-   If desired, it may print a single line output string which will be appended to the error log if the return status is non-zero. Additionally, non-empty lines are appended to the genhtml standard output log.
+   The script should return 0 (zero) if the criteria are met and non-zero
+   otherwise.
+
+   If desired, it may print a single line output string which will be appended
+   to the error log if the return status is non-zero. Additionally, non-empty
+   lines are appended to the genhtml standard output log.
 
 ``--version-script`` *script*
    Use *script* to get source code file version data.
 
-   Use this option to specify an external tool or command line that ``genhtml`` can use to obtain a source code file's version ID when generating HTML or applying source filters (see ``--filter`` option).
+   Use this option to specify an external tool or command line that ``genhtml``
+   can use to obtain a source code file's version ID when generating HTML or
+   applying source filters (see ``--filter`` option).
 
-   A version ID can be a file hash or commit ID from revision control. It is used to check the version of the source file which is loaded against the version which was used to generate coverage data (*i.e.*, the file version seen by lcov/geninfo). It is important that source code versions match - otherwise inconsistent or confusing results may be produced.
+   A version ID can be a file hash or commit ID from revision control. It is
+   used to check the version of the source file which is loaded against the
+   version which was used to generate coverage data (*i.e.*, the file version
+   seen by lcov/geninfo). It is important that source code versions match -
+   otherwise inconsistent or confusing results may be produced.
 
-   Version mismatches typically happen when the tasks of capture, aggregation, and report generation are split between multiple jobs - *e.g.*, when the same source code is used in multiple projects, a unified/global coverage report is required, and the projects accidentally use different revisions.
+   Version mismatches typically happen when the tasks of capture, aggregation,
+   and report generation are split between multiple jobs - *e.g.*, when the same
+   source code is used in multiple projects, a unified/global coverage report is
+   required, and the projects accidentally use different revisions.
 
-   If your .info (coverage data) file does not contain version information - for example, because it was generated by a tool which did not support versioning - then you can use the *compute_file_version* = 1 config file option to generate the data afterward. A convenient way to do this might be to use ``lcov`` *--add-tracefile* to read the original file, insert version information, and write out the result. See :manpage:`lcovrc(5)` for more details.
+   If your .info (coverage data) file does not contain version information - for
+   example, because it was generated by a tool which did not support
+   versioning - then you can use the *compute_file_version* = 1 config file
+   option to generate the data afterward. A convenient way to do this might be
+   to use ``lcov`` *--add-tracefile* to read the original file, insert version
+   information, and write out the result. See :manpage:`lcovrc(5)` for more
+   details.
 
-   Sample scripts for Perforce ("getp4version"), git ("gitversion") and using an md5 hash ("get_signature") are provided as part of this package in the following locations:
+   Sample scripts for Perforce ("getp4version"), git ("gitversion") and using an
+   md5 hash ("get_signature") are provided as part of this package in the
+   following locations:
 
       ``scripts/getp4version``
 
@@ -837,19 +1330,27 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
       ``scripts/get_signature``
 
-   Note that you must use the same script/same mechanism to determine the file version when you extract, merge, and display coverage data - otherwise, you may see spurious mismatch reports.
+   Note that you must use the same script/same mechanism to determine the file
+   version when you extract, merge, and display coverage data - otherwise, you
+   may see spurious mismatch reports.
 
    **Creating your own script**
 
-   When creating your own script, please first see **Script considerations** above for general calling conventions and script requirements.
+   When creating your own script, please first see **Script considerations**
+   above for general calling conventions and script requirements.
 
-   *"script "* is used both to generate and to compare the version ID to enable retaining history between calls or to do more complex processing to determine equivalence. It will be called by ``genhtml`` with either of the following command lines:
+   *"script "* is used both to generate and to compare the version ID to enable
+   retaining history between calls or to do more complex processing to determine
+   equivalence. It will be called by ``genhtml`` with either of the following
+   command lines:
 
    1. Determine source file version ID
 
       ``script`` *source_file_name*
 
-      It should write the version ID of *source_file_name* to stdout and return a 0 exit status. If the file is not versioned, it should write an empty string and return a 0 exit status.
+      It should write the version ID of *source_file_name* to stdout and return
+      a 0 exit status. If the file is not versioned, it should write an empty
+      string and return a 0 exit status.
 
    2. Compare source file version IDs
 
@@ -866,290 +1367,826 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
          "source_file_name"
             is the source code file name
 
-      One ID is the version ID found in the corresponding .info file and the other is the ID returned by calling "script source_file_name" - but which of the two is passed first depends on the caller, so the comparison should not depend on the order.  Note that either ID can be the empty string, when only one of the two is known.  The sample scripts provided with this package show the expected argument handling.
+      One ID is the version ID found in the corresponding .info file and the
+      other is the ID returned by calling "script source_file_name" - but which
+      of the two is passed first depends on the caller, so the comparison should
+      not depend on the order.  Note that either ID can be the empty string,
+      when only one of the two is known.  The sample scripts provided with this
+      package show the expected argument handling.
 
       It should return non-zero if the IDs do not match.
 
-      The arguments are passed to the script as separate arguments, without an intervening shell.  A version ID or file name containing a space or a shell metacharacter therefore arrives as it was written.
+      The arguments are passed to the script as separate arguments, without an
+      intervening shell.  A version ID or file name containing a space or a
+      shell metacharacter therefore arrives as it was written.
 
-      Note that here - unlike every other callback, whose answer is what it writes to stdout - the exit status is the answer:  a non-zero status means "the IDs do not match", and nothing else.  A script which exits non-zero to report a problem of its own, such as a usage error or an unreachable server, is reporting a version mismatch.  ``genhtml`` can tell that the script could not be executed at all, or that it was killed by a signal - both are reported as an ignorable *callback* error - but it cannot tell a non-zero exit status apart from an answer.
+      Note that here - unlike every other callback, whose answer is what it
+      writes to stdout - the exit status is the answer:  a non-zero status means
+      "the IDs do not match", and nothing else.  A script which exits non-zero
+      to report a problem of its own, such as a usage error or an unreachable
+      server, is reporting a version mismatch.  ``genhtml`` can tell that the
+      script could not be executed at all, or that it was killed by a signal -
+      both are reported as an ignorable *callback* error - but it cannot tell a
+      non-zero exit status apart from an answer.
 
 ``--resolve-script`` *script*
-   Use *script* to find the file path for some source file which which appears in an input data file if the file is not found after applying *--substitute* patterns and searching the *--source-directory* list. This option is equivalent to the *resolve_script* config file option. See :manpage:`lcovrc(5)` for details.
+   Use *script* to find the file path for some source file which which appears
+   in an input data file if the file is not found after applying *--substitute*
+   patterns and searching the *--source-directory* list. This option is
+   equivalent to the *resolve_script* config file option. See
+   :manpage:`lcovrc(5)` for details.
 
 ``--select-script`` *callback*
-   Use *callback* to decide whether a particular source line is interesting and should be included in the output data/generated report or not.
+   Use *callback* to decide whether a particular source line is interesting and
+   should be included in the output data/generated report or not.
 
-   This option is equivalent to the *select_script* config file option. See :manpage:`lcovrc(5)` for details.
+   This option is equivalent to the *select_script* config file option. See
+   :manpage:`lcovrc(5)` for details.
+
+   The function detail and call site tables follow the same selection: they list
+   only those functions whose definition line was selected, so that a page
+   describes the same code its source view shows. Nothing is removed from the
+   coverage data - contrast ``--filter``, whose effect on call sites is
+   described there - so the file's counts, and the callers listed for a function
+   on some other file's page, are unchanged.
 
 ``--simplify-script`` *callback*
-   Use *callback* to shorten/simplify long demangled C++ function and template names to make the function detail table more compact and readable - for example, to remove nested namespace names.
+   Use *callback* to shorten/simplify long demangled C++ function and template
+   names to make the function detail table more compact and readable - for
+   example, to remove nested namespace names.
 
-   Note that the simplifications affect only the display and not the actual names stored in the coverage DB. In particular, the DB name (not the simplified name) is the one used to match *--erase-function* patterns.
+   Note that the simplifications affect only the display and not the actual
+   names stored in the coverage DB. In particular, the DB name (not the
+   simplified name) is the one used to match *--erase-function* patterns.
 
-   This option is equivalent to the *simplify_script* config file option. See :manpage:`lcovrc(5)` for details
+   This option is equivalent to the *simplify_script* config file option. See
+   :manpage:`lcovrc(5)` for details
 
 ``--unreachable-script`` *module*
-   Use *module* to decide whether particular branch expressions and/or MC/DC conditions should be removed from the coverage report. This option is equivalent to the *unreachable_script* config file option. See :manpage:`lcovrc(5)` for details.
+   Use *module* to decide whether particular branch expressions, MC/DC
+   conditions and/or call sites should be removed from the coverage report. This
+   option is equivalent to the *unreachable_script* config file option. See
+   :manpage:`lcovrc(5)` for details.
 
    Note that *"module"* is required to be a Perl module.
 
-   See the *--unreachable-script* discussion in the *"Script conventions"* section, above, and the *"Exclusion markers"* section in :manpage:`geninfo(1)`.
+   Note also that the callback is asked about branch, MC/DC and call site
+   coverpoints only, and not about line or function coverpoints. A branch or
+   MC/DC coverpoint it excludes is retained and marked, whereas a call site it
+   excludes is removed - see the *"Script conventions"* section, above. The
+   other way to remove a call site is to exclude the line it is written on: see
+   the *region* keyword of ``--filter``.
+
+   See the *--unreachable-script* discussion in the *"Script conventions"*
+   section, above, and the *"Exclusion markers"* section in
+   :manpage:`geninfo(1)`.
 
 ``--checksum``
-   Specify whether to compare stored tracefile checksum to checksum computed from the source code.
+   Specify whether to compare stored tracefile checksum to checksum computed
+   from the source code.
 
    Checksum verification is **disabled** by default.
 
-   When checksum verification is enabled, a checksum will be computed for each source code line and compared to the checksum found in the 'current' tracefile. This will help to prevent attempts to display source code which is not identical to the code used to generate the coverage data.
+   When checksum verification is enabled, a checksum will be computed for each
+   source code line and compared to the checksum found in the 'current'
+   tracefile. This will help to prevent attempts to display source code which is
+   not identical to the code used to generate the coverage data.
 
-   Note that this option is somewhat subsumed by the ``--version-script`` option - which does something similar, but at the 'whole file' level.
+   Note that this option is somewhat subsumed by the ``--version-script``
+   option - which does something similar, but at the 'whole file' level.
 
 ``--fail-under-branches`` *percentage*
-   Use this option to tell genhtml to exit with a status of 1 if the total branch coverage is less than *percentage*. See :manpage:`lcov(1)` for more details.
+   Use this option to tell genhtml to exit with a status of 1 if the total
+   branch coverage is less than *percentage*. See :manpage:`lcov(1)` for more
+   details.
 
 ``--fail-under-lines`` *percentage*
-   Use this option to tell genhtml to exit with a status of 1 if the total line coverage is less than *percentage*. See :manpage:`lcov(1)` for more details.
+   Use this option to tell genhtml to exit with a status of 1 if the total line
+   coverage is less than *percentage*. See :manpage:`lcov(1)` for more details.
 
 ``--new-file-as-baseline``
-   By default, when code is identified on source lines in the 'current' data which were not identified as code in the 'baseline' data, but the source text has not changed, their coverpoints are categorized as "included code": *GIC* or *UIC*.
+   By default, when code is identified on source lines in the 'current' data
+   which were not identified as code in the 'baseline' data, but the source text
+   has not changed, their coverpoints are categorized as "included code": *GIC*
+   or *UIC*.
 
-   However, if the configuration of the coverage job has been recently changed to instrument additional files, then all un-exercised coverpoints in those files will fall into the *GIC* category - which may cause certain coverage criteria checks to fail.
+   However, if the configuration of the coverage job has been recently changed
+   to instrument additional files, then all un-exercised coverpoints in those
+   files will fall into the *GIC* category - which may cause certain coverage
+   criteria checks to fail.
 
-   When this option is specified, genhtml pretends that the baseline data for the file is the same as the current data - so coverpoints are categorized as *CBC* or *UBC* which do not trigger the coverage criteria check.
+   When this option is specified, genhtml pretends that the baseline data for
+   the file is the same as the current data - so coverpoints are categorized as
+   *CBC* or *UBC* which do not trigger the coverage criteria check.
 
    Please note that coverpoints in the file are re-categorized only if:
 
    - There is no 'baseline' data for any coverpoint in this file, AND
 
-   - The file pre-dates the baseline: the oldest line in the file is older than the 'baseline' data file (or the value specified by the ``--baseline-date`` option).
+   - The file pre-dates the baseline: the oldest line in the file is older than
+     the 'baseline' data file (or the value specified by the ``--baseline-date``
+     option).
 
 ``--elide-path-mismatch``
-   Differential categorization uses file pathnames to match coverage entries from the ".info" file with file difference entries in the unified-diff-file. If the entries are not identical, then categorization may be incorrect or strange.
+   Differential categorization uses file pathnames to match coverage entries
+   from the ".info" file with file difference entries in the unified-diff-file.
+   If the entries are not identical, then categorization may be incorrect or
+   strange.
 
-   When paths do not match, genhtml will produce "path" error messages to tell you about the mismatches.
+   When paths do not match, genhtml will produce "path" error messages to tell
+   you about the mismatches.
 
-   If mismatches occur, the best solution is to fix the incorrect entries in the .info and/or unified-diff-file files. However, fixing these entries is not possible, then you can use this option to attempt to automatically work around them.
+   If mismatches occur, the best solution is to fix the incorrect entries in the
+   .info and/or unified-diff-file files. However, fixing these entries is not
+   possible, then you can use this option to attempt to automatically work
+   around them.
 
-   When this option is specified, genhtml will pretend that the unified-diff-file entry matches the .info file entries if:
+   When this option is specified, genhtml will pretend that the
+   unified-diff-file entry matches the .info file entries if:
 
-   - the same path is found in both the 'baseline' and 'current' .info files, and
+   - the same path is found in both the 'baseline' and 'current' .info files,
+     and
 
-   - the basename of the path in the .info file and the path in the unified-diff-file are the same, and
+   - the basename of the path in the .info file and the path in the
+     unified-diff-file are the same, and
 
    - there is only one unmatched unified-diff-file entry with that basename.
 
-   See the ``--diff-file`` and ``--build-directory`` entries for a discussion of how to avoid spurious warnings and/or incorrect matches.
+   See the ``--diff-file`` and ``--build-directory`` entries for a discussion of
+   how to avoid spurious warnings and/or incorrect matches.
 
 ``--synthesize-missing``
-   Generate (fake) file content if source file does not exist. This option can be used to work around otherwise fatal annotation errors.
+   Generate (fake) file content if source file does not exist. This option can
+   be used to work around otherwise fatal annotation errors.
 
-   When generating annotated file content, ``genhtml`` assumes that the source was written 'now' (so age is zero), the author is *no.body* and the commit ID is *synthesized*. These names and ages will appear in your HTML reports.
+   When generating annotated file content, ``genhtml`` assumes that the source
+   was written 'now' (so age is zero), the author is *no.body* and the commit ID
+   is *synthesized*. These names and ages will appear in your HTML reports.
 
-   This option is equivalent config file *genhtml_synthesize_missing* parameter; see :manpage:`lcovrc(5)` for details.
+   This option is equivalent config file *genhtml_synthesize_missing* parameter;
+   see :manpage:`lcovrc(5)` for details.
 
 ``--date-bins`` *day[,day,...]*
-   The ``--date-bins`` option is used to specify age boundaries (cutpoints) for date-binning classification. Each *age* element is expected to be an integer number of days prior to today (or prior to your SOURCE_DATE_EPOCH environment variable, if set). If *--date-bins* is not specified, the default is to use 4 age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180 days. This option is equivalent to the *genhtml_date_bins* config file option. See :manpage:`lcovrc(5)`.
+   The ``--date-bins`` option is used to specify age boundaries (cutpoints) for
+   date-binning classification. Each *age* element is expected to be an integer
+   number of days prior to today (or prior to your SOURCE_DATE_EPOCH environment
+   variable, if set). If *--date-bins* is not specified, the default is to use 4
+   age ranges: less than 7 days, 7 to 30 days, 30 to 180 days, and more than 180
+   days. This option is equivalent to the *genhtml_date_bins* config file
+   option. See :manpage:`lcovrc(5)`.
 
    This argument has no effect if there is no *source-annotation-script*.
 
 ``--date-labels`` *string[,string,...]*
-   The ``--date-labels`` option is used to specify labels used for the 'date-bin' table entries in the HTML report. The number of labels should be one greater than the number of cutpoints. If not specified, the default is to use label strings which specify the *[from ..to)* range of ages held by the corresponding bin.
+   The ``--date-labels`` option is used to specify labels used for the
+   'date-bin' table entries in the HTML report. The number of labels should be
+   one greater than the number of cutpoints. If not specified, the default is to
+   use label strings which specify the *[from ..to)* range of ages held by the
+   corresponding bin.
 
-   One possible use of this option is to use release names in the tables - *i.e.*, to indicate the release in which each particular line first appeared.
+   One possible use of this option is to use release names in the tables -
+   *i.e.*, to indicate the release in which each particular line first appeared.
 
-   This option is equivalent to the *genhtml_date_labels* config file option. See :manpage:`lcovrc(5)`.
+   This option is equivalent to the *genhtml_date_labels* config file option.
+   See :manpage:`lcovrc(5)`.
 
    This argument has no effect if there is no *source-annotation-script*.
 
 ``--show-owners`` [ *all* ]
-   If the ``--show-owners`` option is used, each coverage report header report contain a summary table, showing counts in the various coverage categories for everyone who appears in the revision control annotation as the most recent editor of the corresponding line. If the optional argument 'all' is not specified, the table will show only users who are responsible for un-exercised code lines. If the optional argument is specified, then users responsible for any code lines will appear. In both cases, users who are responsible for non-code lines (e.g, comments) are not shown. This option does nothing if ``--annotate-script`` is not used; it needs revision control information provided by calling the script.
+   If the ``--show-owners`` option is used, each coverage report header report
+   contain a summary table, showing counts in the various coverage categories
+   for everyone who appears in the revision control annotation as the most
+   recent editor of the corresponding line. If the optional argument 'all' is
+   not specified, the table will show only users who are responsible for
+   un-exercised code lines. If the optional argument is specified, then users
+   responsible for any code lines will appear. In both cases, users who are
+   responsible for non-code lines (e.g, comments) are not shown. This option
+   does nothing if ``--annotate-script`` is not used; it needs revision control
+   information provided by calling the script.
 
-   Please note: if the *all* option is not specified, the summary table will contain "Total" rows for all date/owner bins which are not empty - but there will be no secondary "File/Directory" entries for elements which have no "missed" coverpoints.
+   Please note: if the *all* option is not specified, the summary table will
+   contain "Total" rows for all date/owner bins which are not empty - but there
+   will be no secondary "File/Directory" entries for elements which have no
+   "missed" coverpoints.
 
-   This option is equivalent config file *genhtml_show_owner_table* parameter; see :manpage:`lcovrc(5)` for details.
+   This option is equivalent config file *genhtml_show_owner_table* parameter;
+   see :manpage:`lcovrc(5)` for details.
 
-   The lcovrc controls *owner_table_entries* and *truncate_owner_table* can be used to improve readability by limiting the number of authors who are displayed in the table when the author number is large. For example, if your configuration is:
+   The lcovrc controls *owner_table_entries* and *truncate_owner_table* can be
+   used to improve readability by limiting the number of authors who are
+   displayed in the table when the author number is large. For example, if your
+   configuration is:
 
       *owner_table_entries* = 5
 
       *truncate_owner_table* = top,directory
 
-   then the owner table displayed at the top- and directory-levels will be truncated while the table shown at the 'file' level will display the full list.
+   then the owner table displayed at the top- and directory-levels will be
+   truncated while the table shown at the 'file' level will display the full
+   list.
 
    See :manpage:`lcovrc(5)` for details.
 
 ``--show-noncode``
-   By default, the source code detail view does not show owner or date annotations in the far-left column for non-code lines (*e.g.*, comments). If the ``--show-noncode`` option is used, then the source code view will show annotations for both code and non-code lines. This argument has no effect if there is no *source-annotation-script*.
+   By default, the source code detail view does not show owner or date
+   annotations in the far-left column for non-code lines (*e.g.*, comments). If
+   the ``--show-noncode`` option is used, then the source code view will show
+   annotations for both code and non-code lines. This argument has no effect if
+   there is no *source-annotation-script*.
 
-   This option is equivalent config file *genhtml_show_noncode_owners* parameter; see :manpage:`lcovrc(5)` for details.
+   This option is equivalent config file *genhtml_show_noncode_owners*
+   parameter; see :manpage:`lcovrc(5)` for details.
 
 ``--show-zero-columns``
-   By default, columns whose entries are all zero are removed (not shown) in the summary table at the top of each HTML page. If the ``--show-zero-columns`` option is used, then those columns will be shown.
+   By default, columns whose entries are all zero are removed (not shown) in the
+   summary table at the top of each HTML page. If the ``--show-zero-columns``
+   option is used, then those columns will be shown.
 
-   When columns are retained, then all the tables have the same width/contain the same number of columns - which may be a benefit in some situations.
+   When columns are retained, then all the tables have the same width/contain
+   the same number of columns - which may be a benefit in some situations.
 
-   When columns are removed, then the tables are more compact and easier to read. This is especially true in relatively mature development environments, when there are very few un-exercised coverpoints in the project.
+   When columns are removed, then the tables are more compact and easier to
+   read. This is especially true in relatively mature development environments,
+   when there are very few un-exercised coverpoints in the project.
 
 ``--show-navigation``
-   By default, the summary table in the source code detail view does not contain hyperlinks from the number to the first line in the corresponding category ('Hit' or 'Missed') and from the current location to the next location in the current category, in non-differential coverage reports. (This is the lcov 'legacy' view non-differential reports.)
+   By default, the summary table in the source code detail view does not contain
+   hyperlinks from the number to the first line in the corresponding category
+   ('Hit' or 'Missed') and from the current location to the next location in the
+   current category, in non-differential coverage reports. (This is the lcov
+   'legacy' view non-differential reports.)
 
-   If the ``--show-navigation`` option is used, then the source code summary table will be generated with navigation links. Hyperlinks are always generated for differential coverage reports.
+   If the ``--show-navigation`` option is used, then the source code summary
+   table will be generated with navigation links. Hyperlinks are always
+   generated for differential coverage reports.
 
-   This feature enables developers to find and understand coverage issues more quickly than they might otherwise, if they had to rely on scrolling.
+   This feature enables developers to find and understand coverage issues more
+   quickly than they might otherwise, if they had to rely on scrolling.
 
-   See the *--frames* description above for a description of a browser bug which disables these hyperlinks in certain conditions.
+   See the *--frames* description above for a description of a browser bug which
+   disables these hyperlinks in certain conditions.
 
    Navigation hyperlinks are always enabled in differential coverage report.
 
 ``--show-proportions``
-   In the 'function coverage detail' table, also show the percentage of lines and branches within the function which are exercised.
+   In the 'function coverage detail' table, also show the percentage of lines,
+   branches, MC/DC expressions and call sites within the function which are
+   exercised, and of the calls to the function which were made.
 
-   This feature enables developers to focus attention on functions which have the largest effect on overall code coverage.
+   Each proportion is a link to what it counts. The line, branch and MC/DC
+   proportions lead to the first line, branch or MC/DC expression of the
+   function in the source view - which is where a reader who wants to know
+   what was missed has to start, and is not the top of the function when the
+   function begins with a comment or a declaration. The *Callers* and
+   *Callees* proportions lead to the function's rows on the caller and callee
+   pages; see the ``--callgraph-coverage`` section, below. Neither column is
+   written unless ``--callgraph-coverage`` is enabled, even when the input
+   carries callgraph records.
 
-   This feature is disabled by default. Note that this option requires that you use a compiler version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the *derive_function_end_line* discussion in :manpage:`lcovrc(5)`.
+   A column appears only if its metric is enabled and at least one function in
+   the file contains corresponding data - branch, MC/DC, or call site.
+   Note that the call
+   sites counted here are the sites which the function *contains* - the calls it
+   makes - and not the sites which call it; see the ``--callgraph-coverage``
+   section, below.
+
+   Each proportion column heading links to the table sorted by that proportion,
+   least exercised first. Of two equal proportions, the one with the larger
+   denominator is first - it is the same share of more coverpoints - and a
+   function with no proportion in that column is last. Remaining ties go by
+   function name.  The column the table is sorted by is the leftmost
+   proportion column; see the *genhtml_metric_column_order* section of
+   :manpage:`lcovrc(5)`.
+
+   This feature enables developers to focus attention on functions which have
+   the largest effect on overall code coverage.
+
+   This feature is disabled by default. Note that this option requires that you
+   use a compiler version which is new enough to support function begin/end line
+   reports or that you configure the tool to derive the required data - see the
+   *derive_function_end_line* discussion in :manpage:`lcovrc(5)`.
 
 ``--simplified-colors``
-   By default, each differential category is colorized uniquely in the source code detail view. With this option, only two colors are used: one for covered code and another for uncovered code. Note that ECB and EUB code is neither covered nor uncovered - and so may be difficult to distinguish in the source code view, as they will be presented in normal background color.
+   By default, each differential category is colorized uniquely in the source
+   code detail view. With this option, only two colors are used: one for covered
+   code and another for uncovered code. Note that ECB and EUB code is neither
+   covered nor uncovered - and so may be difficult to distinguish in the source
+   code view, as they will be presented in normal background color.
 
 ``--exclude`` *pattern*
-   pattern is a glob-match pattern of filenames to exclude from the report. Files which do NOT match will be included. See the lcov man page for details.
+   pattern is a glob-match pattern of filenames to exclude from the report.
+   Files which do NOT match will be included. See :manpage:`lcov(1)` for details.
 
 ``--include`` *pattern*
-   pattern is a glob-match pattern of filenames to include in processing. Files which do not match will be excluded from the report. See the lcov man page for details.
+   pattern is a glob-match pattern of filenames to include in processing. Files
+   which do not match will be excluded from the report. See :manpage:`lcov(1)`
+   for details.
 
 ``--erase-functions`` *regexp*
-   Exclude coverage data from lines which fall within a function whose name matches the supplied regexp. Note that this is a mangled or demangled name, depending on whether the ``--demangle-cpp`` option is used or not.
+   Exclude coverage data from lines which fall within a function whose name
+   matches the supplied regexp. Note that this is a mangled or demangled name,
+   depending on whether the ``--demangle-cpp`` option is used or not.
 
-   Note that this option requires that you use a compiler version which is new enough to support function begin/end line reports or that you configure the tool to derive the required data - see the *derive_function_end_line* discussion in :manpage:`lcovrc(5)`.
+   Note that this option requires that you use a compiler version which is new
+   enough to support function begin/end line reports or that you configure the
+   tool to derive the required data - see the *derive_function_end_line*
+   discussion in :manpage:`lcovrc(5)`.
+
+   An erased function is outside the callgraph boundary of the report, so its
+   call sites are removed along  with it. The functions it called are marked as
+   having been called from outside the callgraph boundary and the functions
+   which called it are marked as having external callee.
 
 ``--substitute`` *regexp_pattern*
-   Apply Perl regexp *regexp_pattern* to source file names found during processing. This is useful when some file paths in the baseline or current .info file do not match your source layout and so the source code is not found. See the lcov man page for more details.
+   Apply Perl regexp *regexp_pattern* to source file names found during
+   processing. This is useful when some file paths in the baseline or current
+   .info file do not match your source layout and so the source code is not
+   found. See :manpage:`lcov(1)` for more details.
 
-   Note that the substitution patterns are applied to the *--diff-file* entries as well as the baseline and current .info files.
+   Note that the substitution patterns are applied to the *--diff-file* entries
+   as well as the baseline and current .info files.
 
-   Patterns are applied after the directory separator in a name has been translated to this platform's, so a pattern which is to match input captured on the other platform is written with the separator used here - *e.g.,* \-\-substitute 's#^C:/##' to remove a Windows drive letter. See ``cross_platform_read`` in :manpage:`lcovrc(5)`.
+   Patterns are applied after the directory separator in a name has been
+   translated to this platform's, so a pattern which is to match input captured
+   on the other platform is written with the separator used here - *e.g.,*
+   \-\-substitute 's#^C:/##' to remove a Windows drive letter. See
+   ``cross_platform_read`` in :manpage:`lcovrc(5)`.
 
 ``--omit-lines`` *regexp_pattern*
    Exclude coverage data from lines whose content matches *regexp*.
 
-   Use this switch if you want to exclude line and branch coverage data for some particular constructs in your code (*e.g.*, some complicated macro). See the lcov man page for details.
+   Use this switch if you want to exclude line and branch coverage data for some
+   particular constructs in your code (*e.g.*, some complicated macro). See
+   :manpage:`lcov(1)` for details.
+
+   The call sites on a matched line are excluded with it, for the same reason
+   and with the same consequences as an ``LCOV_EXCL_LINE`` marker there: see the
+   *region* keyword of ``--filter``, which is this exclusion applied from the
+   source text rather than from a pattern.
 
 ``--parallel`` [*integer*], ``-j`` [*integer*]
-   Specify parallelism to use during processing (maximum number of forked child processes). If the optional integer parallelism parameter is zero or is missing, then use up the number of cores on the machine. Default is to use a single process (no parallelism).
+   Specify parallelism to use during processing (maximum number of forked child
+   processes). If the optional integer parallelism parameter is zero or is
+   missing, then use up the number of cores on the machine. Default is to use a
+   single process (no parallelism).
 
-   Also see the *memory, memory_percentage, max_fork_fails* and *fork_fail_timeout* entries in :manpage:`lcovrc(5)`.
+   Also see the *memory, memory_percentage, max_fork_fails* and
+   *fork_fail_timeout* entries in :manpage:`lcovrc(5)`.
 
-   How work is batched across the forked children is controlled by the *max_tasks_per_core*, *dedicate_segment_threshold*, and *dedicate_segment_line_estimate* entries in :manpage:`lcovrc(5)`; the latter two arrange for a predicted long-running file to be given its own child process and scheduled first, so it does not serialize the tail of the run.
+   How work is batched across the forked children is controlled by the
+   *max_tasks_per_core*, *dedicate_segment_threshold*, and
+   *dedicate_segment_line_estimate* entries in :manpage:`lcovrc(5)`; the latter
+   two arrange for a predicted long-running file to be given its own child
+   process and scheduled first, so it does not serialize the tail of the run.
 
-   Parallelism is also used when reading the coverage data ('.info') files named on the command line (and by *--baseline-file*): each file is read in its own child process - and if only one file is named, then that file is split at section boundaries and the pieces are read (and filtered) by several children at once. See the *parallel_parse_min_lines* and *parallel_parse_chunks_per_worker* entries in :manpage:`lcovrc(5)` for the size at which a single file is split, how many pieces are used, and the cases in which it is read serially anyway.
+   Parallelism is also used when reading the coverage data ('.info') files named
+   on the command line (and by *--baseline-file*): each file is read in its own
+   child process - and if only one file is named, then that file is split at
+   section boundaries and the pieces are read (and filtered) by several children
+   at once. See the *parallel_parse_min_lines* and
+   *parallel_parse_chunks_per_worker* entries in :manpage:`lcovrc(5)` for the
+   size at which a single file is split, how many pieces are used, and the cases
+   in which it is read serially anyway.
 
-   A previously generated execution profile may help to enable better utilization and faster parallel execution. See the *--profile* and *--history-script* sections of this man page.
+   A previously generated execution profile may help to enable better
+   utilization and faster parallel execution. See the *--profile* and
+   *--history-script* sections of this man page.
 
 ``--memory`` *integer*
-   Specify the maximum amount of memory to use during parallel processing, in Mb. Effectively, the process will not fork() if this limit would be exceeded. Default is 0 (zero) - which means that there is no limit.
+   Specify the maximum amount of memory to use during parallel processing, in
+   Mb. Effectively, the process will not fork() if this limit would be exceeded.
+   Default is 0 (zero) - which means that there is no limit.
 
-   This option may be useful if the compute farm environment imposes strict limits on resource utilization such that the job will be killed if it tries to use too many parallel children - but the user does not know a priori what the permissible maximum is. This option enables the tool to use maximum parallelism - up to the limit imposed by the memory restriction.
+   This option may be useful if the compute farm environment imposes strict
+   limits on resource utilization such that the job will be killed if it tries
+   to use too many parallel children - but the user does not know a priori what
+   the permissible maximum is. This option enables the tool to use maximum
+   parallelism - up to the limit imposed by the memory restriction.
 
-   The configuration file *memory_percentage* option provided another way to set the maximum memory consumption. See man ``lcovrc (5)`` for details.
+   The configuration file *memory_percentage* option provided another way to set
+   the maximum memory consumption. See :manpage:`lcovrc(5)` for details.
 
 ``--filter`` *filters*
    Specify a list of coverpoint filters to apply to input data.
 
-   Note that certain filters apply only to C/C++ source files. ``genhtml`` associates the file extension ('.c', '.vhd', *etc.*) with its source language. See the *c_file_extensions* and *rtl_file_extensions* sections of :manpage:`lcovrc(5)` for a description of the default associations and how they can be changed.
+   Note that certain filters apply only to C/C++ source files. ``genhtml``
+   associates the file extension ('.c', '.vhd', *etc.*) with its source
+   language. See the *c_file_extensions* and *rtl_file_extensions* sections of
+   :manpage:`lcovrc(5)` for a description of the default associations and how
+   they can be changed.
 
-   Note that filters are applied to both 'branch' and 'MC/DC' coverpoints, where appropriate: if a particular filter would remove some branch, then it will also remove corresponding MC/DC coverpoints - for example, *--filter branch* will remove MC/DC coverpoints if there is no conditional expression on the corresponding line, and *--filter branch_region* will remove both branch and MC/DC coverpoints in the marked region.
+   Note that filters are applied to both 'branch' and 'MC/DC' coverpoints, where
+   appropriate: if a particular filter would remove some branch, then it will
+   also remove corresponding MC/DC coverpoints - for example, *--filter branch*
+   will remove MC/DC coverpoints if there is no conditional expression on the
+   corresponding line, and *--filter branch_region* will remove both branch and
+   MC/DC coverpoints in the marked region.
 
-   Most filters need the source code; filters are not applied if the source file is not available. Similarly, for each source file, if the version recorded in the coverage data (the '.info' file) does not match the version found on the filesystem, then a *version* error is reported. If the *version* error is ignored, then filtering is not applied to the mismatched file. See the *--version-script* for more information.
+   Note also that a line which still carries a coverpoint of some other kind is
+   not a line these filters may suppress: a line with branch, MC/DC or call site
+   data on it is retained even when its own text is nothing but a closing brace
+   or whitespace. In particular the closing brace of a scope is where destructor
+   calls for local objects which went out of scope are associated. The one
+   exception is *brace*, which has rules of its own for a closing brace with
+   call sites on it - see below. An *explicit*
+   exclusion is different: ``LCOV_EXCL_LINE``, ``LCOV_EXCL_START`` /
+   ``LCOV_EXCL_STOP``, ``--omit-lines`` and an excluded ``#if`` branch remove
+   the call sites on the line along with everything else on it, and then the
+   line goes the way every other excluded line goes. Each such removal is
+   reported at verbosity level 1 (``-v``), since a coverpoint which silently
+   ceases to be counted is otherwise invisible.
+
+   *region*, *directive* and *range* remove the call sites on the lines they
+   exclude, as ``--omit-lines`` does; *callgraph_region* removes the call sites
+   in the lines it marks, and nothing else; *trivial* removes the sites of the
+   functions it erases, as ``--erase-functions`` does; and
+   *unknown_callee_count* is about call sites and nothing else; *brace*
+   removes the call sites on the closing braces it removes, as described below.
+   The rest either cannot remove a site - *blank*, *initializer* and *line*
+   are stopped by one, as described above - or do not look at call data at all:
+   *branch*, *branch_region*, *exception*, *mcdc*, *orphan* and *function*.
+
+   Removing a call site does not change the execution count of the function
+   which was called. The call really happened, and the callee's own
+   ``FNA:``/``FNDA:`` record still counts it: what is lost is the location
+   where the call came from - which *was* known by the callsite which the
+   report was told to ignore/remove.
+   The callee therefore accounts for fewer of its
+   calls than it was entered, and its rows on the caller page end with
+   a row *<deduced external callers>* or *<external and deduced callers>*,
+   depending on whether external caller existence was deduced this way.
+   Removing a whole function is the stronger case and the one which asserts: see
+   *trivial*, below, and ``--callgraph-coverage``.
+
+   Most filters need the source code; filters are not applied if the source file
+   is not available. Similarly, for each source file, if the version recorded in
+   the coverage data (the '.info' file) does not match the version found on the
+   filesystem, then a *version* error is reported. If the *version* error is
+   ignored, then filtering is not applied to the mismatched file. See the
+   *--version-script* for more information.
 
    *filters* can be a comma-separated list of the following keywords:
 
    branch:
-      ignore branch counts for C/C++ source code lines which do not appear to contain conditionals. These may be generated automatically by the compiler (*e.g.*, from C++ exception handling) - and are not interesting to users. This option has no effect unless ``--branch-coverage`` is used.
+      ignore branch counts for C/C++ source code lines which do not appear to
+      contain conditionals. These may be generated automatically by the compiler
+      (*e.g.*, from C++ exception handling) - and are not interesting to users.
+      This option has no effect unless ``--branch-coverage`` is used.
 
-      See also :manpage:`lcovrc(5)` - which describes several variables which affect branch filtering: *filter_lookahead* and *filter_bitwise_conditional*.
+      See also :manpage:`lcovrc(5)` - which describes several variables which
+      affect branch filtering: *filter_lookahead* and
+      *filter_bitwise_conditional*.
 
-      The most common use for branch filtering is to remove compiler-generated branches related to C++ exception handlers. See the no_exception_branch' option in :manpage:`lcovrc(5)` for a way to remove all identified exception branches.
+      The most common use for branch filtering is to remove compiler-generated
+      branches related to C++ exception handlers. See the no_exception_branch'
+      option in :manpage:`lcovrc(5)` for a way to remove all identified
+      exception branches.
 
    brace:
-      ignore line coverage counts on the closing brace of C/C++ code block, if the line contains only a closing brace and the preceding line has the same count or if the close brace has a zero count and either the preceding line has a non-zero count, or the close brace is not the body of a conditional.
+      ignore line coverage counts on the closing brace of C/C++ code block, if
+      the line contains only a closing brace and the preceding line has the same
+      count or if the close brace has a zero count and either the preceding line
+      has a non-zero count, or the close brace is not the body of a conditional.
 
-      These lines seem to appear and disappear in gcov output - and cause differential coverage to report bogus LBC and/or GIC and/or UIC counts. Bogus LBC or UIC counts are a problem because an automated regression which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+      These lines seem to appear and disappear in gcov output - and cause
+      differential coverage to report bogus LBC and/or GIC and/or UIC counts.
+      Bogus LBC or UIC counts are a problem because an automated regression
+      which uses pass criteria "LBC + UIC + UNC == 0" will fail.
+
+      A closing brace with call sites on it is treated differently. Most of
+      the calls a compiler attributes to a close brace are
+      destructor calls:
+
+      - the destructors of the local automatic objects which go out of scope
+        there - including the temporaries whose lifetime was extended to the
+        scope (a reference bound to a temporary) and the range and iterator
+        objects of a range-based ``for`` loop;
+      - the cleanup (unwind) copies of those destructor calls, which run only
+        when an exception passes through the scope - see the ``FNC:``
+        *<ordinal>* discussion in :manpage:`geninfo(1)`.
+
+      Other calls may be keyed to the closing brace as well, depending on the
+      compiler, the language runtime and the build options:
+
+      - ``_Unwind_Resume``, which continues the propagation of an exception
+        after the cleanups of the scope have run;
+      - ``__cxa_end_catch``, at the end of a ``catch`` block;
+      - the stack protector check ``__stack_chk_fail`` at the end of a
+        function compiled with ``-fstack-protector``;
+      - the ``__cyg_profile_func_exit`` hook of ``-finstrument-functions``;
+      - sanitizer runtime calls, such as the AddressSanitizer calls which
+        poison the stack slot of a local when it goes out of scope.
+
+      Only the destructor calls count in the rules below: a call to anything
+      else neither triggers nor blocks them. Many of those other calls are
+      normally never made - a stack protector failure, or an exception path -
+      so a zero count on one of them says nothing about whether the scope was
+      left. A callee is recognized as a destructor by its name: demangled
+      (``Foo::~Foo``), Itanium-mangled (``_ZN3FooD1Ev``, and the other
+      ``D0`` .. ``D5`` variants) or MSVC-mangled (``??1Foo@@...``).
+
+      The rules apply to a closing brace which has a zero count, whose
+      preceding line has a non-zero count, and which has at least one
+      destructor call site:
+
+      - if any of those destructor calls was executed, then the line was
+        executed too: its count is set to the smallest non-zero count among
+        its destructor calls (in each testcase, from that testcase's own
+        call counts).
+      - if none of them was executed, then the line - and every call site on
+        it - is removed, provided that every other line in the function was
+        executed. In that case every constructor was called, so the
+        destructors should have been called as well; they probably were not
+        counted because some object was constructed in place. Other closing
+        braces which these rules are judging are not held against the
+        function, so that nested scopes do not block each other. The line is
+        kept if the function's end line is not known, or if the count of one
+        of its destructor calls is not known.
+
+      A closing brace whose only call sites are to functions other than
+      destructors is judged by the rules for a closing brace without call
+      sites, above; if it is removed, then its call sites are removed with it.
+      A line which also has branch or MC/DC data is not filtered. The call
+      sites which are removed are recorded on their callees, as for every
+      other removal of a call site - see *<deduced external callers>*, above.
+      These rules are applied only when ``--callgraph-coverage`` is enabled.
 
    blank:
-      ignore lines which contain only whitespace (or whitespace + comments) whose 'hit' count is zero. These appear to be a 'gcov' artifact related to compiler-generated code - such as exception handlers and destructor calls at the end of scope - and can confuse differential coverage criteria.
+      ignore lines which contain only whitespace (or whitespace + comments)
+      whose 'hit' count is zero. These appear to be a 'gcov' artifact related to
+      compiler-generated code - such as exception handlers and destructor calls
+      at the end of scope - and can confuse differential coverage criteria.
 
-      If lcovrc option *filter_blank_aggressive* = 1 is enabled, then blank lines will be ignored whether their 'hit' count is zero or not. Aggressive filtering may be useful in LLVM-generated coverage data, which tends to include large numbers of such lines.
+      If lcovrc option *filter_blank_aggressive* = 1 is enabled, then blank
+      lines will be ignored whether their 'hit' count is zero or not. Aggressive
+      filtering may be useful in LLVM-generated coverage data, which tends to
+      include large numbers of such lines.
+
+      This filter does not remove call sites.
 
    directive:
-      ignore lines which look like C compiler directives: #ifdef, #include, #define, *etc.* These lines are sometimes included by *llvm-cov* when LLVM profile data is translated to LCOV format.
+      ignore lines which look like C compiler directives: #ifdef, #include,
+      #define, *etc.* These lines are sometimes included by *llvm-cov* when LLVM
+      profile data is translated to LCOV format.
+
+      This filter also removes the call sites on the lines it applies
+      to.
 
    exception:
-      Exclude branches related to C++ exception handling from branch coverage. Whether C++ exception branches are identified and removed is dependent on your compiler/toolchain correctly marking them in the generated coverage data. See the *no_exception_branch* section of :manpage:`lcovrc(5)`.
+      Exclude branches related to C++ exception handling from branch coverage.
+      Whether C++ exception branches are identified and removed is dependent on
+      your compiler/toolchain correctly marking them in the generated coverage
+      data. See the *no_exception_branch* section of :manpage:`lcovrc(5)`.
 
    initializer:
       Exclude lines which appear to be part of a C++ std::initializer_list.
 
+      This filter does nor remove call sites, and a line of the list which has
+      one is kept with it - a constructor called for one of the elements is a
+      call like any other.
+
    line:
       alias for "--filter brace,blank".
 
+      Neither of these removes call sites.
+
    mcdc:
-      Remove MC/DC coverpoint which contains single expression, if 'branch' coverpoint is present on the same line. Single-element MC/DC coverpoints are identical to the corresponding branch - except in the case of compile-time expression evaluation, for example, in a template function.
+      Remove MC/DC coverpoint which contains single expression, if 'branch'
+      coverpoint is present on the same line. Single-element MC/DC coverpoints
+      are identical to the corresponding branch - except in the case of
+      compile-time expression evaluation, for example, in a template function.
+
+   missing:
+      Remove every coverpoint of every source file which is not found or is not
+      readable - equivalent to writing an *--exclude* pattern for each such
+      file.
+
+      Unlike the other keywords, this one does not select a kind of coverpoint:
+      it removes whole files, and it removes them because they are not there to
+      be read. If a *--resolve-script* callback is specified then a file which
+      is not locally visible is 'missing' only if the callback also fails to
+      find it - that is, returns "" (the empty string) or 'undef'. Each removal
+      is reported at default verbosity as
+      ``Excluding "<file>": does not exist/is not readable`` and is counted in
+      the filter suppression summary.
+
+      Most of the other filters need the source text, and so does most of the
+      report, so a report which names files which are not there otherwise
+      produces a *source* or *version* message for each of them. This filter is
+      the other answer to that: those files are simply not part of this report.
+      Contrast ignoring the *source* message, which keeps the file and its
+      counts and gives up only on showing its code.
+
+      The check is made as each '.info' file is read, and again when filters are
+      applied, so that data which did not come from a file read in this process
+      is judged the same way.
+
+      The file's own call sites are removed along with the file:
+
+      -  a file which was already missing when its data was read contributed
+         nothing at all - its sites were never recorded. A callee which is in
+         the report and was called from that file therefore accounts for fewer
+         calls than it was entered, and the difference appears on its caller
+         side as the inferred *<deduced external callers>*.
+
+      -  a file removed when filters are applied has its calls recorded on their
+         callees first, exactly as *--remove* does: each such callee is marked
+         with the ``x`` flag of its ``FNA:`` record - which also shows the
+	 number of calls the removed sites made, and its caller side ends with
+	 an *<external callers>* row - or *<external and deduced
+         callers>*, if the arithmetic also finds calls which neither the
+         remaining nor the removed sites account for.
+
+      A call *written* in the missing file but belonging to a function which
+      survives - an inlined body, say - is dropped in either case and recorded
+      on its callee. Either way the callee keeps the count of having been
+      called, which is where a call the report no longer shows can still be
+      seen. See ``--callgraph-coverage`` for the flags and the rows.
 
    orphan:
-      Remove branches which appear by themselves - *i.e.*, the branch has only one destination and so cannot be a conditional.
+      Remove branches which appear by themselves - *i.e.*, the branch has only
+      one destination and so cannot be a conditional.
 
       These occur most frequently as a result of exception branch filtering.
 
    range:
-      Ignore line and branch coverpoints on lines which are out-of range/whose line number is beyond the end of the source file. These appear to be gcov artifacts caused by a macro instantiation on the last line of the file.
+      Ignore line and branch coverpoints on lines which are out-of range/whose
+      line number is beyond the end of the source file. These appear to be gcov
+      artifacts caused by a macro instantiation on the last line of the file.
+
+      Call sites on lines beyond the end of the file is removed, as is function
+      whose associated line is beyond the end of file - taking every site in its
+      body with it.
 
    region:
-      apply LCOV_EXCL_START/LCOV_EXCL_STOP/LCOV_EXCL_LINE and LCOV_UNREACHABLE_START/LCOV_UNREACHABLE_STOP/LCOV_UNREACHABLE_LINE directives found in source text to the coverpoints found in the current and baseline .info files. This option may be useful in cases that the source code was not found during 'lcov --capture ...' but is accessible now.
+      apply LCOV_EXCL_START/LCOV_EXCL_STOP/LCOV_EXCL_LINE and
+      LCOV_UNREACHABLE_START/LCOV_UNREACHABLE_STOP/LCOV_UNREACHABLE_LINE
+      directives found in source text to the coverpoints found in the current
+      and baseline .info files. This option may be useful in cases that the
+      source code was not found during 'lcov --capture ...' but is accessible
+      now.
+
+      A call written on an excluded line is removed with the line, even when the
+      function which makes the call is itself outside the region: the user said
+      that this text is not to be counted, and a call site is a coverpoint of
+      that text. A function whose *own* line is excluded is removed outright,
+      and every site in its body with it; the same is true of a function
+      excluded by ``--omit-lines``, which is applied by this filter.
+
+      What is lost in both cases is the caller end of the call site. The callee
+      keeps the count of having been called, so it accounts for fewer of its
+      calls than it was entered and its caller side ends with a *not in this
+      report* row carrying the difference. This is the inferred case rather than
+      the asserted one - contrast *trivial*, below, and ``--erase-functions``,
+      which mark the callee with the ``x`` flag. The distinction and the two
+      rows are described under ``--callgraph-coverage``.
+
+      One caveat: a call which is recorded as written in another file - a site
+      in an ``#include``d fragment, whose ``FNC:`` record names a file index -
+      is not judged by this file's exclusion markers, since its line number
+      indexes that other file's text. Exclude such a call in the file it is
+      written in.
 
    branch_region:
-      apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP/LCOV_EXCL_BR_LINE directives found in source text to the coverpoints found in the current and baseline .info files. This is similar to the 'region option, above - but applies to branch coverpoints only.
+      apply LCOV_EXCL_BR_START/LCOV_EXCL_BR_STOP/LCOV_EXCL_BR_LINE directives
+      found in source text to the coverpoints found in the current and baseline
+      .info files. This is similar to the 'region option, above - but applies to
+      branch coverpoints only.
+
+      Call sites are therefore untouched by it: a marked region keeps both its
+      line and its calls, and only the branch and MC/DC coverpoints in it go.
+      Use ``LCOV_EXCL_START`` / ``LCOV_EXCL_STOP`` and *region* to remove the
+      calls as well, or *callgraph_region* to remove only the calls.
+
+   callgraph_region:
+      apply LCOV_EXCL_CALLGRAPH_START/LCOV_EXCL_CALLGRAPH_STOP/LCOV_EXCL_CALLGRAPH_LINE
+      directives found in source text to the call sites found in the current
+      and baseline .info files. This is similar to the *branch_region* option,
+      above - but applies to call sites only: the lines in a marked region, and
+      their branch, MC/DC and function coverpoints, are kept.
+
+      The functions called from a removed site are not changed: their calls
+      are still counted, and the calls which no remaining site accounts for
+      are shown in the *<deduced external callers>* row of the callee, as
+      for every other exclusion of a call site.
+      A line which is left with nothing on it but a closing brace is then
+      judged by the *brace* filter as any other closing brace is.
+      Each removal is reported at verbosity level 1 (``-v``).
+      This option has no effect unless ``--callgraph-coverage`` is used.
 
    function:
-      combine data for every "unique" function which is defined at the same file/line. *geninfo/gcov* seem to have a bug such that they create multiple entries for the same function. This feature also merges all instances of the same template function/template method.
+      combine data for every "unique" function which is defined at the same
+      file/line. *geninfo/gcov* seem to have a bug such that they create
+      multiple entries for the same function. This feature also merges all
+      instances of the same template function/template method.
+
+      This filter neither adds nor removes a call site, and the callee found/hit
+      counts are the same with and without it: a call is made by a function body
+      and is recorded on it, not on one of the names that body answers to, so
+      merging the names leaves every site where it was. Being *called*, on the
+      other hand, is a property of the symbol which was called, so the data
+      keeps the callers of each alias apart. The caller page, which lists the
+      function under one name as the function table does, shows them as one
+      list: a location which called more than one of the aliases is one row,
+      whose count is the sum. To merge the aliases in the data instead - where
+      the callgraph cannot tell them apart - see the
+      *collapse_callgraph_alias* setting in :manpage:`lcovrc(5)`.
 
    trivial:
-      remove trivial functions and associated coverpoints. 'Trivial' functions are whose body is empty/do not contain any statements. Commonly, these include compiler-generated methods (*e.g.*, default constructors and assignment operators) as well as static initialization wrappers, etc.
+      remove trivial functions and associated coverpoints. 'Trivial' functions
+      are whose body is empty/do not contain any statements. Commonly, these
+      include compiler-generated methods (*e.g.*, default constructors and
+      assignment operators) as well as static initialization wrappers, etc.
 
-      Note that the *trivial* filter requires function end line information - and so requires that you use a compiler version which is new enough to support begin/end line reports (*e.g.*, gcc/9 or newer) or that you enable lcov/genhtml/geninfo to derive the information:
+      An erased function takes its call sites with it, and both ends of every
+      call it was part of are accounted for rather than simply dropped, the
+      function having been put outside the callgraph boundary of the report:
 
-      In :manpage:`lcovrc(5)`, see the *derive_function_end_line* setting as well as the *trivial_function_threshold* setting. The former is used to turn end line calculation on or off, and the latter to change the lookahead used to determine whether the function body is empty. Also see the *lcov_filter_parallel* and *lcov_filter_chunk_size* settings, which may improve CPU performance if the number of files to process is very large.
+      -  the calls it *made* are recorded on their callees as calls from outside
+         the report. Each such callee is marked with the ``x`` flag of its
+         ``FNA:`` record and its caller side ends with an *<external callers>*
+         row - the asserted case, not the inferred one. A compiler-generated
+         destructor is the common instance: its body is empty, so the filter
+         erases it, and the calls it makes to the member destructors are real
+         edges of the callgraph, which the erasure leaves without a source.
+
+      -  the calls *to* it become calls which leave the boundary. The site
+         itself is dropped, taking its count with it, and each surviving caller
+         is marked with the ``c`` flag of its ``FNL:`` record, its call side
+         ending with an *<external callee>* row.
+
+      ``--erase-functions`` erases by name instead of by body and is treated
+      identically. See ``--callgraph-coverage`` for the flags, the rows and the
+      rest of the cases.
+
+      Note that the *trivial* filter requires function end line information -
+      and so requires that you use a compiler version which is new enough to
+      support begin/end line reports (*e.g.*, gcc/9 or newer) or that you enable
+      lcov/genhtml/geninfo to derive the information:
+
+      In :manpage:`lcovrc(5)`, see the *derive_function_end_line* setting as
+      well as the *trivial_function_threshold* setting. The former is used to
+      turn end line calculation on or off, and the latter to change the
+      lookahead used to determine whether the function body is empty. Also see
+      the *lcov_filter_parallel* and *lcov_filter_chunk_size* settings, which
+      may improve CPU performance if the number of files to process is very
+      large.
+
+   unknown_callee_count:
+      Remove call sites whose count is unknown - written as ``-`` in an ``FNC:``
+      record, see ``--callgraph-partial-data`` in :manpage:`geninfo(1)`. Such a
+      site is counted in the callee total and never in the callee hits, so it is
+      a ceiling on the callee rate which no additional test can lift.
+
+      The filter removes all such sites.
+
+      Unlike the filters above, this one is not a property of one file's source
+      text.
 
 ``-o``, ``--output-directory`` *output-directory*
    Create files in *output-directory*.
 
-   Use this option to tell ``genhtml`` to write the resulting files to a directory other than the current one. If *output-directory* does not exist, it will be created.
+   Use this option to tell ``genhtml`` to write the resulting files to a
+   directory other than the current one. If *output-directory* does not exist,
+   it will be created.
 
-   It is advisable to use this option since depending on the project size, a lot of files and subdirectories may be created.
+   It is advisable to use this option since depending on the project size, a lot
+   of files and subdirectories may be created.
 
 ``-t``, ``--title`` *title*
    Display *title* in header table of all pages.
 
-   *title* is written to the "Test:"-field in the header table at the top of each generated HTML page to identify the context in which a particular output was created. By default, this is the name of the 'current; tracefile.
+   *title* is written to the "Test:"-field in the header table at the top of
+   each generated HTML page to identify the context in which a particular output
+   was created. By default, this is the name of the 'current; tracefile.
 
-   A common use is to specify a test run name, or a version control system identifier (perforce changelist or git SHA, for example) that indicates the code level that was tested.
+   A common use is to specify a test run name, or a version control system
+   identifier (perforce changelist or git SHA, for example) that indicates the
+   code level that was tested.
 
 ``--header-title`` *BANNER*
    Display *BANNER* in header of all pages.
 
-   *BANNER* is written to the header portion of each generated HTML page. By default, this simply identifies this as an |ToolName| (differential) coverage report.
+   *BANNER* is written to the header portion of each generated HTML page. By
+   default, this simply identifies this as an |ToolName| (differential) coverage
+   report.
 
-   A common use is to specify the name of the project or project branch and the Jenkins build ID.
+   A common use is to specify the name of the project or project branch and the
+   Jenkins build ID.
 
 ``--footer`` *FOOTER*
    Display *FOOTER* in footer of all pages.
 
-   *FOOTER* is written to the footer portion of each generated HTML page. The default simply identifies the |ToolName| tool version used to generate the report.
+   *FOOTER* is written to the footer portion of each generated HTML page. The
+   default simply identifies the |ToolName| tool version used to generate the
+   report.
 
 ``-d``, ``--description-file`` *description-file*
    Read test case descriptions from *description-file*.
 
-   All test case descriptions found in *description-file* and referenced in the input data file are read and written to an extra page which is then incorporated into the HTML output.
+   All test case descriptions found in *description-file* and referenced in the
+   input data file are read and written to an extra page which is then
+   incorporated into the HTML output.
 
    The file format of *description-file* is:
 
@@ -1158,156 +2195,241 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
       TN:<testname>
       TD:<test description>
 
-   Valid test case names can consist of letters, numbers and the underscore character ('_').
+   Valid test case names can consist of letters, numbers and the underscore
+   character ('_').
 
 ``-k``, ``--keep-descriptions``
    Do not remove unused test descriptions.
 
-   Keep descriptions found in the description file even if the coverage data indicates that the associated test case did not cover any lines of code.
+   Keep descriptions found in the description file even if the coverage data
+   indicates that the associated test case did not cover any lines of code.
 
-   This option can also be configured permanently using the configuration file option *genhtml_keep_descriptions*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_keep_descriptions*.
 
 ``-c``, ``--css-file`` *css-file*
    Use external style sheet file *css-file*.
 
-   Using this option, an extra .css file may be specified which will replace the default one. This may be helpful if the default colors make your eyes want to jump out of their sockets :)
+   Using this option, an extra .css file may be specified which will replace the
+   default one. This may be helpful if the default colors make your eyes want to
+   jump out of their sockets :)
 
-   This option can also be configured permanently using the configuration file option *genhtml_css_file*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_css_file*.
 
 ``--build-directory`` *dirname*
-   To support 'linked build directory' structures, add 'dirname' to the list of places to search for soft links to source files - *e.g.*, to handle the case that the links point to source files which are held in your revision control system, and appear in the *--diff-file* data. In this use case, paths in the coverage data very likely refer to the structure seen by the compiler during the build - so resolving them back to the corresponding revision-controlled source structure is likely to be successful.
+   To support 'linked build directory' structures, add 'dirname' to the list of
+   places to search for soft links to source files - *e.g.*, to handle the case
+   that the links point to source files which are held in your revision control
+   system, and appear in the *--diff-file* data. In this use case, paths in the
+   coverage data very likely refer to the structure seen by the compiler during
+   the build - so resolving them back to the corresponding revision-controlled
+   source structure is likely to be successful.
 
-   Look in *dirname* for file paths which appear in *tracefile* - possibly after substitutions have been applied - which are soft links. Both the original file path and the path to the linked file will resolve to the same *--diff-file* entry.
+   Look in *dirname* for file paths which appear in *tracefile* - possibly after
+   substitutions have been applied - which are soft links. Both the original
+   file path and the path to the linked file will resolve to the same
+   *--diff-file* entry.
 
-   This option can be specified multiple times, to add more directories to the search path.
+   This option can be specified multiple times, to add more directories to the
+   search path.
 
 ``--source-directory`` *dirname*
    Add 'dirname' to the list of places to look for source files.
 
-   For relative source file paths *e.g.* paths found in *tracefile*, or in *diff-file* - possibly after substitutions have been applied - ``genhtml`` will first look for the path from 'cwd' (where genhtml was invoked) and then from each alternate directory name in the order specified. The first location matching location is used.
+   For relative source file paths *e.g.* paths found in *tracefile*, or in
+   *diff-file* - possibly after substitutions have been applied - ``genhtml``
+   will first look for the path from 'cwd' (where genhtml was invoked) and then
+   from each alternate directory name in the order specified. The first location
+   matching location is used.
 
-   This option can be specified multiple times, to add more directories to the source search path.
+   This option can be specified multiple times, to add more directories to the
+   source search path.
 
 ``-p``, ``--prefix`` *prefix*
    Remove *prefix* from all directory names.
 
-   Because lists containing long filenames are difficult to read, there is a mechanism implemented that will automatically try to shorten all directory names on the overview page beginning with a common prefix. By default, this is done using an algorithm that tries to find the prefix which, when applied, will minimize the resulting sum of characters of all directory names.
+   Because lists containing long filenames are difficult to read, there is a
+   mechanism implemented that will automatically try to shorten all directory
+   names on the overview page beginning with a common prefix. By default, this
+   is done using an algorithm that tries to find the prefix which, when applied,
+   will minimize the resulting sum of characters of all directory names.
 
    Use this option to specify the prefix to be removed by yourself.
 
-   *prefix* may be written with either platform's directory separator.  It is the leading part of a path, and is compared to the name as that name is decomposed - so *--prefix C:\\proj* removes the same directories from Windows-captured names as *--prefix /C:/proj* does.  See ``cross_platform_read`` in :manpage:`lcovrc(5)`.
+   *prefix* may be written with either platform's directory separator.  It is
+   the leading part of a path, and is compared to the name as that name is
+   decomposed - so *--prefix C:\\proj* removes the same directories from
+   Windows-captured names as *--prefix /C:/proj* does.  See
+   ``cross_platform_read`` in :manpage:`lcovrc(5)`.
 
 ``--no-prefix``
    Do not remove prefix from directory names.
 
-   This switch will completely disable the prefix mechanism described in the previous section.
+   This switch will completely disable the prefix mechanism described in the
+   previous section.
 
-   This option can also be configured permanently using the configuration file option *genhtml_no_prefix*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_no_prefix*.
 
 ``--no-source``
    Do not create source code view.
 
    Use this switch if you don't want to get a source code view for each file.
 
-   This option can also be configured permanently using the configuration file option *genhtml_no_source*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_no_source*.
 
 ``--no-html``
    Do not create HTML report.
 
-   Use this switch if you want some artifact of coverage report generation - *e.g.*, the coverage criteria check or the serialized coverage DB, *etc.* - but do not need the coverage report HTML itself.
+   Use this switch if you want some artifact of coverage report generation -
+   *e.g.*, the coverage criteria check or the serialized coverage DB, *etc.* -
+   but do not need the coverage report HTML itself.
 
 ``--num-spaces`` *spaces*
    Change appearance of tabs in source view according to *spaces*.
 
    When set to 0, tabs and their behaviour will be the browser's default.
 
-   Negative values will set the rendered width in the source view to *spaces* spaces.
+   Negative values will set the rendered width in the source view to *spaces*
+   spaces.
 
    Positive values will replace tabs with *spaces* spaces.
 
    Default value is 8.
 
-   This option can also be configured permanently using the configuration file option *genhtml_num_spaces*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_num_spaces*.
 
 ``--highlight``
    Highlight lines with converted-only coverage data.
 
-   Use this option in conjunction with the ``--diff`` option of ``lcov`` to highlight those lines which were only covered in data sets which were converted from previous source code versions.
+   Use this option in conjunction with the ``--diff`` option of ``lcov`` to
+   highlight those lines which were only covered in data sets which were
+   converted from previous source code versions.
 
-   This option can also be configured permanently using the configuration file option *genhtml_highlight*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_highlight*.
 
 ``--legend``
    Include color legend in HTML output.
 
-   Use this option to include a legend explaining the meaning of color coding in the resulting HTML output.
+   Use this option to include a legend explaining the meaning of color coding in
+   the resulting HTML output.
 
-   This option can also be configured permanently using the configuration file option *genhtml_legend*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_legend*.
 
 ``--html-prolog`` *prolog-file*
    Read customized HTML prolog from *prolog-file*.
 
-   Use this option to replace the default HTML prolog (the initial part of the HTML source code leading up to and including the <body> tag) with the contents of *prolog-file*. Within the prolog text, the following words will be replaced when a page is generated:
+   Use this option to replace the default HTML prolog (the initial part of the
+   HTML source code leading up to and including the <body> tag) with the
+   contents of *prolog-file*. Within the prolog text, the following words will
+   be replaced when a page is generated:
 
    ``@pagetitle@``
       The title of the page.
 
    ``@basedir@``
-      A relative path leading to the base directory (*e.g.*, for locating css-files).
+      A relative path leading to the base directory (*e.g.*, for locating
+      css-files).
 
-   This option can also be configured permanently using the configuration file option *genhtml_html_prolog*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_html_prolog*.
 
 ``--html-epilog`` *epilog-file*
    Read customized HTML epilog from *epilog-file*.
 
-   Use this option to replace the default HTML epilog (the final part of the HTML source including </body>) with the contents of *epilog-file*.
+   Use this option to replace the default HTML epilog (the final part of the
+   HTML source including </body>) with the contents of *epilog-file*.
 
-   Within the epilog text, the following words will be replaced when a page is generated:
+   Within the epilog text, the following words will be replaced when a page is
+   generated:
 
    ``@basedir@``
-      A relative path leading to the base directory (*e.g.*, for locating css-files).
+      A relative path leading to the base directory (*e.g.*, for locating
+      css-files).
 
-   This option can also be configured permanently using the configuration file option *genhtml_html_epilog*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_html_epilog*.
 
 ``--html-extension`` *extension*
    Use customized filename extension for generated HTML pages.
 
-   This option is useful in situations where different filename extensions are required to render the resulting pages correctly (*e.g.*, php). Note that a '.' will be inserted between the filename and the extension specified by this option.
+   This option is useful in situations where different filename extensions are
+   required to render the resulting pages correctly (*e.g.*, php). Note that a
+   '.' will be inserted between the filename and the extension specified by this
+   option.
 
-   This option can also be configured permanently using the configuration file option *genhtml_html_extension*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_html_extension*.
 
 ``--html-gzip``
-   Compress all generated html files with gzip and add a .htaccess file specifying gzip-encoding in the root output directory.
+   Compress all generated html files with gzip and add a .htaccess file
+   specifying gzip-encoding in the root output directory.
 
-   Use this option if you want to save space on your webserver. Requires a webserver with .htaccess support and a browser with support for gzip compressed html.
+   Use this option if you want to save space on your webserver. Requires a
+   webserver with .htaccess support and a browser with support for gzip
+   compressed html.
 
-   This option can also be configured permanently using the configuration file option *genhtml_html_gzip*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_html_gzip*.
 
 ``--sort-tables``, ``--no-sort``
    Specify whether to include sorted views of file and directory overviews.
 
-   Use ``--sort-tables`` to include sorted views or ``--no-sort`` to not include them. Sorted views are **enabled** by default.
+   Use ``--sort-tables`` to include sorted views or ``--no-sort`` to not include
+   them. Sorted views are **enabled** by default.
 
-   When sorted views are enabled, each overview page will contain links to views of that page sorted by coverage rate.
+   When sorted views are enabled, each overview page will contain links to views
+   of that page sorted by coverage rate.  In a view sorted by a metric, that
+   metric's columns are the leftmost metric columns, so they are easy to find in
+   a wide table.  The other metrics follow in the order which the configuration
+   file option *genhtml_metric_column_order* sets.  The function table of each
+   source file is ordered the same way.
 
-   This option can also be configured permanently using the configuration file option *genhtml_sort*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_sort*.
 
 ``--function-coverage``, ``--no-function-coverage``
    Specify whether to display function coverage summaries in HTML output.
 
-   Use --function-coverage to enable function coverage summaries or --no-function-coverage to disable it. Function coverage summaries are **enabled** by default.
+   Use --function-coverage to enable function coverage summaries or
+   --no-function-coverage to disable it. Function coverage summaries are
+   **enabled** by default.
 
-   This option can also be configured permanently using the configuration file option *genhtml_function_coverage*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_function_coverage*.
 
-   When function coverage summaries are enabled, each overview page will contain the number of functions found and hit per file or directory, together with the resulting coverage rate. In addition, each source code view will contain a link to a page which lists all functions found in that file plus the respective call count for those functions. The function coverage page groups the data for every alias of each function, sorted by name or execution count. The representative name of the group of functions is the shorted (*i.e.*, containing the fewest characters).
+   When function coverage summaries are enabled, each overview page will contain
+   the number of functions found and hit per file or directory, together with
+   the resulting coverage rate. In addition, each source code view will contain
+   a link to a page which lists all functions found in that file plus the
+   respective call count for those functions. The function coverage page groups
+   the data for every alias of each function, sorted by name or execution count.
+   The representative name of the group of functions is the shorted (*i.e.*,
+   containing the fewest characters).
 
-   If using differential coverage and a sufficiently recent compiler version which report both begin and end line of functions (*e.g.*, gcc/9 and newer), functions are considered 'new' if any of their source lines have changed. With older compiler versions, functions are considered 'new' if the function signature has changed or if the entire function is new.
+   If using differential coverage and a sufficiently recent compiler version
+   which report both begin and end line of functions (*e.g.*, gcc/9 and newer),
+   functions are considered 'new' if any of their source lines have changed.
+   With older compiler versions, functions are considered 'new' if the function
+   signature has changed or if the entire function is new.
 
 ``--branch-coverage``, ``--no-branch-coverage``
    Specify whether to display branch coverage data in HTML output.
 
-   Use ``--branch-coverage`` to enable branch coverage display or ``--no-branch-coverage`` to disable it. Branch coverage data display is **disabled** by default.
+   Use ``--branch-coverage`` to enable branch coverage display or
+   ``--no-branch-coverage`` to disable it. Branch coverage data display is
+   **disabled** by default.
 
-   When branch coverage display is enabled, each overview page will contain the number of branches found and hit per file or directory, together with the resulting coverage rate. In addition, each source code view will contain an extra column which lists all branches of a line with indications of whether the branch was taken or not. Branches are shown in the following format:
+   When branch coverage display is enabled, each overview page will contain the
+   number of branches found and hit per file or directory, together with the
+   resulting coverage rate. In addition, each source code view will contain an
+   extra column which lists all branches of a line with indications of whether
+   the branch was taken or not. Branches are shown in the following format:
 
    ::
 
@@ -1315,164 +2437,891 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
       ' - ': Branch was not taken
       ' # ': The basic block containing the branch was never executed
 
-   Note that it might not always be possible to relate branches to the corresponding source code statements: during compilation, GCC might shuffle branches around or eliminate some of them to generate better code.
+   Note that it might not always be possible to relate branches to the
+   corresponding source code statements: during compilation, GCC might shuffle
+   branches around or eliminate some of them to generate better code.
 
-   This option can also be configured permanently using the configuration file option *branch_coverage*.
+   This option can also be configured permanently using the configuration file
+   option *branch_coverage*.
 
 ``--mcdc-coverage``
-   Specify whether to display Modified Condition / Decision Coverage (MC/DC) data in HTML output.
+   Specify whether to display Modified Condition / Decision Coverage (MC/DC)
+   data in HTML output.
 
    MC/DC data display is **disabled** by default.
 
-   MC/DC coverage is supported for GCC versions 14.2 and higher, or LLVM 18.1 and higher.
+   MC/DC coverage is supported for GCC versions 14.2 and higher, or LLVM 18.1
+   and higher.
 
    See *llvm2lcov --help* for details on MC/DC data capture in LLVM.
 
-   When MC/DC display is enabled, each overview page will contain the number of MC/DC expressions found and hit per file or directory - two senses per expression - together with the resulting coverage rate. In addition, each source code view will contain an extra column which lists all expressions and condition senses of a line with indications of whether the condition was sensitized or not. Conditions are shown in the following format:
+   When MC/DC display is enabled, each overview page will contain the number of
+   MC/DC expressions found and hit per file or directory - two senses per
+   expression - together with the resulting coverage rate. In addition, each
+   source code view will contain an extra column which lists all expressions and
+   condition senses of a line with indications of whether the condition was
+   sensitized or not. Conditions are shown in the following format:
 
    T:
-      True sense of subexpression was sensitized: if this subexpression's value had been false, then the condition result would have been different.
+      True sense of subexpression was sensitized: if this subexpression's value
+      had been false, then the condition result would have been different.
 
    t:
-      True sense of subexpression was **not** sensitized: the condition result would not change if the subexpression value was different.
+      True sense of subexpression was **not** sensitized: the condition result
+      would not change if the subexpression value was different.
 
    F:
-      False sense of subexpression was sensitized: if this subexpression's value had been true, then the condition result would have been different.
+      False sense of subexpression was sensitized: if this subexpression's value
+      had been true, then the condition result would have been different.
 
    f:
-      False sense of subexpression was **not** sensitized: the condition result would not change if the subexpression value was different.
+      False sense of subexpression was **not** sensitized: the condition result
+      would not change if the subexpression value was different.
 
-   Note that branch and MC/DC coverage are identical if the condition is a simple expression - *e.g.*,
+   Note that branch and MC/DC coverage are identical if the condition is a
+   simple expression - *e.g.*,
 
    ::
 
       if (enable) ...
 
-   Note that, where appropriate, filters are applied to both 'branch' and 'MC/DC' coverpoints: if a particular filter would remove some branch, then it will also remove corresponding MC/DC coverpoints. See the *--filter* section, above.
+   Note that, where appropriate, filters are applied to both 'branch' and
+   'MC/DC' coverpoints: if a particular filter would remove some branch, then it
+   will also remove corresponding MC/DC coverpoints. See the *--filter* section,
+   above.
 
-   This option can also be configured permanently using the configuration file option *mcdc_coverage*. See :manpage:`lcovrc(5)`.
+   This option can also be configured permanently using the configuration file
+   option *mcdc_coverage*. See :manpage:`lcovrc(5)`.
 
    Note that MC/DC coverpoints are defined differently by GCC and LLVM.
 
    GCC:
-      evaluates the sensitivity of the condition to the 'true' and 'false' sense of each constituent (leaf) expression independently.
+      evaluates the sensitivity of the condition to the 'true' and 'false' sense
+      of each constituent (leaf) expression independently.
 
-      That is: it evaluates the question: does the result of the condition change if *this* constituent expression changed from true to false (termed the 'true' sense, above) or from false to true (termed the 'false' sense, above).
+      That is: it evaluates the question: does the result of the condition
+      change if *this* constituent expression changed from true to false (termed
+      the 'true' sense, above) or from false to true (termed the 'false' sense,
+      above).
 
-      For example, the expression *A || B* is sensitive to *A==true* when *B==false*, but is not sensitive to *A==true* when *B==true*.
+      For example, the expression *A || B* is sensitive to *A==true* when
+      *B==false*, but is not sensitive to *A==true* when *B==true*.
 
    LLVM:
-      records the subexpression as covered if and only if there is a pair of evaluations of the condition such that the condition was sensitized for both 'true' and 'false' values of the subexpression. This is defined as an *independence pair* in the LLVM documentation.
+      records the subexpression as covered if and only if there is a pair of
+      evaluations of the condition such that the condition was sensitized for
+      both 'true' and 'false' values of the subexpression. This is defined as an
+      *independence pair* in the LLVM documentation.
 
-      That is: the testcase must sensitize both values in order to be marked covered by LLVM, whereas GCC will independently mark each. Consequently: in LLVM-generated ``lcov`` reports, either both 'true' and 'false' sensitizations will be covered, or neither will be.
+      That is: the testcase must sensitize both values in order to be marked
+      covered by LLVM, whereas GCC will independently mark each. Consequently:
+      in LLVM-generated ``lcov`` reports, either both 'true' and 'false'
+      sensitizations will be covered, or neither will be.
 
       See the examples in testcase *.../tests/lcov/mcdc*.
+
+``--callgraph-coverage``, ``--callgraph``
+   Specify whether to display :term:`callgraph coverage` (call site) data in
+   HTML output.
+
+   Callgraph coverage display is **disabled** by default.
+
+   Call site data is captured by ``geninfo`` from the :term:`callgraph info`
+   which GCC writes when your code is compiled with
+   ``-fcallgraph-info=su,da`` (capture requires GCC 14 or higher), and
+   appears in the tracefile as ``FNC:`` records; the ``e`` and ``x`` flags of
+   an ``FNA:`` record and the ``c`` flag
+   of an ``FNL:`` record carry what is known about a call which crossed a
+   boundary, as described below. See the
+   ``--callgraph-coverage`` section of :manpage:`geninfo(1)` for how the data is
+   collected and what its limitations are - in particular, that inlining and
+   optimization can move or remove call sites.
+
+   Callgraph coverage measures the :term:`callgraph` of your code. The graph is
+   *directed*: it has a node for each function, and an edge for each call, drawn
+   from the :term:`caller` - the function which makes the call, together with
+   the place in the source it is made from - to the :term:`callee`, the function
+   which is called. The caller is the edge's *source* and the callee its
+   *destination*. "Function ``foo()``, defined in ``A.c``, calls ``bar()`` at
+   line 10 column 4 of ``A.c``, and ``bar()`` is defined at line 25 of ``B.c``"
+   is one edge.
+
+   An edge is identified by that place - file, line, column, and an ordinal
+   which separates calls the compiler placed at the same line and column -
+   together with the name of the function called. So two calls to one function
+   from two places are two distinct edges, and one location which calls several
+   different functions (a virtual call, a call through a function pointer, a
+   call in a template body) is as many edges as it has destinations. This manual
+   calls an edge a *call site*: the ``FNC:`` record which carries it, the row in
+   the tables described below, and the underlined identifier in the source view
+   are all one edge.
+
+   What the metric reports is which of those edges were executed, how often; an
+   edge is 'hit' when its count is non-zero. Edges are counted on the source
+   side, because that is where they are recorded by ``gcov``: the ``FNC:``
+   record lives in the section of the file where the calling function is
+   defined, the calling :term:`translation unit` being the only one which knows
+   the call was
+   made. So the callgraph coverage of a file is the fraction of the calls made
+   by the functions defined in that file which were executed at least once, and
+   the caller page of the call site display is a second view of the same edges
+   rather than a second metric - see the two views, below.
+
+   It is useful to think of the whole callgraph - your application, your tests,
+   the libraries you link against, the runtime - and of a |ToolName| report as a
+   :term:`callgraph boundary` drawn around the part of that graph you care
+   about. A node lies outside that boundary for one of two reasons: either it is
+   in code which was not instrumented - third party library code, the C runtime,
+   a translation unit which was never captured, *etc.* - or the user put it
+   outside deliberately, *this being the library API I care about, this is my
+   module, and everything outside it is external*. The callgraph boundary is set
+   by
+   which tracefiles are merged and which files, functions, regions, *etc.* are
+   excluded (``lcov --remove``, ``lcov --extract``, an ``exclude`` pattern - or
+   simply never captured).
+
+   Either end of a callgraph edge may be outside the boundary, or both ends
+   may be - an edge with both ends outside is not in the report at all.
+   An edge which crosses the boundary has either its source (the caller) or
+   destination (the callee) outside the subgraph that we care about:
+
+   -  the edge leaves the boundary - a call to a third party library, to the
+      C runtime, to code which was not captured, or to a function the user
+      took out of the report. The edge is **dropped** from the report - but a
+      property is set on the calling function to record that this function
+      calls out of the boundary.
+
+   -  the edge enters the boundary - a call from a test file which was
+      removed, or from code which was not instrumented. The edge is dropped
+      and a property is set on the called function to record that the
+      function has an external caller.
+
+   The two are the same rule applied to the two ends of a call, and are
+   symmetric. See the discussion in :manpage:`geninfo(1)` for more details
+   about the callgraph and the format of the tracefile which holds the
+   information.
+
+   Everything |ToolName| does with callgraph data follows this model. Merging
+   two tracefiles unions their graphs, and a flag travels with the function
+   definition rather than with the run which captured it, so a merge keeps the
+   flags of either input whichever order the inputs are given in. Excluding a
+   file cuts the edges which cross into or out of it, and each of those edges is
+   then recorded on whichever end the exclusion left, by the rule above.
+
+   A site whose count is unknown - an unpaired call, see :term:`pairing` and
+   ``--callgraph-partial-data`` in :manpage:`geninfo(1)` - is shown with a ``-``
+   in place of its count. Because such a site is not known to have been missed,
+   only not measured, the source view does not color it as a missed call: its
+   identifier gets a dashed underline instead of the 'not taken' highlight,
+   but is still counted as a call
+   which was not made - in the totals, in each proportion and in its category -
+   since it is not known to have been made either, and the call site pages
+   treat it that way: its row keeps the ``-`` and its tooltip, and is colored,
+   linked and navigated as a count of zero. The one exception is a row which is
+   not a call site - one saying that a call came from, or went to, outside the
+   callgraph boundary - which is neither colored nor linked, whatever its count.
+   ``--filter unknown_callee_count`` removes such sites.
+
+   The call site data supports two different views:
+
+   -  the sites which a function *contains* - the calls it makes.
+      These are the sites counted toward a file's or directory's call site
+      found/hit counts, and the sites the *--show-proportions* column shows.
+
+   -  the sites which *target* a function - the calls made to it.
+      A function's callers may be in any file in the report; this view is not
+      a property of any one file and is not counted in any file's totals.
+
+   A site need not be written in the file where its caller is defined: a call
+   in an ``#include``\ d fragment belongs to the function which includes it,
+   and its line and column are those of the fragment (see the ``FNC:`` record
+   in :manpage:`geninfo(1)`).
+   Counting and display then part company, each following the file it is
+   a fact about:
+
+   -  the site is counted by the file whose function contains it, which is
+      the file whose code makes the call and the only file a per-file total
+      could mean. The fragment counts no site of its own.
+
+   -  the site is shown in the source view of the file it is written in,
+      because that is where the reader can see the call - and its underline
+      links to the table of a function on another file's page.
+
+   -  the callee page names such a site by file as well as by line and
+      column, where a site in the caller's own file needs only the
+      location. The caller page names a file in either case, since a
+      caller may be anywhere in the report.
+
+   When callgraph display is enabled:
+
+   -  each overview page contains a *Callgraph Coverage* column with the
+      number of call sites found and hit per file or directory, together
+      with the resulting coverage rate. The counts are the first of the two
+      views, above.
+
+   -  the source code view underlines the identifier at each call site - a
+      hyperlink to the location - in a color which distinguishes whether the
+      site was executed, and links it to that site on the callee page of the
+      file whose function makes the call. Hovering names the callees of the
+      site. A site with more than one destination is additionally marked with
+      how many.
+
+      The callee identifier is looked for both at the recorded column and
+      immediately to its left, because the two GCC front ends do not
+      record the same column for a call: the C one points at the callee's
+      name and the C++ one at the call's opening parenthesis.
+      A reading which really does name one of the site's callees is
+      preferred, since underlining verified text cannot accidentally link
+      to the wrong function.
+      For C++ that means the names should be demangled, so they look the
+      same as they appear in the source text. See the ``--demangle-cpp`` flag.
+
+      A site whose callee is *not* found in either place is underlined
+      anyway, on the identifier at the column, preferring the reading to
+      the left of it and skipping a language keyword. This is the reading
+      a person makes of the same two columns, and it is what puts an
+      underline on a call whose source text is not its callee's name:
+      an operator, a call whose callee is recorded as a mangled symbol,
+      a call to something the compiler generated. It is a guess, so it can
+      be wrong - on generated code it may underline a token which is merely
+      next to the call.
+      Set ``strict_callee_match = 1`` in :manpage:`lcovrc(5)` to match only
+      what was verified; unmatched sites are then reported in a generated
+      comment at the end of the source line.
+
+      A site with no identifier to underline at all is also named in that
+      comment. This happens where GCC folds a nested call's column onto the
+      enclosing call, where the call is through a pointer, and where the
+      call is not written in the source at all - the destructor of an object
+      which goes out of scope at a closing brace, for example. Such sites
+      are named in a comment appended to the line, one link per site,
+      marked in the same colors. The comment is generated by the stylesheet
+      rather than written into the page, so that :manpage:`html2lcov(1)`,
+      which recovers the source of a report by stripping its markup, does
+      not recover the comment as if it were part of the source.
+
+   -  each file with call data gets two *call site* pages of its own, one per
+      direction: ``<file>.callers.html``, which lists the calls made to each of
+      its functions, and ``<file>.callees.html``, which lists the calls each of
+      them makes. A page per direction rather than one table carrying both,
+      because a reader follows one direction at a time, because the two sides of
+      a function are neither the same length nor the same kind of row, and
+      because the two are two different proportions - and one table can only be
+      in one order.
+
+      A function is listed on the page of a direction only when it has something
+      to say in that direction: a leaf function is on the caller page and not
+      on the callee page, ``main`` usually the other way about, and a function
+      whose only caller or only callee is outside the callgraph boundary is
+      listed all the same - "who called this" has an answer even when the
+      answer is "nothing in this report". A file none of whose functions says
+      anything in a direction has no page for that direction at all, and
+      nothing then links to one.
+
+      The rows are grouped a function at a time. A function's name is in a cell
+      which spans its group, so where one function ends and the next begins is
+      readable twice over: a rule above the first row of each group, and two
+      colors used in turn for the name cell.
+
+      The columns of the two pages are the same ones, and are, from the left:
+
+      -  *Age* and *Owner*, where an annotation callback answered for the file.
+         They describe the line the function's definition starts on, and are
+         colored and linked as the same two columns of the source view are.
+         The color is the category of the function's calls on this page which
+         were not taken - the first of them in category order, where there are
+         several - and there is none where every call was taken.
+
+         Contiguous functions which share the date bin, or the author, and the
+         color are one cell, spanning all of their rows, with the value at the
+         top. A function the callback had no answer for is an empty cell which
+         merges with nothing. The age a merged cell shows is the most recent of
+         the ages in it. Each cell leads past its own run to the next run of the
+         same date bin, or the same author, in the same color, and to the top of
+         the page when there is no later one. The age is a number of days, as it
+         is in the source view, so that the two views are read the same way; the
+         owner is the author's full name rather than the truncated login the
+         source view has room for, and the bin and the login are in the two
+         tooltips of the links. The cell itself has a tooltip saying what it
+         stands for: the date the age is counted from - of the most recent
+         function, in a merged cell - and the author's full name.
+
+      -  *Callee* on the caller page and *Caller* on the callee page: this same
+         function's rows on the page of the other direction, so that the other
+         question is one click away. The cell is empty where the function has
+         nothing to say in the other direction, and the column is absent where
+         the file has no such page.
+
+         The cell is the proportion of that other direction which the tests
+         exercised, written and colored as the *Rate* column is, and it links to
+         the function's rows on the other page. It is empty where there is no
+         denominator: a function whose only rows in that direction carry no
+         count - a caller outside the report - has no percentage to show.
+
+      -  *Function Name*, linked to the definition in the source view. It is
+         also the anchor every link to this function on this page leads to.
+
+      -  *Rate*, the proportion of this function's rows on this page which were
+         exercised - of the calls made to it, or of the calls it makes. This
+         is a property of the function rather than of the file: a function's
+         callers may be in any file of the report, and this proportion is not
+         what any file's totals count. A row whose count is unknown is found
+         and not hit, as it is in those totals. A row which only says that a
+         call crossed the callgraph boundary is in neither half of it - there
+         is no count for a proportion to be taken of - so a function whose only
+         row is that one reads ``-``, with no numbers at all.
+
+      -  the two columns of the direction itself: *Called from* and *Call site*
+         on the caller page, *Call site* and *Callee* on the callee page.
+
+      -  *TLA*, in a differential report, and *Count*.
+
+         A report which asks for the category navigation without asking for a
+         comparison (*--show-navigation* with neither a baseline nor a diff) has
+         only two categories, which genhtml calls *Hit* and *Missed*. There the
+         column is left out and what it carried moves onto the *Count* cell,
+         which is colored by the category already: the word is in the tooltip,
+         and the number carries the tour of hit or missed calls which every
+         *Count* cell has (see below). Two cells saying in two
+         ways that a number is or is not zero is one cell too many.
+
+      Each column which describes the function rather than one of its calls is
+      also an order of the page, and its heading links to the page in that
+      order - except on the page which is already in it:
+
+      -  *Function Name*, which is how a reader looks a function up.
+
+      -  *Rate*, least exercised first, which is how a reader who did not come
+         for a particular function reads the page. That proportion and not the
+         count of unexercised rows behind it: a function with two of its ten
+         calls left is not the one to start with when another has its only call
+         left.
+
+      -  *Callee* or *Caller*, by the proportion of the other direction, in the
+         same way.
+
+      -  *Owner*, alphabetically by the full name the column shows, and *Age*,
+         the most recently changed first - each of them followed by the order of
+         *Rate* among the functions which share the owner or the age.
+
+      Of two equal proportions, the one with the larger denominator is first:
+      it is the same share of more calls. A function with no proportion - no
+      rows in that direction, or none which carries a count - is last, and any
+      remaining tie goes by function name. A function's rows stay together in
+      every order, and the *Age* and *Owner* cells are merged by the functions
+      which are next to each other in it. A page is written only in the orders
+      of the columns it has: there is no *Owner* order of a file the annotation
+      callback did not answer for, and no *Callee* order of a file with no callee
+      page. A link to the other page of the same file keeps the order the reader
+      chose; a link to another file's page keeps it only for *Rate*, which every
+      call site page has, and otherwise leads to the name order.
+
+      Every cell links: the call site cell goes to the source line of the call,
+      the caller or callee cell goes to that site on the callee page of the file
+      the call is written in, and the category cell leads to the next group of
+      its own category - past the whole run of rows which share it, to the next
+      row which has it again, and to the top of the page when there is no later
+      one. Contiguous rows of the same category are one category cell, which
+      spans them and whose tooltip names the category; a caption row, or a row
+      with no category, ends the span. The *Count* cell leads the same way
+      through the calls which were taken, or through those which were not: past
+      the run of rows its own call is in, to the next call which went the same
+      way. A count which is not known is on the tour of the calls which were
+      not taken.
+
+      The callgraph numbers in the header of the two pages - by category, and
+      by date bin and owner where those tables are shown - count the rows of the
+      table below them, and each leads to the first row it counts. **On the
+      caller page they are not what the callgraph numbers are anywhere else in
+      the report.** Everywhere else - the callee page, the source view, the
+      function table and every directory and top-level table - they count the
+      call sites a file *contains*: the calls its functions make, wherever those
+      calls go, attributed to the owner and age of the line each call is on. On
+      the caller page they count the calls *into* the file: the call sites whose
+      destination is one of its functions, wherever those sites are written,
+      attributed to the owner and age of the function called - which are the
+      *Age* and *Owner* columns of that page. Calls which came from outside the
+      callgraph boundary have no site and are not counted. The labels of those
+      header tables say so on hover - *Callgraph edge sources in this file
+      (number of callee sites)* on the caller page, and *Callgraph edge
+      destinations in this file (number of caller sites)* on the other pages
+      of a single file: its source view, its function table and its callee
+      page. The directory and top-level tables say the same of the directory
+      and of the project.
+
+   -  the header of every view of a file names that file's detail pages -
+      *(functions / callers / callees)* - with the entry for the page being read
+      left unlinked and the filename itself the link back to the source view.
+      A file with no page for a direction has no entry for it, since there is no
+      such page to go to.
+
+      With *--show-proportions*, the function table carries the two
+      directions as a proportion each, *Callers* and *Callees*, at the right
+      of the table beside the proportions of lines, branches and MC/DC
+      expressions: they are proportions of the function like those, and the
+      function name stays the first column. *Callers* is the proportion of the
+      calls which reach the function that the tests made, *Callees* the
+      proportion of the call sites in the function that they exercised. Each
+      is written and colored as the other proportions of that table are, and
+      links to that function's rows on the page of that direction.
+
+      A *Callers* cell with no proportion to show is empty and leads nowhere:
+      a function with no caller in the report, or one called only from
+      outside it, has no denominator, and there is no honest percentage of
+      nothing. A column is absent where the file has no
+      page for that direction. An alias has no cell of its own, the callgraph
+      pages listing a function under its leader symbol - except an alias
+      group.
+
+      When callgraph coverage is enabled, the
+      *collapse_callgraph_alias* setting of :manpage:`lcovrc(5)` is on,
+      the file has callgraph data, and a function has more than one *alias
+      group* - aliases which the callgraph distinguishes - each group is a row
+      indented under the function in the *Function Name* column. The names
+      merged into a group are in the tooltip of its row. The row has the
+      group's own TLA and hit count and its own *Callers* and *Callees*
+      cells, which lead to the group's rows on the callgraph pages; the
+      function's row values are the union over all of its groups, a call site
+      which several groups share being counted once. The *Lines*, *Branches* and
+      *MC/DC* cells of a group row are empty: they belong to the function's
+      line range. Every cell of a group row is set in a subdued colour - a
+      paler version of the colour the same cell has in the function's row -
+      so that the groups are visually distinct from the function. A function
+      with a single group is shown as one row, in the normal colours.
+
+   -  the caller page contains an additional row when the function is
+      called from outside the callgraph boundary. The row is not associated
+      with a location or link. Two different facts can say that there are
+      such calls, and either or both can hold:
+
+      -  a caller is known to be outside the callgraph boundary: we knew what
+         it was but then explicitly excluded it - the ``x`` flag of the
+         ``FNA:`` record.
+
+      -  the function was entered more often than the hit counts of its
+         callers - both those in the report and the excluded ones - account
+         for: at least one call came from somewhere this report does not
+         show, though we did not see the identity of any of them. This is the
+         ``d`` flag of the ``FNA:`` record - see :manpage:`geninfo(1)`.
+
+      **How to read the row:** its count shows the external and the deduced
+      caller counts, as *E (R)*:
+
+      -  *E*, without parentheses, is the number of calls the excluded sites
+         made - the count the ``x`` flag carries - or ``-`` where that is not
+         known. It is present only where a caller is known to be outside the
+         boundary; *0* means that there is one, and that the tests never took
+         it.
+
+      -  *(R)*, in parentheses, is the number of calls which neither the
+         sites in the report nor the excluded ones account for - the deduced
+         callers. It is present only where there are any.
+
+      The label of the row says the same thing in words, so the form of the
+      count and the label always coincide:
+
+      -  *<external callers>* - the count is *E*: a caller is known to be
+         outside the boundary, and the function's execution count is
+         accounted for.
+
+      -  *<deduced external callers>* - the count is *(R)*: no caller is
+         known to be outside the boundary, but the function was entered more
+         often than its callers account for.
+
+      -  *<external and deduced callers>* - the count is *E (R)*: both are
+         true.
+
+      So *<external callers>* with count *3* is a function whose excluded
+      callers made 3 calls and with no calls unaccounted for,
+      *<deduced external callers>* with *(3)* a function with 3 calls
+      unaccounted for and no caller known to be outside the boundary, and
+      *<external and deduced callers>* with *1 (2)* a function with both.
+      The tooltip of the count says which number is which, and the tooltip of
+      the label says what each of the two facts means.
+
+      Where an unknown (``-``) count among the function's callers makes it
+      impossible to tell whether any call came from outside, and no caller is
+      known to be outside, there is no such row: the note beside the name,
+      below, says that it cannot be told.
+
+      The count of the row is colored as a call count is, by the sum of its
+      two numbers: it is shown as not taken only when no call came from
+      outside the boundary at all. In a report whose
+      counts are colored by category (a differential report, or one with
+      ``--show-navigation``) it is set in the font and alignment of the
+      category count cells above it, but it is not a category and not a link:
+      the origin of those calls is not on any page.
+
+      The same fact is said once more beside the function's name, where a
+      reader going down the page meets it without counting rows: *external
+      callers only* when the function was entered and no site in the report
+      names it, *internal and external callers* when both are true of it,
+      and *callers may be outside the callgraph boundary* when an unknown
+      count leaves it undecided. Nothing is said for a function all of whose
+      callers are in the report, nor for one which nothing called at all - the
+      rows say both of those already. Which of internal, external or both a
+      function's callers are is the question the metric is asked for an
+      application whose testcases are elsewhere.
+
+      The deduction is not made for a files which are not mentioned in the
+      callgraph - one whose functions contain no call sites, carry neither
+      crossing flag, and are not mentioned as call sites anywhere else in
+      the report.
+      Reading unaccounted calls as calls from outside the report assumes that
+      the calls made *inside* the callee's own translation unit were recorded,
+      and for such a file they demonstrably were not: it holds no record of a
+      call at all, which is what an object compiled without
+      ``-fcallgraph-info`` looks like, and what a language whose tools have no
+      callgraph data looks like in a report which mixes one with C++. The
+      likeliest caller there is the file itself. So a function of such a file
+      which nothing in the report calls has nothing to show, and the file gets
+      neither callgraph page; a function which something in the report does
+      call keeps the callers it has and says *callers may be outside the
+      callgraph boundary* of the rest. The same rule decides whether the
+      ``FNCF:``/``FNCH:`` pair is written for the file - see
+      :manpage:`geninfo(1)`.
+
+      The caller page is per *alias*: being called is a property of the
+      symbol the call named, so the callers of a function with more than
+      one alias are listed an alias at a time, each list under a caption
+      reading *Callers of alias <name>* - the name being one which need
+      not appear in the sources or in the first column of the page -
+      except under ``--filter function``, which lists the function under
+      one name and so its callers as one list; see that filter.
+      An alias with no caller and no crossing is not listed. The note
+      beside the name is per function, the aliases of a function being one
+      function. A function whose alias groups the function table shows (see
+      ``--show-proportions``) is laid out in the same way as the function
+      detail table - see the alias groups below.
+
+   -  on the callee page, a function containing multiple alias groups
+      is listed a group at a time, the group's call sites beside it. A
+      site which several groups contain - or which records no alias, and so is
+      made by all of them - is listed under each.
+
+   -  a *unique call site* is one call of a function, whichever of its alias
+      groups lists it: on the caller page, one location in one caller; on
+      the callee page, one location and one callee function - so a location
+      which called two different functions (a virtual or indirect call) is
+      two unique sites, whereas the calls it made to several aliases of one
+      function are one. A unique site is hit if any of its parts is.
+      A unique callsite represents a distinct path in the callgraph: if
+      the path was *not* distinct, then both the caller and callee would
+      have been indistinguishaable (*i.e.*, in the same *alias groups*
+      because their callers and callees could not be distinguished either).
+
+   -  every callgraph number of the report counts call sites as the caller
+      and callee pages define them - the headers of both call site pages and
+      the links which lead from them into the table, the proportions in the
+      function table, the headers of the source view and index pages, the
+      coverage criteria callback, *etc.* The records of one location which
+      lead to one callee function are one row, and so one site.
+      A function shown with alias groups counts the unique callsites from
+      its summary block (below), or by the callsite rows of its alias
+      group(s) if there is no summary block.  See
+      ``show_callgraph_summary`` and ``suppress_alias_groups`` in
+      :manpage:`lcovrc(5)`. Note that these counts are not the same as
+      the count of call records reported by :manpage:`lcov(1)`.
+
+   -  on both pages, a function shown as alias groups starts with its
+      *summary block* - unless the configuration file option
+      ``show_callgraph_summary`` is 0, below: one row per unique call site
+      across of all of its groups,
+      as its row in the function table summarizes them. The function's name,
+      linked to its definition in the source view, and the proportions of
+      the function as a whole span the block, and the proportion of the
+      other direction leads to the function's summary block on the other
+      page. Each row shows the site's location, its caller or callee - a
+      callee linked to its own summary on the caller page - its TLA and its
+      count: the sum of the counts of its parts (unknown only if every part
+      is). In a differential report, the TLA is that of the unique site
+      compared with the same unique site in the baseline - so a site which
+      is *UIC* in one group and *GIC* in another is *GIC*; a site which
+      exists only in the baseline is not listed. The rows are ordered so
+      that what most needs attention comes first: by TLA (*UNC*, *LBC*,
+      *UIC*, *etc.*, in the order of the TLA tables), then by count,
+      lowest first, then by location - file name, then line and column.
+      A function's external callers or callee are the last row of the
+      block: one *<external callers>* row summing those of all groups, or
+      the function's *<external callee>* row.
+
+      Below the summary, each group has its name - indented as in the
+      function table, and linked to the definition - and the proportions of
+      its own rows, in cells which span the group's rows. Group rows are
+      indented, and every cell of a group row is set in a subdued colour, as
+      the group rows of the function table are, to make them visually
+      distinct from the summary.
+      The proportion of the other direction leads to that group's rows on
+      the other page. A group has no TLA: the categories of the page are
+      those of the calls. A group with no rows on a page (*e.g.*, because
+      it has no callers or callees) is not listed on that page.
+      The TLA and count links, which lead to the next row of the same
+      category or of the same hit/miss state, tour the group rows as well
+      as the summaries.
+
+      The configuration file option ``suppress_alias_groups`` removes the
+      group rows from both pages: each such function entry is then its summary
+      block such that its name holds a superscript count of all the
+      aliases of all of its groups with a the tooltip listing the aliases in
+      alphabetical order.
+      A note is added above the table if the page would have contained
+      a group (*i.e.*, at least one function on the page has multiple alias
+      groups) to notify the user that groups were suppressed and that
+      more information may be available. See :manpage:`lcovrc(5)`.
+
+      With the configuration file option ``show_callgraph_summary`` set to
+      0, summary blocks are not inserted into the table and all of the
+      alias groups of the function are listed in adjacent rows of the
+      callgraph table, each in the same layout: the alias group name
+      (not indented, in normal colours), the
+      proportions of its own rows, and on the caller page the note on its
+      callers and its own *<external callers>* row. All the alias groups
+      of a particular function use the same background colour with a
+      horizontal rule above the first one.  In an attempt to emphasize
+      the information a user is most likely to be interested in, alias groups
+      are ordered lowest rate first, then by number of callsites, then by
+      name. A link to the function leads to its first group, and a link from
+      a call site to the group which the call reaches.
+
+   -  if the function has an external callee, its rows on the callee page end
+      with an *<external callee>* row, which carries neither a TLA nor a
+      count. That page is per function rather than per alias, a call being
+      made by a body and not by a symbol; for a function shown as alias
+      groups, the row is the last of its summary block and belongs to none
+      of the groups - or, where there is no summary block, it is the last
+      row of the first group.
+
+   -  the function table can be sorted by the proportion of call sites in each
+      function which were exercised, and by the proportion of the calls to each
+      function which were made, using the two callgraph column headings; see
+      ``--show-proportions``.
+
+   In a differential report, each call site is categorized like any other
+   coverpoint, and both call site pages have a *TLA* column.
+   A site's baseline count is found by mapping the current line back
+   through the diff, so a call which moved is compared to itself; a site
+   which exists only in the baseline is shown on the line it was read from.
+   The diff consulted is that of the file the call is *written* in, which
+   is what its line number is a line of: a site in an ``#include``'d
+   fragment is categorized by the fragment's diff and not by that of the
+   file which counts it, and a diff which renames the fragment is followed,
+   the two versions each spelling the file the way that version spells it.
+   A site whose count is unknown (a ``-``) is categorized as though the
+   call had not been made: there is no category for 'unknown', and of the
+   two which exist the not-taken one is the only honest choice - so such a
+   site can be binned as uncovered while still displaying its ``-``.
+   Where several records make one row - one location, one callee
+   function - the row's count is the sum of the contributions, and its
+   category is that of the records which were taken (the first in the order
+   of the TLA tables if there are several), or of all of them none were
+   taken: the category of a row agrees with its count.
+
+   Call sites are attributed to the owner and the age of the line which
+   contains them, so they appear in the date and ownership bin tables and
+   in the criteria callback data - except in the header of the caller page,
+   which counts the calls into the file instead (see above). See
+   **Differential coverage** above.
+
+   See the examples in testcase *.../tests/lcov/callgraph*.
 
 ``--demangle-cpp`` [ *param* ]
    Specify whether to demangle C++ function names.
 
-   Use this option if you want to convert C++ internal function names to human readable format for display on the HTML function overview page.
+   Use this option if you want to convert C++ internal function names to human
+   readable format for display on the HTML function overview page.
 
-   If called with no parameters, genhtml will use *c++filt* for demangling. This requires that the c++filt tool is installed (see ``c++filt(1)``).
+   If called with no parameters, genhtml will use *c++filt* for demangling. This
+   requires that the c++filt tool is installed (see ``c++filt(1)``).
 
-   If *param* is specified, it is treated as th tool to call to demangle source code. The ``--demangle-cpp`` option can be used multiple times to specify the demangling tool and a set of command line options that are passed to the tool - similar to how the gcc *-Xlinker* parameter works. In that case, you callback will be executed as *| demangle_param0 demangle_param1 ...* Note that the demangle tool is called as a pipe and is expected to read from stdin and write to stdout.
+   If *param* is specified, it is treated as th tool to call to demangle source
+   code. The ``--demangle-cpp`` option can be used multiple times to specify the
+   demangling tool and a set of command line options that are passed to the
+   tool - similar to how the gcc *-Xlinker* parameter works. In that case, you
+   callback will be executed as *| demangle_param0 demangle_param1 ...* Note
+   that the demangle tool is called as a pipe and is expected to read from stdin
+   and write to stdout.
 
 ``--msg-log`` [ *log_file_name* ]
-   Specify location to store error and warning messages (in addition to writing to STDERR). If *log_file_name* is not specified, then default location is used.
+   Specify location to store error and warning messages (in addition to writing
+   to STDERR). If *log_file_name* is not specified, then default location is
+   used.
 
 ``--ignore-errors`` *errors*
    Specify a list of errors after which to continue processing.
 
-   Use this option to specify a list of error classes after which ``genhtml`` should continue processing with a warning message instead of aborting. To suppress the warning message, specify the error class twice.
+   Use this option to specify a list of error classes after which ``genhtml``
+   should continue processing with a warning message instead of aborting. To
+   suppress the warning message, specify the error class twice.
 
    *errors* can be a comma-separated list of the following keywords:
 
    annotate:
-      ``--annotate-script`` returned non-zero exit status - likely a file path or related error. HTML source code display will not be correct and ownership/date information may be missing.
+      ``--annotate-script`` returned non-zero exit status - likely a file path
+      or related error. HTML source code display will not be correct and
+      ownership/date information may be missing.
 
    branch:
-      Branch ID (2nd field in the .info file 'BRDA' entry) does not follow expected integer sequence.
+      Branch ID (2nd field in the .info file 'BRDA' entry) does not follow
+      expected integer sequence.
 
    callback:
       Annotate, version, or criteria script error.
 
    category:
-      Line number categorizations are incorrect in the .info file, so branch coverage line number turns out to not be an executable source line.
+      Line number categorizations are incorrect in the .info file, so branch
+      coverage line number turns out to not be an executable source line.
 
    child:
-      child process returned non-zero exit code during *--parallel* execution. This typically indicates that the child encountered an error: see the log file immediately above this message. In contrast: the *parallel* error indicates an unexpected/unhandled exception in the child process - not a 'typical' lcov error.
+      child process returned non-zero exit code during *--parallel* execution.
+      This typically indicates that the child encountered an error: see the log
+      file immediately above this message. In contrast: the *parallel* error
+      indicates an unexpected/unhandled exception in the child process - not a
+      'typical' lcov error.
 
    count:
-      An excessive number of messages of some class has been reported - subsequent messages of that type will be suppressed. The limit can be controlled by the 'max_message_count' variable. See :manpage:`lcovrc(5)`.
+      An excessive number of messages of some class has been reported -
+      subsequent messages of that type will be suppressed. The limit can be
+      controlled by the 'max_message_count' variable. See :manpage:`lcovrc(5)`.
 
    corrupt:
       Corrupt/unreadable coverage data file found.
 
    deprecated:
-      You are using a deprecated option. This option will be removed in an upcoming release - so you should change your scripts now.
+      You are using a deprecated option. This option will be removed in an
+      upcoming release - so you should change your scripts now.
 
    empty:
-      The patch file specified by the ``--diff-file`` argument does not contain any differences. This may be OK if there were no source code changes between 'baseline' and 'current' (*e.g.*, the only change was to modify a Makefile) - or may indicate an unsupported file format.
+      The patch file specified by the ``--diff-file`` argument does not contain
+      any differences. This may be OK if there were no source code changes
+      between 'baseline' and 'current' (*e.g.*, the only change was to modify a
+      Makefile) - or may indicate an unsupported file format.
 
    excessive:
-      your coverage data contains a suspiciously large 'hit' count which is unlikely to be correct - possibly indicating a bug in your toolchain. See the *excessive_count_threshold* section in :manpage:`lcovrc(5)` for details.
+      your coverage data contains a suspiciously large 'hit' count which is
+      unlikely to be correct - possibly indicating a bug in your toolchain. See
+      the *excessive_count_threshold* section in :manpage:`lcovrc(5)` for
+      details.
 
    fork:
       Unable to create child process during *--parallel* execution.
 
-      If the message is ignored (*--ignore-errors fork*), then genhtml will wait a brief period and then retry the failed execution.
+      If the message is ignored (*--ignore-errors fork*), then genhtml will wait
+      a brief period and then retry the failed execution.
 
-      If you see continued errors, either turn off or reduce parallelism, set a memory limit, or find a larger server to run the task.
+      If you see continued errors, either turn off or reduce parallelism, set a
+      memory limit, or find a larger server to run the task.
 
    format:
-      Unexpected syntax or value found in .info file - for example, negative number or zero line number encountered.
+      Unexpected syntax or value found in .info file - for example, negative
+      number or zero line number encountered.
 
-      A count field which is not a legal integer (for example 'nan' or 'inf') is likewise treated as zero if this message is ignored;  a count which is a number but not an integer is truncated toward zero, and one too large to store is clamped at 9223372036854775807.
+      A count field which is not a legal integer (for example 'nan' or 'inf') is
+      likewise treated as zero if this message is ignored;  a count which is a
+      number but not an integer is truncated toward zero, and one too large to
+      store is clamped at 9223372036854775807.
 
    inconsistent:
-      This error indicates that your coverage data is internally inconsistent: it makes two or more mutually exclusive claims. For example:
+      This error indicates that your coverage data is internally inconsistent:
+      it makes two or more mutually exclusive claims. For example:
 
-      - Files have been moved or repository history presented by ``--diff-file`` data is not consistent with coverage data; for example, an 'inserted' line has baseline coverage data. These issues are likely to be caused by inconsistent handling in the 'diff' data compared to the 'baseline' and 'current' coverage data (*e.g.*, using different source versions to collect the data but incorrectly annotating those differences), or by inconsistent treatment in the 'annotate' script. Consider using a ``--version-script`` to guard against version mismatches.
+      - Files have been moved or repository history presented by ``--diff-file``
+        data is not consistent with coverage data; for example, an 'inserted'
+        line has baseline coverage data. These issues are likely to be caused by
+        inconsistent handling in the 'diff' data compared to the 'baseline' and
+        'current' coverage data (*e.g.*, using different source versions to
+        collect the data but incorrectly annotating those differences), or by
+        inconsistent treatment in the 'annotate' script. Consider using a
+        ``--version-script`` to guard against version mismatches.
 
-      - Two or more ``gcov`` data files or ``lcov`` ".info" files report different end lines for the same function. This is likely due either to a gcc/gcov bug or to a source version mismatch.
+      - Two or more ``gcov`` data files or ``lcov`` ".info" files report
+        different end lines for the same function. This is likely due either to
+        a gcc/gcov bug or to a source version mismatch.
 
-         In this context, if the *"inconsistent"* error is ignored, then the tool will record the largest number as the function end line.
+         In this context, if the *"inconsistent"* error is ignored, then the
+         tool will record the largest number as the function end line.
 
-      - Two or more ``gcov`` data files or ``lcov`` ".info" files report different start lines for the same function. This is likely due either to a gcc/gcov bug or to a source version mismatch.
+      - Two or more ``gcov`` data files or ``lcov`` ".info" files report
+        different start lines for the same function. This is likely due either
+        to a gcc/gcov bug or to a source version mismatch.
 
-         In this context, if the *"inconsistent"* error is ignored, then the tool will retain only the first function definition that it saw.
+         In this context, if the *"inconsistent"* error is ignored, then the
+         tool will retain only the first function definition that it saw.
 
       - Mismatched function declaration/alias records encountered:
 
-         - (backward compatible LCOV format) function execution count record ( *FNDA* ) without matching function declaration record ( *FN* ).
+         - (backward compatible LCOV format) function execution count record (
+           *FNDA* ) without matching function declaration record ( *FN* ).
 
-         - (enhanced LCOV format) function alias record ( *FNA* ) without matching function declaration record ( *FLN* ).
+         - (enhanced LCOV format) function alias record ( *FNA* ) without
+           matching function declaration record ( *FLN* ).
 
-      - branch expression (3rd field in the .info file 'BRDA' entry) of merge data does not match
+      - branch expression (3rd field in the .info file 'BRDA' entry) of merge
+        data does not match
 
          If the error is ignored, the offending record is skipped.
 
-      - After all input data has been merged, some source file has data for two or more testcases, but one of its coverage types has data for only some of them - for example, both testcases have line coverage data for the file, but only one of them has branch data. This is usually a sign that the tracefiles being combined were captured with different coverage types enabled, and it means that the per-testcase tables for that file are not directly comparable. The message is issued once per source file per coverage type per testcase:
+      - After all input data has been merged, some source file has data for two
+        or more testcases, but one of its coverage types has data for only some
+        of them - for example, both testcases have line coverage data for the
+        file, but only one of them has branch data. This is usually a sign that
+        the tracefiles being combined were captured with different coverage
+        types enabled, and it means that the per-testcase tables for that file
+        are not directly comparable. The message is issued once per source file
+        per coverage type per testcase:
 
          ``no branch data for testcase_name in path/to/file.c``
 
-         This is a warning, and the data is used as-is - no coverpoints are added or removed.
+         This is a warning, and the data is used as-is - no coverpoints are
+         added or removed.
+
+      - A call site names a callee which more than one file of the report
+        defines, the calling file defines none of them, and the linkage does not
+        single one of them out. Two or more definitions claim one call, so the
+        call cannot be attributed to either:
+
+         ``call to 'name' cannot be resolved``
+
+         This is a warning. The call stays counted on the function which makes
+         it, and is missing from the list of callers of whichever function
+         actually got called. The message names the candidate files, since the
+         answer is one of them, and says which of the two scenarios it is. If
+         *no* candidate is recorded as having external linkage, the data was
+         captured with a toolchain which does not supply the linkage
+         information - see ``--callgraph-coverage``, above - and capturing again
+         with gcc 14 or newer resolves it. If two or more are, capturing again
+         will not help: one symbol has at most one external definition in a
+         program which links, so such a report covers more than one program, and
+         nothing in it says which program the calling file was linked into.
+
+      - The data of some source file fails one of the data consistency checks;
+        for example, a line is not hit but a branch on it has been
+        evaluated. The checks, and the settings which control them and the
+        corrections made when this message is ignored, are described in the
+        *Data consistency* section of :manpage:`geninfo(1)`.
 
    internal:
-      internal tool issue detected. Please report this bug along with a testcase.
+      internal tool issue detected. Please report this bug along with a
+      testcase.
 
    mismatch:
-      Incorrect or inconsistent information found in coverage data and/or source code - for example, the source code contains overlapping exclusion directives.
+      Incorrect or inconsistent information found in coverage data and/or source
+      code - for example, the source code contains overlapping exclusion
+      directives.
 
    missing:
-      remove all coverpoints associated with source files which are not found or are not readable. This is equivalent to adding a *--exclude* <name> pattern for each file which is not found.
+      remove all coverpoints associated with source files which are not found or
+      are not readable. This is equivalent to adding a *--exclude* <name>
+      pattern for each file which is not found.
 
-      If a *--resolve-script* callback is specified, then the file is considered missing if it is not locally visible and the callback returns "" (empty string) or 'undef' - otherwise not missing.
+      If a *--resolve-script* callback is specified, then the file is considered
+      missing if it is not locally visible and the callback returns "" (empty
+      string) or 'undef' - otherwise not missing.
 
    negative:
       negative 'hit' count found.
 
-      A negative count is not a legal value for any cover type, so if this message is ignored, the count is treated as zero.
+      A negative count is not a legal value for any cover type, so if this
+      message is ignored, the count is treated as zero.
 
       Note that negative counts may be caused by a known GCC bug - see
 
@@ -1480,56 +3329,105 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
          https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68080
 
-      and try compiling with "-fprofile-update=atomic". You will need to recompile, re-run your tests, and re-capture coverage data.
+      and try compiling with "-fprofile-update=atomic". You will need to
+      recompile, re-run your tests, and re-capture coverage data.
 
    package:
-      A required perl package is not installed on your system. In some cases, it is possible to ignore this message and continue - however, certain features will be disabled in that case.
+      A required perl package is not installed on your system. In some cases, it
+      is possible to ignore this message and continue - however, certain
+      features will be disabled in that case.
 
    parallel:
-      various types of errors related to parallelism - *i.e.*, a child process died due to an error. The corresponding error message appears in the log file immediately before the *parallel* error. If you see an error related to parallel execution that seems invalid, it may be a good idea to remove the --parallel flag and try again. If removing the flag leads to a different result, please report the issue (along with a testcase) so that the tool can be fixed.
+      various types of errors related to parallelism - *i.e.*, a child process
+      died due to an error. The corresponding error message appears in the log
+      file immediately before the *parallel* error. If you see an error related
+      to parallel execution that seems invalid, it may be a good idea to remove
+      the --parallel flag and try again. If removing the flag leads to a
+      different result, please report the issue (along with a testcase) so that
+      the tool can be fixed.
 
    path:
-      File name found in ``--diff-file`` file but does not appear in either baseline or current trace data. These may be mapping issues - different pathname in the tracefile vs. the diff file.
+      File name found in ``--diff-file`` file but does not appear in either
+      baseline or current trace data. These may be mapping issues - different
+      pathname in the tracefile vs. the diff file.
 
    range:
-      Coverage data refers to a line number which is larger than the number of lines in the source file. This can be caused by a version mismatch or by an issue in the *gcov* data.
+      Coverage data refers to a line number which is larger than the number of
+      lines in the source file. This can be caused by a version mismatch or by
+      an issue in the *gcov* data.
 
    source:
       The source code file for a data set could not be found.
 
    unmapped:
-      Coverage data for a particular line cannot be found, possibly because the source code was not found, or because the line number mapping in the \.info file is wrong.
+      Coverage data for a particular line cannot be found, possibly because the
+      source code was not found, or because the line number mapping in the
+      \.info file is wrong.
 
-      This can happen if the source file used in HTML generation is not the same as the file used to generate the coverage data - for example, lines have been added or removed.
+      This can happen if the source file used in HTML generation is not the same
+      as the file used to generate the coverage data - for example, lines have
+      been added or removed.
 
    unreachable:
-      a coverpoint (line, branch, function, or MC/DC) within an "unreachable" region is executed (hit); either the code, directive placement, or both are wrong. If the error is ignored, the offending coverpoint is retained (not excluded) or not, depending on the value of the *retain_unreachable_coverpoints_if_executed* configuration parameter. See :manpage:`lcovrc(5)` and the *"Exclusion markers"* section of :manpage:`geninfo(1)` for more information.
+      a coverpoint (line, branch, function, or MC/DC) within an "unreachable"
+      region is executed (hit); either the code, directive placement, or both
+      are wrong. If the error is ignored, the offending coverpoint is retained
+      (not excluded) or not, depending on the value of the
+      *retain_unreachable_coverpoints_if_executed* configuration parameter. See
+      :manpage:`lcovrc(5)` and the *"Exclusion markers"* section of
+      :manpage:`geninfo(1)` for more information.
 
    unsupported:
-      The requested feature is not supported for this tool configuration. For example, function begin/end line range exclusions use some GCOV features that are not available in older GCC releases.
+      The requested feature is not supported for this tool configuration. For
+      example, function begin/end line range exclusions use some GCOV features
+      that are not available in older GCC releases.
 
    unused:
-      The include/exclude/erase/substitute/omit pattern did not match any file pathnames.
+      The include/exclude/erase/substitute/omit pattern did not match any file
+      pathnames.
 
    usage:
       unsupported usage detected - *e.g.* an unsupported option combination.
 
    utility:
-      a tool called during processing returned an error code (*e.g.*, 'find' encountered an unreadable directory).
+      a tool called during processing returned an error code (*e.g.*, 'find'
+      encountered an unreadable directory).
 
    version:
-      --version-script comparison returned non-zero mismatch indication. It likely that the version of the file which was used in coverage data extraction is different than the source version which was found. File annotations may be incorrect.
+      --version-script comparison returned non-zero mismatch indication. It
+      likely that the version of the file which was used in coverage data
+      extraction is different than the source version which was found. File
+      annotations may be incorrect.
 
-   Note that certain error messages are caused by issues that you probably cannot fix by yourself - for example, bugs in your tool chain which result in *inconsistent* coverage DB data (see above). In those cases, after reviewing the messages you may want to exclude the offending code or the entire offending file, or you may simply ignore the messages - either by converting to warning or suppressing entirely. Another alternative is to tell ``genhtml`` about the number of messages you expect - so that it can warn you if something changes such that the count differs, such that you know to review the messages again. See the *--expect-message-count* flag, below.
+   Note that certain error messages are caused by issues that you probably
+   cannot fix by yourself - for example, bugs in your tool chain which result in
+   *inconsistent* coverage DB data (see above). In those cases, after reviewing
+   the messages you may want to exclude the offending code or the entire
+   offending file, or you may simply ignore the messages - either by converting
+   to warning or suppressing entirely. Another alternative is to tell
+   ``genhtml`` about the number of messages you expect - so that it can warn you
+   if something changes such that the count differs, such that you know to
+   review the messages again. See the *--expect-message-count* flag, below.
 
-   Also see ':manpage:`lcovrc(5)`' for a discussion of the 'max_message_count' parameter which can be used to control the number of warnings which are emitted before all subsequent messages are suppressed. This can be used to reduce log file volume.
+   Also see :manpage:`lcovrc(5)` for a discussion of the 'max_message_count'
+   parameter which can be used to control the number of warnings which are
+   emitted before all subsequent messages are suppressed. This can be used to
+   reduce log file volume.
 
 ``--expect-message-count message_type:expr[,message_type:expr]``
-   Give ``genhtml`` a constraint on the number of messages of one or more types which are expected to be produced during execution. Note that the total includes _all_ messages of the given type - including those which have been suppressed. If the constraint is not true, an error of type *count* (see above) is generated. *message_type* is one of the message mnemonics described above, and *expr* may be either
+   Give ``genhtml`` a constraint on the number of messages of one or more types
+   which are expected to be produced during execution. Note that the total
+   includes _all_ messages of the given type - including those which have been
+   suppressed. If the constraint is not true, an error of type *count* (see
+   above) is generated. *message_type* is one of the message mnemonics described
+   above, and *expr* may be either
 
-   -  an integer - interpreted to mean that there should be exactly that number of messages of the corresponding type, or
+   -  an integer - interpreted to mean that there should be exactly that number
+      of messages of the corresponding type, or
 
-   -  a Perl expression containing the substring ``%C``; %C is replaced with the total number of messages of the corresponding type and then evaluated. The constraint is met if the result is non-zero and is not met otherwise.
+   -  a Perl expression containing the substring ``%C``; %C is replaced with the
+      total number of messages of the corresponding type and then evaluated. The
+      constraint is met if the result is non-zero and is not met otherwise.
 
    For example:
 
@@ -1543,112 +3441,181 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
 
       --expect-message-count inconsistent:%C==5
 
-   also says that we expect exactly 5 messages of this type, but specified using expression syntax.
+   also says that we expect exactly 5 messages of this type, but specified using
+   expression syntax.
 
    ::
 
       --expect-message-count 'inconsistent : %C > 6 && %C <= 10'
 
-   says that we expect the number of messages to be in the range (6:10]. (Note that quoting may be necessary, to protect whitespace from interpretation by your shell, if you want to improve expression readability by adding spaces to your expression.)
+   says that we expect the number of messages to be in the range (6:10]. (Note
+   that quoting may be necessary, to protect whitespace from interpretation by
+   your shell, if you want to improve expression readability by adding spaces to
+   your expression.)
 
-   Multiple constraints can be specified using a comma-separated list or by using the option multiple times.
+   Multiple constraints can be specified using a comma-separated list or by
+   using the option multiple times.
 
-   This flag is equivalent to the *expect_message_count* configuration option. See :manpage:`lcovrc(5)` for more details on the expression syntax and how expressions are interpreted. The number of messages of the particular type is substituted into the expression before it is evaluated.
+   This flag is equivalent to the *expect_message_count* configuration option.
+   See :manpage:`lcovrc(5)` for more details on the expression syntax and how
+   expressions are interpreted. The number of messages of the particular type is
+   substituted into the expression before it is evaluated.
 
 ``--keep-going``
    Do not stop if error occurs: attempt to generate a result, however flawed.
 
-   This command line option corresponds to the *stop_on_error* lcovrc option. See :manpage:`lcovrc(5)` for more details.
+   This command line option corresponds to the *stop_on_error* lcovrc option.
+   See :manpage:`lcovrc(5)` for more details.
 
 ``--config-file`` *config-file*
-   Specify a configuration file to use. See :manpage:`lcovrc(5)` for details of the file format and options. Also see the *config_file* entry in the same man page for details on how to include one config file into another.
+   Specify a configuration file to use. See :manpage:`lcovrc(5)` for details of
+   the file format and options. Also see the *config_file* entry in the same man
+   page for details on how to include one config file into another.
 
-   When this option is specified, neither the system-wide configuration file /etc/lcovrc, nor the per-user configuration file ~/.lcovrc is read.
+   When this option is specified, neither the system-wide configuration file
+   /etc/lcovrc, nor the per-user configuration file ~/.lcovrc is read.
 
-   This option may be useful when there is a need to run several instances of ``genhtml`` with different configuration file options in parallel.
+   This option may be useful when there is a need to run several instances of
+   ``genhtml`` with different configuration file options in parallel.
 
-   Note that this option must be specified in full - abbreviations are not supported.
+   Note that this option must be specified in full - abbreviations are not
+   supported.
 
 ``--profile`` [ *profile-data-file* ]
-   Tell the tool to keep track of performance and other configuration data. If the optional *profile-data-file* is not specified, then the profile data is written to a file named *genhtml.json* in the output directory.
+   Tell the tool to keep track of performance and other configuration data. If
+   the optional *profile-data-file* is not specified, then the profile data is
+   written to a file named *genhtml.json* in the output directory.
 
-   Profile data is useful if you are trying to optimize the ``lcov`` implementation (see ``$LCOV_ROOT/share/lcov/support-scripts/spreadsheet.py``), and can also enable faster 'genhtml --parallel' execution (see the "--history-script" section of this man page).
+   Profile data is useful if you are trying to optimize the ``lcov``
+   implementation (see
+   ``$LCOV_ROOT/share/lcov/support-scripts/spreadsheet.py``), and can also
+   enable faster 'genhtml --parallel' execution (see the "--history-script"
+   section of this man page).
 
 ``--history-script`` *script*
-   Tell the tool to use performance data from a prior job to predict resource usage by the current job. This may allow better segmentation to enable more balanced workloads between parallel threads - thus improving wall clock execution time.
+   Tell the tool to use performance data from a prior job to predict resource
+   usage by the current job. This may allow better segmentation to enable more
+   balanced workloads between parallel threads - thus improving wall clock
+   execution time.
 
-   A common source for the *previous-profile-data-file* is the profile data generated by a prior regression suite execution. See ``$LCOV_ROOT/share/lcov/example`` and ``$LCOV_ROOT/share/lcov/support-scripts/history.pm`` in the installed release (or ``.../example`` in the source repository).
+   A common source for the *previous-profile-data-file* is the profile data
+   generated by a prior regression suite execution. See
+   ``$LCOV_ROOT/share/lcov/example`` and
+   ``$LCOV_ROOT/share/lcov/support-scripts/history.pm`` in the installed release
+   (or ``.../example`` in the source repository).
 
 ``--rc`` *keyword* = *value*
    Override a configuration directive.
 
-   Use this option to specify a *keyword* = *value* statement which overrides the corresponding configuration statement in the lcovrc configuration file. You can specify this option more than once to override multiple configuration statements. See :manpage:`lcovrc(5)` for a list of available keywords and their meaning.
+   Use this option to specify a *keyword* = *value* statement which overrides
+   the corresponding configuration statement in the lcovrc configuration file.
+   You can specify this option more than once to override multiple configuration
+   statements. See :manpage:`lcovrc(5)` for a list of available keywords and
+   their meaning.
 
 ``--precision`` *num*
    Show coverage rates with *num* number of digits after the decimal point.
 
    Default value is 1.
 
-   This option can also be configured permanently using the configuration file option *genhtml_precision*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_precision*.
 
 ``--merge-aliases``
-   Functions whose file/line is the same are considered to be aliases; ``genhtml`` uses the shortest name in the list of aliases (fewest characters) as the leader.
+   Functions whose file/line is the same are considered to be aliases;
+   ``genhtml`` uses the shortest name in the list of aliases (fewest characters)
+   as the leader.
 
-   This option counts each alias group as a single object - so the 'function' count will be the number of distinct function groups rather than the total number of aliases of all functions - and displays them as groups in the 'function detail table.
+   This option counts each alias group as a single object - so the 'function'
+   count will be the number of distinct function groups rather than the total
+   number of aliases of all functions - and displays them as groups in the
+   'function detail table.
 
-   Note that this option has an effect only if ``"--filter function"`` has been applied to the coverage DB.
+   Note that this option has an effect only if ``"--filter function"`` has been
+   applied to the coverage DB.
 
-   This parameter an be configured via the configuration file *merge_function_aliases* option. See ``man(5) lcovrc``.
+   This parameter an be configured via the configuration file
+   *merge_function_aliases* option. See ``man(5) lcovrc``.
 
 ``--suppress-aliases``
    Suppress list of aliases in function detail table.
 
-   Functions whose file/line is the same are considered to be aliases; ``genhtml`` uses the shortest name in the list of aliases (fewest characters) as the leader.
+   Functions whose file/line is the same are considered to be aliases;
+   ``genhtml`` uses the shortest name in the list of aliases (fewest characters)
+   as the leader.
 
-   The number of aliases can be large, for example due to instantiated templates - which can make function coverage results difficult to read. This option removes the list of aliases, making it easier to focus on the overall function coverage number, which is likely more interesting.
+   The number of aliases can be large, for example due to instantiated
+   templates - which can make function coverage results difficult to read. This
+   option removes the list of aliases, making it easier to focus on the overall
+   function coverage number, which is likely more interesting.
 
-   Note that this option has an effect only if ``"--filter function"`` has been applied to the coverage DB.
+   Note that this option has an effect only if ``"--filter function"`` has been
+   applied to the coverage DB.
 
-   This parameter an be configured via the configuration file *merge_function_aliases* option. See ``man(5) lcovrc``.
+   This parameter an be configured via the configuration file
+   *merge_function_aliases* option. See ``man(5) lcovrc``.
 
 ``--forget-test-names``
-   If non-zero, ignore testcase names in .info file - *i.e.*, treat all coverage data as if it came from the same testcase. This may improve performance and reduce memory consumption if user does not need per-testcase coverage summary in coverage reports.
+   If non-zero, ignore testcase names in .info file - *i.e.*, treat all coverage
+   data as if it came from the same testcase. This may improve performance and
+   reduce memory consumption if user does not need per-testcase coverage summary
+   in coverage reports.
 
-   This option can also be configured permanently using the configuration file option *forget_testcase_names*.
+   This option can also be configured permanently using the configuration file
+   option *forget_testcase_names*.
 
 ``--missed``
-   Show counts of missed lines, functions, branches, and MC/DC expressions.
+   Show counts of missed lines, functions, branches, MC/DC expressions, and call
+   sites.
 
-   Use this option to change overview pages to show the count of lines, functions, branches, or MC/DC expressions that were not hit. These counts are represented by negative numbers.
+   Use this option to change overview pages to show the count of lines,
+   functions, branches, MC/DC expressions, or call sites that were not hit.
+   These counts are represented by negative numbers.
 
-   When specified together with --sort-tables, file and directory views will be sorted by missed counts.
+   When specified together with --sort-tables, file and directory views will be
+   sorted by missed counts.
 
-   This option can also be configured permanently using the configuration file option *genhtml_missed*.
+   This option can also be configured permanently using the configuration file
+   option *genhtml_missed*.
 
 ``--dark-mode``
-   Use a light-display-on-dark-background color scheme rather than the default dark-display-on-light-background.
+   Use a light-display-on-dark-background color scheme rather than the default
+   dark-display-on-light-background.
 
-   The idea is to reduce eye strain due to viewing dark text on a bright screen - particularly at night.
+   The idea is to reduce eye strain due to viewing dark text on a bright
+   screen - particularly at night.
 
 ``--tempdir`` *dirname*
-   Write temporary and intermediate data under the indicated directory. Default is the platform temporary directory: $TMPDIR, $TEMP or $TMP if one of them names a writeable directory, otherwise "/tmp" on Unix or "C:\\temp" on Windows.
+   Write temporary and intermediate data under the indicated directory. Default
+   is the platform temporary directory: $TMPDIR, $TEMP or $TMP if one of them
+   names a writeable directory, otherwise "/tmp" on Unix or "C:\\temp" on
+   Windows.
 
-   A uniquely named subdirectory of *dirname* is created for the run, and the data is written there - so several runs can share one *dirname* without colliding. *dirname* itself is created if it does not exist.
+   A uniquely named subdirectory of *dirname* is created for the run, and the
+   data is written there - so several runs can share one *dirname* without
+   colliding. *dirname* itself is created if it does not exist.
 
-   Unless *--preserve* is specified, the generated subdirectory and its contents are removed when ``genhtml`` exits.
+   Unless *--preserve* is specified, the generated subdirectory and its contents
+   are removed when ``genhtml`` exits.
 
-   This option can also be configured permanently using the configuration file option *lcov_tmp_dir*.
+   This option can also be configured permanently using the configuration file
+   option *lcov_tmp_dir*.
 
 ``--preserve``
-   Preserve intermediate data files generated by various steps in the tool - *e.g.*, for debugging. By default, these files are deleted.
+   Preserve intermediate data files generated by various steps in the tool -
+   *e.g.*, for debugging. By default, these files are deleted.
 
 ``--save``
-   Copy *unified-diff-file, baseline_trace_files,* and *tracefile(s)* to output-directory.
+   Copy *unified-diff-file, baseline_trace_files,* and *tracefile(s)* to
+   output-directory.
 
-   Keeping copies of the input data files may help to debug any issues or to regenerate report files later.
+   Keeping copies of the input data files may help to debug any issues or to
+   regenerate report files later.
 
 ``--sort-input``
-   Specify whether to sort file names before capture and/or aggregation. Sorting reduces certain types of processing order-dependent output differences. See the *sort_input* section in :manpage:`lcovrc(5)`.
+   Specify whether to sort file names before capture and/or aggregation. Sorting
+   reduces certain types of processing order-dependent output differences. See
+   the *sort_input* section in :manpage:`lcovrc(5)`.
 
 ``--serialize`` *file_name*
    Save coverage database to *file_name*.
@@ -1659,7 +3626,8 @@ In general, (almost) all ``genhtml`` options can also be specified in your perso
    These formats are not compatible:  if you serialize binary data, then
    you must deserialize binary data - and vice versa.
 
-   Note that this option may significantly increase *genhtml* memory requirements, as a great deal of data must be retained.
+   Note that this option may significantly increase *genhtml* memory
+   requirements, as a great deal of data must be retained.
 
 
 FILES
@@ -1674,26 +3642,32 @@ FILES
 Sample *--diff-file* data creation scripts:
 
    ``scripts/p4udiff``
-      Sample script for use with ``--diff-file`` that creates a unified diff file via **Perforce**.
+      Sample script for use with ``--diff-file`` that creates a unified diff
+      file via **Perforce**.
 
    ``scripts/gitdiff``
-      Sample script for use with ``--diff-file`` that creates a unified diff file via **git**.
+      Sample script for use with ``--diff-file`` that creates a unified diff
+      file via **git**.
 
 Sample *--annotate-script* callback Perl modules:
 
    ``scripts/p4annotate.pm``
-      Sample script written as Perl module for use with ``--annotate-script`` that provides annotation data via **Perforce**.
+      Sample script written as Perl module for use with ``--annotate-script``
+      that provides annotation data via **Perforce**.
 
    ``scripts/gitblame.pm``
-      Sample script written as Perl module for use with ``--annotate-script`` that provides annotation data via git.
+      Sample script written as Perl module for use with ``--annotate-script``
+      that provides annotation data via git.
 
 Sample *--criteria-script* callback Perl modules:
 
    ``scripts/criteria.pm``
-      Sample script written as Perl module for use with ``--criteria-script`` that implements a check for "UNC + LBC + UIC == 0".
+      Sample script written as Perl module for use with ``--criteria-script``
+      that implements a check for "UNC + LBC + UIC == 0".
 
    ``scripts/threshold.pm``
-      Sample script written as Perl module to check for minimum acceptable line and/or branch and/or and/or MC/DC function coverage. For example, the
+      Sample script written as Perl module to check for minimum acceptable line
+      and/or branch and/or and/or MC/DC function coverage. For example, the
 
       *"genhtml --fail_under_lines 75 ..."*
 
@@ -1704,24 +3678,31 @@ Sample *--criteria-script* callback Perl modules:
 Sample *--simplify-script* callback Perl module:
 
    ``scripts/simplify.pm``
-      Sample script written as Perl module for use with ``--simplify-script`` that implements regular expression substitutions for function name simplification.
+      Sample script written as Perl module for use with ``--simplify-script``
+      that implements regular expression substitutions for function name
+      simplification.
 
 Sample *--version-script* callback Perl modules and scripts:
 
    ``scripts/getp4version``
-      Sample script for use with ``--version-script`` that obtains version IDs via **Perforce**.
+      Sample script for use with ``--version-script`` that obtains version IDs
+      via **Perforce**.
 
    ``scripts/P4version.pm``
-      A perl module with similar functionality to **getp4version** but higher performance.
+      A perl module with similar functionality to **getp4version** but higher
+      performance.
 
    ``scripts/get_signature``
-      Sample script for use with ``--version-script`` that uses md5hash as version IDs.
+      Sample script for use with ``--version-script`` that uses md5hash as
+      version IDs.
 
    ``scripts/gitversion.pm``
-      A perl module with for use with ``--version-script`` which retrieves version IDs from **git**.
+      A perl module with for use with ``--version-script`` which retrieves
+      version IDs from **git**.
 
    ``scripts/batchGitVersion.pm``
-      A perl module with similar functionality to **gitversion.pm** but higher performance.
+      A perl module with similar functionality to **gitversion.pm** but higher
+      performance.
 
 
 AUTHORS
@@ -1730,12 +3711,15 @@ AUTHORS
 Peter Oberparleiter <Peter.Oberparleiter@de.ibm.com>
 
 Henry Cox <henry.cox@mediatek.com>
-   Differential coverage and date/owner binning, filtering, error management, parallel execution sections,
+   Differential coverage and date/owner binning, filtering, error management,
+   parallel execution sections,
 
 
 SEE ALSO
 --------
 
-:manpage:`lcov(1)`, :manpage:`lcovrc(5)`, :manpage:`geninfo(1)`, :manpage:`llvm2lcov(1)`, :manpage:`perl2lcov(1)`, :manpage:`py2lcov(1)`, :manpage:`gendesc(1)`, :manpage:`gcov(1)`
+:manpage:`lcov(1)`, :manpage:`lcovrc(5)`, :manpage:`geninfo(1)`,
+:manpage:`llvm2lcov(1)`, :manpage:`perl2lcov(1)`, :manpage:`py2lcov(1)`,
+:manpage:`gendesc(1)`, :manpage:`gcov(1)`
 
 *https://github.com/linux-test-project/lcov*

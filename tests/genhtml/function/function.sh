@@ -4,7 +4,7 @@ set +x
 source ../../common.tst
 
 rm -f test.cpp *.gcno *.gcda a.out *.info *.info.gz diff.txt diff_r.txt diff_broken.txt *.log *.err *.json dumper* results.xlsx *.diff *.txt template *gcov
-rm -rf baseline_*call_current*call alias* no_alias*
+rm -rf baseline_*call_current*call alias* no_alias* body.c body_base body_html shift.c shift_html
 
 clean_cover
 
@@ -29,7 +29,10 @@ fi
 LCOV_BASE="$EXTRA_GCOV_OPTS --branch-coverage $PARALLEL $PROFILE --no-external --ignore unused,unsupported --erase-function .*GLOBAL.*"
 VERSION_OPTS="--version-script $GET_VERSION"
 LCOV_OPTS="$LCOV_BASE $VERSION_OPTS"
-DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL"
+# '--ignore empty' for the same reason the captures above use it:  this source
+#   has no branches in it, so the '--branch-coverage' asked for here finds no
+#   coverpoints of that type and the read says so
+DIFFCOV_OPTS="--filter line,branch,function --function-coverage --branch-coverage --demangle-cpp --frame --prefix $PARENT --version-script $GET_VERSION $PROFILE $PARALLEL --ignore empty"
 #DIFFCOV_OPTS="--function-coverage --branch-coverage --demangle-cpp --frame"
 #DIFFCOV_OPTS='--function-coverage --branch-coverage --demangle-cpp'
 
@@ -255,6 +258,246 @@ for opt in '' '--forget-test-names' ; do
         fi
     fi
 done
+
+# Whether a function body changed is decided by the diff:  a line of source
+#   code inserted into the function, or deleted from it.  An unchanged line is
+#   no change even if only one version has a coverpoint on it - 'f', whose
+#   closing brace has one in the current data alone - and neither is an
+#   inserted line which is not code - the comment in 'g'.  'h' has a line of
+#   code inserted and 'k' one deleted.  A line of a multi-line statement is
+#   code, though only the statement's first line has a coverpoint:  'm' has
+#   one inserted and 'n' one deleted.  None of them is executed
+mkdir -p body_base
+cat > body_base/body.c <<'EOF'
+int f(void)
+{
+  return 0;
+}
+int g(void)
+{
+  return 1;
+}
+int h(void)
+{
+  return 2;
+}
+int k(void)
+{
+  (void)0;
+  return 3;
+}
+int m(void)
+{
+  return 4 +
+         5;
+}
+int n(void)
+{
+  return 6 +
+         7 +
+         8;
+}
+EOF
+cat > body.c <<'EOF'
+int f(void)
+{
+  return 0;
+}
+int g(void)
+{
+  /* a comment */
+  return 1;
+}
+int h(void)
+{
+  (void)0;
+  return 2;
+}
+int k(void)
+{
+  return 3;
+}
+int m(void)
+{
+  return 4 +
+         9 +
+         5;
+}
+int n(void)
+{
+  return 6 +
+         8;
+}
+EOF
+BODY=`pwd`/body.c
+diff -u body_base/body.c body.c | sed -e "s#^\(---\|+++\) [^\t]*#\1 $BODY#" > body_diff.txt
+cat > body_base.info <<EOF
+TN:
+SF:$BODY
+FNL:0,1,4
+FNA:0,0,f
+FNL:1,5,8
+FNA:1,0,g
+FNL:2,9,12
+FNA:2,0,h
+FNL:3,13,17
+FNA:3,0,k
+FNL:4,18,22
+FNA:4,0,m
+FNL:5,23,28
+FNA:5,0,n
+FNF:6
+FNH:0
+DA:1,0
+DA:3,0
+DA:5,0
+DA:7,0
+DA:9,0
+DA:11,0
+DA:13,0
+DA:15,0
+DA:16,0
+DA:18,0
+DA:20,0,,21
+DA:23,0
+DA:25,0,,27
+LF:13
+LH:0
+end_of_record
+EOF
+cat > body_curr.info <<EOF
+TN:
+SF:$BODY
+FNL:0,1,4
+FNA:0,0,f
+FNL:1,5,9
+FNA:1,0,g
+FNL:2,10,14
+FNA:2,0,h
+FNL:3,15,18
+FNA:3,0,k
+FNL:4,19,24
+FNA:4,0,m
+FNL:5,25,29
+FNA:5,0,n
+FNF:6
+FNH:0
+DA:1,0
+DA:3,0
+DA:4,0
+DA:5,0
+DA:8,0
+DA:10,0
+DA:12,0
+DA:13,0
+DA:15,0
+DA:17,0
+DA:19,0
+DA:21,0,,23
+DA:25,0
+DA:27,0,,28
+LF:14
+LH:0
+end_of_record
+EOF
+rm -rf body_html
+$COVER $GENHTML_TOOL -o body_html --function-coverage -v \
+    --baseline-file body_base.info --diff-file body_diff.txt body_curr.info \
+    > body_html.log 2>&1
+if [ 0 != $? ] ; then
+    cat body_html.log
+    echo "ERROR: genhtml body_html failed"
+    exit 1
+fi
+for f in h k m n ; do
+    if ! grep -q -E "(^|[^a-z_])$f body at $BODY:[0-9]+ is changed" body_html.log ; then
+        echo "ERROR: expected '$f' body to be changed"
+        BODY_FAIL=1
+    fi
+done
+for f in f g ; do
+    if grep -q -E "(^|[^a-z_])$f body at" body_html.log ; then
+        echo "ERROR: expected '$f' body not to be changed"
+        BODY_FAIL=1
+    fi
+done
+if ! grep -q '^    function: UNC:4 UBC:2$' body_html.log ; then
+    echo "ERROR: expected 'function: UNC:4 UBC:2'"
+    BODY_FAIL=1
+fi
+if [ -n "$BODY_FAIL" ] && [ 0 == $KEEP_GOING ] ; then
+    exit 1
+fi
+
+# The two versions are the same source, but the baseline data puts each
+#   function start on its return type line and the current data on its
+#   declarator line - as two compilers may.  'r' and 's' are paired with
+#   the baseline function of the same name:  CBC and UBC.  'u' and 't' have
+#   no name in common, so they stay a deleted and an added function.  No
+#   function start line has a line coverpoint
+cat > shift.c <<'EOF'
+int
+r(void)
+{
+  return 0;
+}
+int
+s(void)
+{
+  return 1;
+}
+int
+t(void)
+{
+  return 2;
+}
+EOF
+SHIFT=`pwd`/shift.c
+: > shift_diff.txt
+cat > shift_base.info <<EOF
+TN:
+SF:$SHIFT
+FNL:0,1,5
+FNA:0,3,r
+FNL:1,6,10
+FNA:1,0,s
+FNL:2,11,15
+FNA:2,0,u
+FNF:3
+FNH:1
+DA:4,3
+DA:9,0
+DA:14,0
+LF:3
+LH:1
+end_of_record
+EOF
+sed -e 's/^FNL:0,1,/FNL:0,2,/' -e 's/^FNL:1,6,/FNL:1,7,/' \
+    -e 's/^FNL:2,11,/FNL:2,12,/' -e 's/,u$/,t/' shift_base.info > shift_curr.info
+rm -rf shift_html
+$COVER $GENHTML_TOOL -o shift_html --function-coverage -v --ignore empty \
+    --baseline-file shift_base.info --diff-file shift_diff.txt \
+    shift_curr.info > shift_html.log 2>&1
+if [ 0 != $? ] ; then
+    cat shift_html.log
+    echo "ERROR: genhtml shift_html failed"
+    exit 1
+fi
+for f in 'r .*:1 is paired with the function at line 2' \
+         's .*:6 is paired with the function at line 7' \
+         '^    function: UIC:1 UBC:1 CBC:1 EUB:1$' ; do
+    if ! grep -q -E "$f" shift_html.log ; then
+        echo "ERROR: expected '$f'"
+        SHIFT_FAIL=1
+    fi
+done
+if grep -q 'u .*is paired' shift_html.log ; then
+    echo "ERROR: expected 'u' not to be paired"
+    SHIFT_FAIL=1
+fi
+if [ -n "$SHIFT_FAIL" ] && [ 0 == $KEEP_GOING ] ; then
+    exit 1
+fi
 
 
 # and generate a spreadsheet..check that we don't crash
