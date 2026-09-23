@@ -531,9 +531,9 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-12345: alice 2024/01/15 first line of code
-12346: bob 2024/02/20 second line of code
-12347: carol 2024/03/25 third line of code
+12345: bertie.wooster 2024/01/15 first line of code
+12346: uncle.fred 2024/02/20 second line of code
+12347: gussie.finknottle 2024/03/25 third line of code
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -547,9 +547,9 @@ else
     L1=$(echo "$OUTPUT" | head -1)
     L2=$(echo "$OUTPUT" | sed -n '2p')
     L3=$(echo "$OUTPUT" | sed -n '3p')
-    if [ "$L1" != "12345|alice|2024-01-15T00:00:00-05:00|first line of code"  ] ||
-       [ "$L2" != "12346|bob|2024-02-20T00:00:00-05:00|second line of code"   ] ||
-       [ "$L3" != "12347|carol|2024-03-25T00:00:00-05:00|third line of code"  ] ; then
+    if [ "$L1" != "12345|bertie.wooster|2024-01-15T00:00:00-05:00|first line of code"  ] ||
+       [ "$L2" != "12346|uncle.fred|2024-02-20T00:00:00-05:00|second line of code"   ] ||
+       [ "$L3" != "12347|gussie.finknottle|2024-03-25T00:00:00-05:00|third line of code"  ] ; then
         fail "Test 19 basic: output mismatch:
 $OUTPUT"
     else
@@ -565,8 +565,8 @@ export P4MOCK_HAVE="//depot/test/sample.c#3 - /workspace/sample.c"
 unset P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-99: alice 2023/06/01 versioned line one
-100: alice 2023/06/01 versioned line two
+99: bertie.wooster 2023/06/01 versioned line one
+100: bertie.wooster 2023/06/01 versioned line two
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -577,7 +577,7 @@ rm -f "$TGT" "$AMOCK" ; unset P4MOCK_ANNOTATE P4MOCK_HAVE
 if [ $RC -ne 0 ] ; then
     fail "Test 20 versioned: expected exit 0, got $RC; output: $OUTPUT"
 else
-    MATCH=$(echo "$OUTPUT" | grep -c '|alice|2023-06-01T00:00:00-05:00|versioned line')
+    MATCH=$(echo "$OUTPUT" | grep -c '|bertie\.wooster|2023-06-01T00:00:00-05:00|versioned line')
     [ "$MATCH" -eq 2 ] && pass "Test 20: versioned file (#3) annotated correctly" ||
         fail "Test 20 versioned: expected 2 matching lines, got $MATCH:
 $OUTPUT"
@@ -590,7 +590,7 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-55555: <alice@example.com> 2024/04/10 line with email owner
+55555: <bertie.wooster@jeeves.co.uk> 2024/04/10 line with email owner
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -600,7 +600,7 @@ rm -f "$TGT" "$AMOCK" ; unset P4MOCK_ANNOTATE
 
 if [ $RC -ne 0 ] ; then
     fail "Test 21 angle-brackets: expected exit 0, got $RC"
-elif ! echo "$OUTPUT" | grep -q '|alice@example\.com|' ; then
+elif ! echo "$OUTPUT" | grep -q '|bertie\.wooster@jeeves\.co\.uk|' ; then
     fail "Test 21 angle-brackets: expected bare email after stripping <>:
 $OUTPUT"
 else
@@ -614,7 +614,7 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-12345: alice 2024/01/15 normal line
+12345: bertie.wooster 2024/01/15 normal line
 this line does not match the p4 annotate pattern at all
 EOF
 )
@@ -626,7 +626,7 @@ rm -f "$TGT" "$AMOCK" ; unset P4MOCK_ANNOTATE
 if [ $RC -ne 0 ] ; then
     fail "Test 22 non-matching: expected exit 0, got $RC"
 else
-    NORMAL=$(echo "$OUTPUT" | grep -c '^12345|alice|')
+    NORMAL=$(echo "$OUTPUT" | grep -c '^12345|bertie\.wooster|')
     NONE=$(echo "$OUTPUT" | grep -c '^NONE|NONE|NONE|')
     if [ "$NORMAL" -ne 1 ] || [ "$NONE" -ne 1 ] ; then
         fail "Test 22 non-matching: expected 1 normal + 1 NONE line, got $NORMAL/$NONE:
@@ -650,8 +650,8 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-200: alice 2024/01/15 unchanged line one
-201: bob 2024/02/20 unchanged line two
+200: bertie.wooster 2024/01/15 unchanged line one
+201: uncle.fred 2024/02/20 unchanged line two
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -665,8 +665,8 @@ if [ $RC -ne 0 ] ; then
 else
     L1=$(echo "$OUTPUT" | head -1)
     L2=$(echo "$OUTPUT" | sed -n '2p')
-    if [ "$L1" != "200|alice|2024-01-15T00:00:00-05:00|unchanged line one" ] ||
-       [ "$L2" != "201|bob|2024-02-20T00:00:00-05:00|unchanged line two"   ] ; then
+    if [ "$L1" != "200|bertie.wooster|2024-01-15T00:00:00-05:00|unchanged line one" ] ||
+       [ "$L2" != "201|uncle.fred|2024-02-20T00:00:00-05:00|unchanged line two"   ] ; then
         fail "Test 23 edit-no-diff: unexpected output:
 $OUTPUT"
     else
@@ -691,8 +691,8 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-300: alice 2024/01/15 depot line one
-301: alice 2024/01/15 depot line two
+300: bertie.wooster 2024/01/15 depot line one
+301: bertie.wooster 2024/01/15 depot line two
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -710,8 +710,8 @@ else
     L3=$(echo "$OUTPUT" | sed -n '3p')
     L4=$(echo "$OUTPUT" | sed -n '4p')
     OK=1
-    [ "$L1" = "300|alice|2024-01-15T00:00:00-05:00|depot line one" ] || OK=0
-    [ "$L2" = "301|alice|2024-01-15T00:00:00-05:00|depot line two" ] || OK=0
+    [ "$L1" = "300|bertie.wooster|2024-01-15T00:00:00-05:00|depot line one" ] || OK=0
+    [ "$L2" = "301|bertie.wooster|2024-01-15T00:00:00-05:00|depot line two" ] || OK=0
     echo "$L3" | grep -q '^77|testuser|' || OK=0
     echo "$L3" | grep -q '|appended line three$' || OK=0
     echo "$L4" | grep -q '^77|testuser|' || OK=0
@@ -740,9 +740,9 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-10: alice 2024/01/15 line one
-11: alice 2024/01/15 line two
-12: alice 2024/01/15 line three
+10: bertie.wooster 2024/01/15 line one
+11: bertie.wooster 2024/01/15 line two
+12: bertie.wooster 2024/01/15 line three
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -760,11 +760,11 @@ else
     L3=$(echo "$OUTPUT" | sed -n '3p')
     L4=$(echo "$OUTPUT" | sed -n '4p')
     OK=1
-    [ "$L1" = "10|alice|2024-01-15T00:00:00-05:00|line one"   ] || OK=0
-    [ "$L2" = "11|alice|2024-01-15T00:00:00-05:00|line two"   ] || OK=0
+    [ "$L1" = "10|bertie.wooster|2024-01-15T00:00:00-05:00|line one"   ] || OK=0
+    [ "$L2" = "11|bertie.wooster|2024-01-15T00:00:00-05:00|line two"   ] || OK=0
     echo "$L3" | grep -q '^default|testuser|' || OK=0
     echo "$L3" | grep -q '|inserted line$'    || OK=0
-    [ "$L4" = "12|alice|2024-01-15T00:00:00-05:00|line three" ] || OK=0
+    [ "$L4" = "12|bertie.wooster|2024-01-15T00:00:00-05:00|line three" ] || OK=0
     if [ $OK -ne 1 ] || [ "$LINES" -ne 4 ] ; then
         fail "Test 25 mid-add: unexpected output ($LINES lines):
 $OUTPUT"
@@ -789,9 +789,9 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-20: alice 2024/01/15 first line
-21: alice 2024/01/15 deleted depot line
-22: alice 2024/01/15 third line
+20: bertie.wooster 2024/01/15 first line
+21: bertie.wooster 2024/01/15 deleted depot line
+22: bertie.wooster 2024/01/15 third line
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -807,8 +807,8 @@ else
     L1=$(echo "$OUTPUT" | head -1)
     L2=$(echo "$OUTPUT" | sed -n '2p')
     OK=1
-    [ "$L1" = "20|alice|2024-01-15T00:00:00-05:00|first line" ] || OK=0
-    [ "$L2" = "22|alice|2024-01-15T00:00:00-05:00|third line" ] || OK=0
+    [ "$L1" = "20|bertie.wooster|2024-01-15T00:00:00-05:00|first line" ] || OK=0
+    [ "$L2" = "22|bertie.wooster|2024-01-15T00:00:00-05:00|third line" ] || OK=0
     if [ $OK -ne 1 ] || [ "$LINES" -ne 2 ] ; then
         fail "Test 26 delete: unexpected output ($LINES lines):
 $OUTPUT"
@@ -838,10 +838,10 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-30: alice 2024/01/15 line one
-31: alice 2024/01/15 old depot line 2
-32: alice 2024/01/15 old depot line 3
-33: alice 2024/01/15 line four
+30: bertie.wooster 2024/01/15 line one
+31: bertie.wooster 2024/01/15 old depot line 2
+32: bertie.wooster 2024/01/15 old depot line 3
+33: bertie.wooster 2024/01/15 line four
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -860,14 +860,14 @@ else
     L4=$(echo "$OUTPUT" | sed -n '4p')
     L5=$(echo "$OUTPUT" | sed -n '5p')
     OK=1
-    [ "$L1" = "30|alice|2024-01-15T00:00:00-05:00|line one"  ] || OK=0
+    [ "$L1" = "30|bertie.wooster|2024-01-15T00:00:00-05:00|line one"  ] || OK=0
     echo "$L2" | grep -q '^default|testuser|'  || OK=0
     echo "$L2" | grep -q '|new local line 2$'  || OK=0
     echo "$L3" | grep -q '^default|testuser|'  || OK=0
     echo "$L3" | grep -q '|new local line 3$'  || OK=0
     echo "$L4" | grep -q '^default|testuser|'  || OK=0
     echo "$L4" | grep -q '|new local line 4$'  || OK=0
-    [ "$L5" = "33|alice|2024-01-15T00:00:00-05:00|line four" ] || OK=0
+    [ "$L5" = "33|bertie.wooster|2024-01-15T00:00:00-05:00|line four" ] || OK=0
     if [ $OK -ne 1 ] || [ "$LINES" -ne 5 ] ; then
         fail "Test 27 change-hunk: unexpected output ($LINES lines):
 $OUTPUT"
@@ -890,8 +890,8 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-400: carol 2024/05/01 integrate line one
-401: carol 2024/05/01 integrate line two
+400: gussie.finknottle 2024/05/01 integrate line one
+401: gussie.finknottle 2024/05/01 integrate line two
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -903,9 +903,9 @@ unset P4MOCK_OPENED P4MOCK_DIFF P4MOCK_ANNOTATE
 if [ $RC -ne 0 ] ; then
     fail "Test 28 integrate: expected exit 0, got $RC; output: $OUTPUT"
 else
-    MATCH=$(echo "$OUTPUT" | grep -c '|carol|2024-05-01T00:00:00-05:00|integrate line')
+    MATCH=$(echo "$OUTPUT" | grep -c '|gussie\.finknottle|2024-05-01T00:00:00-05:00|integrate line')
     [ "$MATCH" -eq 2 ] && pass "Test 28: opened for integrate -> same diff processing path" ||
-        fail "Test 28 integrate: expected 2 carol lines, got $MATCH:
+        fail "Test 28 integrate: expected 2 gussie lines, got $MATCH:
 $OUTPUT"
 fi
 
@@ -932,12 +932,12 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-50: alice 2024/01/15 depot line 1
-51: alice 2024/01/15 depot line 2
-52: alice 2024/01/15 depot line 3
-53: alice 2024/01/15 depot line 4
-54: alice 2024/01/15 old depot line 5
-55: alice 2024/01/15 old depot line 6
+50: bertie.wooster 2024/01/15 depot line 1
+51: bertie.wooster 2024/01/15 depot line 2
+52: bertie.wooster 2024/01/15 depot line 3
+53: bertie.wooster 2024/01/15 depot line 4
+54: bertie.wooster 2024/01/15 old depot line 5
+55: bertie.wooster 2024/01/15 old depot line 6
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -956,11 +956,11 @@ else
     L4=$(echo "$OUTPUT" | sed -n '4p')
     L5=$(echo "$OUTPUT" | sed -n '5p')
     OK=1
-    [ "$L1" = "51|alice|2024-01-15T00:00:00-05:00|depot line 2" ] || OK=0
-    [ "$L2" = "52|alice|2024-01-15T00:00:00-05:00|depot line 3" ] || OK=0
+    [ "$L1" = "51|bertie.wooster|2024-01-15T00:00:00-05:00|depot line 2" ] || OK=0
+    [ "$L2" = "52|bertie.wooster|2024-01-15T00:00:00-05:00|depot line 3" ] || OK=0
     echo "$L3" | grep -q '^999|testuser|'        || OK=0
     echo "$L3" | grep -q '|inserted after 3$'    || OK=0
-    [ "$L4" = "53|alice|2024-01-15T00:00:00-05:00|depot line 4" ] || OK=0
+    [ "$L4" = "53|bertie.wooster|2024-01-15T00:00:00-05:00|depot line 4" ] || OK=0
     echo "$L5" | grep -q '^999|testuser|'         || OK=0
     echo "$L5" | grep -q '|replacement line 5$'   || OK=0
     if [ $OK -ne 1 ] || [ "$LINES" -ne 5 ] ; then
@@ -978,7 +978,7 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-500: alice 2024/06/01 log test line
+500: bertie.wooster 2024/06/01 log test line
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1006,7 +1006,7 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-501: bob 2024/06/02 env log line
+501: uncle.fred 2024/06/02 env log line
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1034,8 +1034,8 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-600: alice 2024/07/01 verify line one
-601: alice 2024/07/01 verify line two
+600: bertie.wooster 2024/07/01 verify line one
+601: bertie.wooster 2024/07/01 verify line two
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1062,7 +1062,7 @@ export P4MOCK_OPENED="//depot/test/sample.c#1 - add default change (text)"
 # produce no output, causing the "unexpected content" die in the code.
 
 AMOCK=$(mk_annotate << 'EOF'
-700: dave 2024/08/01 add-only line
+700: bingo.little 2024/08/01 add-only line
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1073,7 +1073,7 @@ unset P4MOCK_OPENED P4MOCK_ANNOTATE
 
 if [ $RC -ne 0 ] ; then
     fail "Test 33 add-opened: expected exit 0, got $RC; output: $OUTPUT"
-elif ! echo "$OUTPUT" | grep -q '^700|dave|' ; then
+elif ! echo "$OUTPUT" | grep -q '^700|bingo\.little|' ; then
     fail "Test 33 add-opened: expected depot annotation passthrough; got: $OUTPUT"
 else
     pass "Test 33: opened for 'add' (not edit/integrate) -> diff path skipped"
@@ -1086,8 +1086,8 @@ export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED
 
 AMOCK=$(mk_annotate << 'EOF'
-800: alice 2024/09/01     int x = foo(a, b, c);
-801: bob 2024/09/02 if (x > 0 && y < 10) {
+800: bertie.wooster 2024/09/01     int x = foo(a, b, c);
+801: uncle.fred 2024/09/02 if (x > 0 && y < 10) {
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1100,9 +1100,9 @@ if [ $RC -ne 0 ] ; then
 else
     L1=$(echo "$OUTPUT" | head -1)
     L2=$(echo "$OUTPUT" | sed -n '2p')
-    if [ "$L1" != "800|alice|2024-09-01T00:00:00-05:00|    int x = foo(a, b, c);" ] ; then
+    if [ "$L1" != "800|bertie.wooster|2024-09-01T00:00:00-05:00|    int x = foo(a, b, c);" ] ; then
         fail "Test 34 spaces-in-text: line 1 mismatch: '$L1'"
-    elif [ "$L2" != "801|bob|2024-09-02T00:00:00-05:00|if (x > 0 && y < 10) {" ] ; then
+    elif [ "$L2" != "801|uncle.fred|2024-09-02T00:00:00-05:00|if (x > 0 && y < 10) {" ] ; then
         fail "Test 34 spaces-in-text: line 2 mismatch: '$L2'"
     else
         pass "Test 34: spaces and special chars in text field preserved"
@@ -1172,8 +1172,8 @@ unset P4MOCK_HAVE P4MOCK_OPENED
 #   local file uses a tab and has trailing blanks.  Same tokens, different
 #   whitespace, on every line.
 AMOCK=$(mk_annotate << 'EOF'
-900: alice 2024/10/01     int x = foo(a, b);
-901: alice 2024/10/01     return x;
+900: bertie.wooster 2024/10/01     int x = foo(a, b);
+901: bertie.wooster 2024/10/01     return x;
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1199,7 +1199,7 @@ if [ $RC -ne 0 ] ; then
     fail "Test 37 verify-b: expected exit 0, got $RC; output: $OUTPUT"
 elif echo "$OUTPUT" | grep -q 'mismatched annotation' ; then
     fail "Test 37 verify-b: whitespace-only difference still reported: $OUTPUT"
-elif ! echo "$OUTPUT" | grep -q '^900|alice|.*|    int x = foo(a, b);$' ; then
+elif ! echo "$OUTPUT" | grep -q '^900|bertie\.wooster|.*|    int x = foo(a, b);$' ; then
     fail "Test 37 verify-b: expected the depot text unchanged; got: $OUTPUT"
 else
     pass "Test 37: --verify -b tolerates whitespace-only mismatches"
@@ -1307,8 +1307,8 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 
 AMOCK=$(mk_annotate << 'EOF'
-12345: alice 2024/01/15 spaced line one
-12346: bob 2024/02/20 spaced line two
+12345: bertie.wooster 2024/01/15 spaced line one
+12346: uncle.fred 2024/02/20 spaced line two
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1326,7 +1326,7 @@ rm -rf "$SPACEDIR" "$AMOCK" "$DMOCK"
 
 if [ $RC -ne 0 ] ; then
     fail "Test 40 space-in-path: expected exit 0, got $RC; output: $OUTPUT"
-elif ! echo "$OUTPUT" | grep -q '^12345|alice|.*|spaced line one$' ; then
+elif ! echo "$OUTPUT" | grep -q '^12345|bertie\.wooster|.*|spaced line one$' ; then
     fail "Test 40 space-in-path: expected depot annotation, got:
 $OUTPUT"
 else
@@ -1365,7 +1365,7 @@ EOF
 export P4MOCK_DIFF="$DMOCK"
 export P4MOCK_DIFF_EXIT=4
 AMOCK=$(mk_annotate << 'EOF'
-12345: alice 2024/01/15 line one
+12345: bertie.wooster 2024/01/15 line one
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1396,7 +1396,7 @@ fi
 export P4MOCK_FILES="in_p4"
 unset P4MOCK_HAVE P4MOCK_OPENED P4MOCK_DIFF
 AMOCK=$(mk_annotate << 'EOF'
-12345: alice 2024/01/15 line one
+12345: bertie.wooster 2024/01/15 line one
 EOF
 )
 export P4MOCK_ANNOTATE="$AMOCK"
@@ -1411,7 +1411,7 @@ if [ $RC -ne 1 ] ; then
     fail "Test 42 annotate-fails: expected exit 1, got $RC; output: $OUTPUT"
 elif echo "$OUTPUT" | grep -q 'unable to close' ; then
     fail "Test 42 annotate-fails: died about the close instead: $OUTPUT"
-elif ! echo "$OUTPUT" | grep -q '^12345|alice|.*|line one$' ; then
+elif ! echo "$OUTPUT" | grep -q '^12345|bertie\.wooster|.*|line one$' ; then
     fail "Test 42 annotate-fails: expected the annotation anyway; got:
 $OUTPUT"
 else

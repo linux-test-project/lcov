@@ -127,6 +127,10 @@ private:
 };
 
 
+// How far the line a block is written at may be from its leader -
+//   see BranchBlock::locationOffset
+const int32_t MAX_LOCATION_OFFSET = 127;
+
 // ---------------------------------------------------------------------------
 // BranchBlock
 // ---------------------------------------------------------------------------
@@ -137,6 +141,14 @@ public:
     int32_t idx()          const noexcept;
     void    setIdx(int32_t v) noexcept;
 
+    // The line the block is written at, as an offset from the line of the
+    // BranchLocation which holds it:  0 if it is that line.  A block whose
+    // statement starts on another line is kept on the statement's line, and
+    // remembers where it is written - see BranchBlock::locationOffset in
+    // lcovutil.pm.
+    int32_t locationOffset() const noexcept;
+    void    setLocationOffset(int32_t v) noexcept;
+
     // The concatenated per-element signature characters, e.g. "bb" or "be".
     // DERIVED from elements_ on each call rather than stored:  it is one
     // character per element, so recomputing it is a walk of a vector that the
@@ -145,6 +157,12 @@ public:
     // Returned by value;  it fits std::string's inline buffer at every block
     // size these files contain, so no allocation is made either way.
     std::string signature() const;
+
+    // Distinguish this block from the others of its location:  the
+    // signature, followed by '^' and the location offset if that is not 0.
+    // Two blocks written on different lines are different blocks, whatever
+    // their signatures.
+    std::string code() const;
 
     const std::vector<BranchElement>& elements() const noexcept;
 
@@ -158,7 +176,9 @@ public:
               int32_t line);
 
 private:
-    int32_t                    idx_ = 0;
+    int32_t idx_ = 0;
+    // in the padding after idx_:  the offset is at most MAX_LOCATION_OFFSET
+    int8_t                     location_ = 0;
     std::vector<BranchElement> elements_;
 };
 

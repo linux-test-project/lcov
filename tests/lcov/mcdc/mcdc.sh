@@ -258,6 +258,8 @@ MCDC:20,2,t,7,0,c||d
 MCDC:20,2,f,0,0,c||d
 LF:2
 LH:2
+MCF:6
+MCH:4
 end_of_record
 TN:tc2
 SF:mcdcTwoTc.c
@@ -271,6 +273,8 @@ MCDC:20,2,t,7,0,c||d
 MCDC:20,2,f,0,0,c||d
 LF:2
 LH:2
+MCF:6
+MCH:4
 end_of_record
 EOF
 
@@ -377,6 +381,8 @@ MCDC:10,2,t,5,0,a&&b
 MCDC:10,2,f,0,0,a&&b
 LF:1
 LH:1
+MCF:2
+MCH:1
 end_of_record
 TN:tc2
 SF:mcdcTwoTc.c
@@ -385,6 +391,8 @@ MCDC:20,2,t,7,0,c||d
 MCDC:20,2,f,0,0,c||d
 LF:1
 LH:1
+MCF:2
+MCH:1
 end_of_record
 EOF
 
@@ -430,6 +438,8 @@ MCDC:10,2,t,2,0,a&&b
 MCDC:10,2,f,1,0,a&&b
 LF:2
 LH:2
+MCF:8
+MCH:6
 end_of_record
 EOF
 

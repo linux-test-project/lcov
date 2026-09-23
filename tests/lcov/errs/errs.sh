@@ -3,7 +3,7 @@ set +x
 
 source ../../common.tst
 
-rm -f  *.log *.json dumper* *.out emptyDir.info
+rm -f  *.log *.json dumper* *.out emptyDir.info noEndLine.info
 rm -rf emptyDir
 
 clean_cover
@@ -231,6 +231,62 @@ for i in funcNoLine lineNoFunc branchNoLine lineNoBranch ; do
     fi
 done
 
+# A function whose own first line has no line coverpoint, with the next one
+#   after the start of the function which follows it:  the only line left to
+#   end it on is before its start, so its end line cannot be derived - see
+#   'derive_function_end_line' in lcovrc(5)
+cat >noEndLine.info <<'EOF'
+TN:
+SF:noEndLine.c
+FN:5,f
+FN:7,g
+FNDA:1,f
+FNDA:1,g
+FNF:2
+FNH:2
+DA:1,1
+DA:10,1
+LF:2
+LH:2
+BRDA:10,0,0,1
+BRDA:10,0,1,0
+BRF:2
+BRH:1
+end_of_record
+EOF
+$COVER $LCOV_TOOL $LCOV_OPTS -a noEndLine.info -o noEndLine.out 2>&1 |
+    tee noEndLine.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "failed to see error noEndLine.log"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
+$COVER $LCOV_TOOL $LCOV_OPTS -a noEndLine.info -o noEndLine.out \
+    --ignore inconsistent 2>&1 | tee noEndLine2.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "failed to ignore error noEndLine2.log"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
+if ! grep -q 'failed to set end line for function f\.' noEndLine2.log ; then
+    echo "missing 'failed to set end line' message in noEndLine2.log"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
+# ..and 'g', which has a line to end on, still gets one
+if ! grep -q '^FNL:1,7,10$' noEndLine.out ; then
+    echo "expected end line 10 for 'g' in noEndLine.out"
+    status=1
+    if [ 0 == $KEEP_GOING ] ; then
+        exit $status
+    fi
+fi
 
 if [ 0 == $status ] ; then
     echo "Tests passed"

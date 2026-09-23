@@ -130,9 +130,21 @@ ENABLE_MCDC := $(shell                                                     \
 ifeq ($(ENABLE_MCDC),1)
 MCDC_OPTS = --mcdc
 MCDC_FILTER = ,mcdc
-else
-MCDC_OPTS =
-MCDC_FILTER =
+endif
+# The same shape, for callgraph coverage:  '-fcallgraph-info' is a gcc/10
+#   feature, but geninfo raises 'unsupported' for a gcov older than 14 - the
+#   call counts it pairs the callgraph info with are in gcov/14's JSON - so both
+#   halves of the toolchain have to be asked.  lib/LcovUtil/Makefile.PL compiles
+#   with the flag from gcc/14 on, too.
+ENABLE_CALLGRAPH := $(shell                                         \
+	V=`$(firstword $(MCDC_CXX)) -dumpversion 2>/dev/null` ;            \
+	G=`gcov --version 2>/dev/null | head -1 | sed -e 's/.* //'` ;      \
+	if [ "$${V%%.*}" -ge 14 ] 2>/dev/null &&                           \
+	   [ "$${G%%.*}" -ge 14 ] 2>/dev/null ; then                       \
+	  echo 1 ;                                                         \
+	fi)
+ifeq ($(ENABLE_CALLGRAPH),1)
+CALLGRAPH_OPTS = --callgraph-coverage --callgraph-partial-data
 endif
 
 export LCOV_TOOL := $(EXEC_COVER) $(BINDIR)/lcov

@@ -188,12 +188,26 @@ LCOV_INLINE int BranchElement::merge(const BranchElement& that, const std::strin
 LCOV_INLINE int32_t BranchBlock::idx() const noexcept { return idx_; }
 LCOV_INLINE void BranchBlock::setIdx(int32_t v) noexcept { idx_ = v; }
 
+LCOV_INLINE int32_t BranchBlock::locationOffset() const noexcept { return location_; }
+LCOV_INLINE void BranchBlock::setLocationOffset(int32_t v) noexcept {
+    location_ = static_cast<int8_t>(v);
+}
+
 LCOV_INLINE std::string BranchBlock::signature() const {
     std::string sig;
     sig.reserve(elements_.size());
     for (const auto& elem : elements_)
         sig += elem.signature();
     return sig;
+}
+
+LCOV_INLINE std::string BranchBlock::code() const {
+    std::string code = signature();
+    if (location_ != 0) {
+        code += '^';
+        code += std::to_string(location_);
+    }
+    return code;
 }
 
 LCOV_INLINE const std::vector<BranchElement>& BranchBlock::elements() const noexcept { return elements_; }
@@ -209,6 +223,8 @@ LCOV_INLINE int BranchBlock::merge(const BranchBlock& you, const std::string& fi
     if (elements_.size() != you.elements_.size() ||
         signature() != you.signature())
         throw std::runtime_error("expected identical block");
+    // 'line' holds the block:  a message names the line it is written at
+    const int32_t at = line + locationOffset();
     int changed = 0;
     for (size_t i = 0; i < elements_.size(); ++i) {
         // 'changed' is a boolean 'did anything change', matching pure-Perl
@@ -216,7 +232,7 @@ LCOV_INLINE int BranchBlock::merge(const BranchBlock& you, const std::string& fi
         //   results instead would report 2 where pure Perl reports 1 whenever
         //   two elements of the block both change, and no caller uses the
         //   magnitude.
-        if (elements_[i].merge(you.elements_[i], filename, line) > 0)
+        if (elements_[i].merge(you.elements_[i], filename, at) > 0)
             changed = 1;
     }
     return changed;
@@ -257,7 +273,7 @@ LCOV_INLINE bool BranchLocation::containsCode(const std::string& code) const {
     // Derived from blocks_, which already holds every block's signature -- see
     // the note on why there is no signature index in codes() below.
     for (const auto& block : blocks_)
-        if (block.signature() == code)
+        if (block.code() == code)
             return true;
     return false;
 }
@@ -293,7 +309,7 @@ LCOV_INLINE std::vector<int32_t> BranchLocation::getList(const std::string& code
     // Ascending id order, which a forward scan of blocks_ gives for free:
     // blocks_[i].idx() == i, so the subscript IS the id.
     for (size_t i = 0; i < blocks_.size(); ++i)
-        if (blocks_[i].signature() == code)
+        if (blocks_[i].code() == code)
             ids.push_back(static_cast<int32_t>(i));
     // Every internal caller guards with containsCode() first (BranchLocation::
     // merge, BranchData::union_with, BranchData::intersect_with) or iterates
@@ -346,12 +362,12 @@ LCOV_INLINE std::vector<BranchBlock*> BranchLocation::blocks(bool sorted) {
     for (auto& block : blocks_)
         result.push_back(&block);
     if (sorted) {
-        /* Key each block with its signature once, rather than deriving it up to
+        /* Key each block with its code once, rather than deriving it up to
          * three times per comparison. */
         std::vector<std::pair<std::string, BranchBlock*>> keyed;
         keyed.reserve(result.size());
         for (BranchBlock* blk : result)
-            keyed.emplace_back(blk->signature(), blk);
+            keyed.emplace_back(blk->code(), blk);
         std::sort(keyed.begin(), keyed.end(),
                   [](const std::pair<std::string, BranchBlock*>& a,
                      const std::pair<std::string, BranchBlock*>& b) {
@@ -369,7 +385,8 @@ LCOV_INLINE std::vector<BranchBlock*> BranchLocation::blocks(bool sorted) {
 }
 
 LCOV_INLINE std::vector<std::string> BranchLocation::codes(bool sorted) const {
-    // The distinct block signatures, in first-appearance (i.e. block id) order.
+    // The distinct block codes (see BranchBlock::code), in first-appearance
+    // (i.e. block id) order.
     //
     // Derived, not stored.  A signature -> ids table beside blocks_ would hold
     // exactly ONE key on 99.6% of real branch lines and cost ~280 bytes per line
@@ -385,7 +402,7 @@ LCOV_INLINE std::vector<std::string> BranchLocation::codes(bool sorted) const {
     std::vector<std::string> result;
     result.reserve(blocks_.size());
     for (const auto& block : blocks_) {
-        std::string sig = block.signature();
+        std::string sig = block.code();
         if (std::find(result.begin(), result.end(), sig) == result.end())
             result.push_back(std::move(sig));
     }
@@ -401,16 +418,16 @@ LCOV_INLINE std::vector<std::string> BranchLocation::codes(bool sorted) const {
 }
 
 LCOV_INLINE size_t BranchLocation::numCodes() const {
-    // The count of distinct signatures, without materializing the code list:
-    // a block's signature is new iff no earlier block carries it.  Quadratic
+    // The count of distinct codes, without materializing the code list:
+    // a block's code is new iff no earlier block carries it.  Quadratic
     // in the number of blocks on one line, which is 1 on 99.2% of real branch
     // lines and 4 in the worst line observed.
     size_t n = 0;
     for (size_t i = 0; i < blocks_.size(); ++i) {
-        const std::string sig = blocks_[i].signature();
+        const std::string sig = blocks_[i].code();
         bool seen = false;
         for (size_t j = 0; j < i && !seen; ++j)
-            seen = blocks_[j].signature() == sig;
+            seen = blocks_[j].code() == sig;
         if (!seen)
             ++n;
     }
@@ -455,7 +472,7 @@ LCOV_INLINE bool BranchLocation::hasHitElement(bool count_excluded) const {
 
 LCOV_INLINE int BranchLocation::merge(const BranchLocation& that, const std::string& filename) {
     int changed = 0;
-    // Match pure Perl logic: merge by signature (code), not by block ID
+    // Match pure Perl logic: merge by code, not by block ID
     for (const auto& code : that.codes(false)) {
         const std::vector<int32_t> your_list = that.getList(code);
         if (containsCode(code)) {

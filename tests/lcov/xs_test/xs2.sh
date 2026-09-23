@@ -365,6 +365,24 @@ print $bb->signature(), " ", scalar(@e),
       " excl=", join(",", map { $_->is_excluded() ? 1 : 0 } @e);
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
+# code() is the signature, and the offset of the line the block is written at
+#   when that is not its location's own line.  BranchLocation calls it from
+#   the pure-Perl side only:  the C++ BranchLocation reads the code itself
+run_test "BranchBlock::setLocationOffset + locationOffset + code" '
+use lcovutil;
+my $bb = BranchBlock->new();
+$bb->appendElement(BranchElement->new("1", 3));
+$bb->appendElement(BranchElement->new("2", 0));
+my $sig = $bb->signature();
+die("code at the location: " . $bb->code()) unless $bb->code() eq $sig;
+$bb->setLocationOffset(-5);
+die("code at -5: " . $bb->code()) unless $bb->code() eq "$sig^-5";
+$bb->setLocationOffset(0);
+die("code back at 0: " . $bb->code()) unless $bb->code() eq $sig;
+$bb->setLocationOffset(127);
+print $bb->locationOffset(), " ", $bb->code();
+' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
+
 run_test "BranchBlock::setIdx + idx" '
 use lcovutil;
 my $bb = BranchBlock->new();

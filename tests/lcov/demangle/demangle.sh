@@ -3,7 +3,14 @@ set +x
 
 source ../../common.tst
 
-LCOV_OPTS="--branch-coverage --no-external $PARALLEL $PROFILE"
+# every capture here uses '--filter branch', so the data this test reads back
+#   has no branch coverpoints left in it at all - which the read reports, since
+#   branch coverage is asked for.  That is exactly what the check is for and it
+#   is not what this test is about, so ignore it.  Several runs below name
+#   'empty' again, which suppresses the warning as well;  none of them looks at
+#   its log for anything but the message it is itself about
+LCOV_OPTS="--branch-coverage --no-external $PARALLEL $PROFILE --ignore empty"
+GENHTML_OPTS="--branch $PARALLEL $PROFILE --ignore empty"
 
 rm -rf *.gcda *.gcno a.out *.info* *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log failfilt.sh simplify
 
@@ -99,12 +106,13 @@ if [ "${VER[0]}" -lt 9 ] ; then
         exit 1
     fi
 
-    # ..and the same capture with a demangler which fails.  This is the only
-    # place a demangler is run with the names as its arguments rather than on
-    # its stdin, so it is the only place where the child's exit status is all
-    # there is to go on:  the fork and the exec both worked, so errno holds
-    # whatever some earlier syscall left there - which is usually nothing at
-    # all, and the message used to say just that.
+    # ..and the same capture with a demangler which fails.  This path runs the
+    # demangler with the names as its arguments rather than on its stdin, so the
+    # child's exit status is all there is to go on:  the fork and the exec both
+    # worked, so errno holds whatever some earlier syscall left there - which is
+    # usually nothing at all, and the message used to say just that.
+    # 'tests/lcov/callgraph/geninfo.sh' checks the same thing on the JSON path,
+    # where callgraph coverage demangles the callees which gcov never named.
     # The stub succeeds on empty input, because that is the check lcovutil
     # makes when it registers the tool, and fails as soon as it is handed a
     # name.
@@ -139,7 +147,7 @@ fi
 # see if we can "simplify" the function names..
 for callback in './simplify.pl' "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g" "${SIMPLIFY_SCRIPT},--file,simplify.cmd" ; do
 
-    $COVER $GENHTML_TOOL --branch $PARALLEL $PROFILE -o simplify demangle.info --flat --simplify $callback
+    $COVER $GENHTML_TOOL $GENHTML_OPTS -o simplify demangle.info --flat --simplify $callback
     if [ $? != 0 ] ; then
 	echo "genhtml --simplify '$callback' failed"
 	exit 1
@@ -168,7 +176,7 @@ done
 
 # test unused regexp in simplify callback
 for PAR in '' '--parallel' ; do
-    $COVER $GENHTML_TOOL --branch $PARALLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR 2>&1 | tee simplifyErr.log
+    $COVER $GENHTML_TOOL $GENHTML_OPTS -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR 2>&1 | tee simplifyErr.log
     if [ ${PIPESTATUS[0]} == 0 ] ; then
 	echo "genhtml --simplify unused regexp didn't fail"
 	exit 1
@@ -179,7 +187,7 @@ for PAR in '' '--parallel' ; do
 	exit 1
     fi
 
-    $COVER $GENHTML_TOOL --branch $PARALLEL $PROFILE -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR --ignore unused 2>&1 | tee simplifyWarn.log
+    $COVER $GENHTML_TOOL $GENHTML_OPTS -o simplify demangle.info --flat --simplify "${SIMPLIFY_SCRIPT},--sep,;,--re,s/Animal::Animal/subst1/g;s/Cat::Cat/subst2/g;s/subst2/subst3/g;s/foo/bar/g" $PAR --ignore unused 2>&1 | tee simplifyWarn.log
     if [ ${PIPESTATUS[0]} != 0 ] ; then
 	echo "genhtml --simplify unused regexp warn didn't pass"
 	exit 1

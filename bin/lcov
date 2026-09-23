@@ -130,6 +130,7 @@ sub add_traces();
 sub merge_traces($$);
 sub remove_file_patterns($);
 sub list();
+sub resolve_callgraph_data($);
 sub my_info(@);
 set_info_callback(\&my_info);
 sub setup_gkv();
@@ -972,6 +973,11 @@ sub lcov_geninfo(@)
         if (!$lcovutil::func_coverage);
     push(@param, "--branch-coverage") if $lcovutil::br_coverage;
     push(@param, "--mcdc") if $lcovutil::mcdc_coverage;
+    push(@param, "--callgraph") if $lcovutil::callgraph_coverage;
+    # only meaningful in the child:  it decides what a capture keeps when the
+    #   compiler recorded a call that gcov produced no count for
+    push(@param, "--callgraph-partial-data")
+        if ($lcovutil::callgraph_coverage && $lcovutil::callgraph_partial_data);
     push(@param, '--fail-under-lines', $lcovutil::fail_under_lines)
         if defined($lcovutil::fail_under_lines);
     # Only pass it on if it is not where the child would go anyway:  an rc-file
@@ -1017,7 +1023,13 @@ sub lcov_geninfo(@)
     #  Maybe someday.
     unshift(@param, $lcovutil::interp) if defined($lcovutil::interp);
     info("geninfo cmd: '" . join(' ', @param) . "'\n");
-    system(@param) and exit($? >> 8);
+    if (system(@param)) {
+        # A signalled child has a zero exit field, so '$? >> 8' alone called a
+        #   killed geninfo - which had written nothing - a success
+        die("geninfo died from signal " . ($? & 0x7F) . "\n")
+            if (-1 != $? && ($? & 0x7F));
+        exit($? >> 8);
+    }
 }
 
 #
@@ -1596,12 +1608,29 @@ sub my_info(@)
     }
 }
 
+# resolve_callgraph_data()
+#
+# Called in the parent process after all the data is merged and filtered -
+#   so data is complete and we have all the data that we need to fill
+#   out the callgraph-coverage callgraph - see TraceFile::resolveCallSites.
+# Called by every operation which writes or reports a result.
+
+sub resolve_callgraph_data($)
+{
+    my $trace = shift;
+    return unless $lcovutil::callgraph_coverage;
+    # ...which may turn the metric off, if the user chose to ignore the error
+    $trace->checkCallgraphData();
+    $trace->resolveCallSites() if $lcovutil::callgraph_coverage;
+}
+
 # emit()
 #  write output to file or stdout - possibly with info message
 
 sub emit
 {
     my ($trace, $info_msg) = @_;
+    resolve_callgraph_data($trace);
     my $to = $data_stdout ? '-' : $output_filename;
     if (!$data_stdout) {
         info($info_msg)
@@ -1681,6 +1710,10 @@ sub remove_file_patterns($)
         TraceFile->load($filename, $readSourceFile, $lcovutil::verify_checksum);
     my $then = Time::HiRes::gettimeofday();
     $lcovutil::profileData{parse} = $then - $now;
+
+    # This read does not go through 'AggregateTraces::merge', so has to check
+    #   containment explicitly
+    $data->checkEmpty();
 
     # Write extracted data
     my $removed = scalar(keys(%lcovutil::excluded_files));
@@ -1805,22 +1838,33 @@ sub list()
     # Multiple tracefiles: merge them before listing.
     my @files = AggregateTraces::find_from_glob(@ARGV);
     ($data) = AggregateTraces::merge($readSourceFile, @files);
+    resolve_callgraph_data($data);
 
     my $strlen = length("Filename");
     my $lastpath;
-    my $F_LN_NUM      = 0;
-    my $F_LN_RATE     = 1;
-    my $F_FN_NUM      = 2;
-    my $F_FN_RATE     = 3;
-    my $F_BR_NUM      = 4;
-    my $F_BR_RATE     = 5;
-    my $F_MCDC_NUM    = 6;
-    my $F_MCDC_RATE   = 7;
-    my @fwidth_narrow = (5, 5, 3, 5, 4, 5, 4, 5);
-    my @fwidth_wide   = (6, 5, 5, 5, 6, 5, 6, 5);
-    my @fwidth        = @fwidth_wide;
-    my $max_width     = $opt_list_width;
-    my $max_long      = $opt_list_truncate_max;
+    my $F_LN_NUM         = 0;
+    my $F_LN_RATE        = 1;
+    my $F_FN_NUM         = 2;
+    my $F_FN_RATE        = 3;
+    my $F_BR_NUM         = 4;
+    my $F_BR_RATE        = 5;
+    my $F_MCDC_NUM       = 6;
+    my $F_MCDC_RATE      = 7;
+    my $F_CALLGRAPH_NUM  = 8;
+    my $F_CALLGRAPH_RATE = 9;
+    my @fwidth_narrow    = (5, 5, 3, 5, 4, 5, 4, 5);
+    my @fwidth_wide      = (6, 5, 5, 5, 6, 5, 6, 5);
+    # The field widths of a metric are reserved whether or not it is enabled -
+    #   they are what the filename column is sized against - so the callee pair
+    #   is appended only when the metric is on.  Otherwise every existing
+    #   listing would lose 11 characters of filename to a column it never has
+    if ($lcovutil::callgraph_coverage) {
+        push(@fwidth_narrow, 4, 5);
+        push(@fwidth_wide, 6, 5);
+    }
+    my @fwidth    = @fwidth_wide;
+    my $max_width = $opt_list_width;
+    my $max_long  = $opt_list_truncate_max;
 
     # Calculate total width of narrow fields
     my $fwidth_narrow_length = 0;
@@ -1889,16 +1933,28 @@ sub list()
     my $heading2 = sprintf("%-*s|", $w, "Filename");
     my $barlen   = $w + 1;
 
-    # name, total_found, total_hit, total_column_width, rate_column_width
-    my @types = (['Lines', \&TraceInfo::sum, 0, 0, $F_LN_NUM, $F_LN_RATE],
+    # name, found-and-hit callback, total_found, total_hit, total_column_width,
+    #   rate_column_width.
+    # Implemented with a callback because callee data is not a container like
+    #   the other types.  Instead, it is computed out of the function map.
+    my $lineCb = sub { return $_[0]->sum()->get_found_and_hit(); };
+    my $funcCb = sub { return $_[0]->func()->get_found_and_hit(); };
+    my $brCb   = sub { return $_[0]->sumbr()->get_found_and_hit(); };
+    my $mcdcCb = sub { return $_[0]->mcdc()->get_found_and_hit(); };
+    my $callgraphCb =
+        sub { return $_[0]->func()->get_callgraph_found_and_hit(); };
+    my @types = (['Lines', $lineCb, 0, 0, $F_LN_NUM, $F_LN_RATE],
                  [$lcovutil::func_coverage ? 'Functions' : undef,
-                  \&TraceInfo::func, 0, 0, $F_FN_NUM, $F_FN_RATE
+                  $funcCb, 0, 0, $F_FN_NUM, $F_FN_RATE
                  ],
                  [$lcovutil::br_coverage ? 'Branches' : undef,
-                  \&TraceInfo::sumbr, 0, 0, $F_BR_NUM, $F_BR_RATE
+                  $brCb, 0, 0, $F_BR_NUM, $F_BR_RATE
                  ],
                  [$lcovutil::mcdc_coverage ? 'MC/DC' : undef,
-                  \&TraceInfo::mcdc, 0, 0, $F_MCDC_NUM, $F_MCDC_RATE
+                  $mcdcCb, 0, 0, $F_MCDC_NUM, $F_MCDC_RATE
+                 ],
+                 [$lcovutil::callgraph_coverage ? 'Callees' : undef,
+                  $callgraphCb, 0, 0, $F_CALLGRAPH_NUM, $F_CALLGRAPH_RATE
                  ],);
 
     my $sep = '';
@@ -1965,9 +2021,8 @@ sub list()
         foreach my $d (@types) {
             my ($type, $cb, $total_found, $total_hit, $n, $r) = @$d;
             next unless defined($type);
-            my $data = &{$cb}($entry);
 
-            my ($found, $hit) = $data->get_found_and_hit();
+            my ($found, $hit) = &{$cb}($entry);
             # add to totals
             $d->[2] += $found, $d->[3] += $hit;
 
@@ -2007,6 +2062,7 @@ sub summary()
 
     my ($total, $effective) =
         AggregateTraces::merge(ReadCurrentSource->new(), @merge);
+    resolve_callgraph_data($total);
     return $total;
 }
 

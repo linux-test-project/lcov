@@ -8,13 +8,13 @@
               <td class="tlaLBC">LBC</td>
 --
               <td class="coverFn"><a href="test.cpp.gcov.html#L72">excluded_notCalled()</a></td>
-              <td class="tlaUNC">UNC</td>
+              <td class="tlaUBC">UBC</td>
 --
               <td class="coverFn"><a href="test.cpp.gcov.html#L45">included()</a></td>
               <td class="tlaLBC">LBC</td>
 --
               <td class="coverFn"><a href="test.cpp.gcov.html#L54">included_notCalled()</a></td>
-              <td class="tlaUNC">UNC</td>
+              <td class="tlaUBC">UBC</td>
 --
               <td class="coverFn"><a href="test.cpp.gcov.html#L80">inserted()</a></td>
               <td class="tlaUNC">UNC</td>

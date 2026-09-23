@@ -73,7 +73,12 @@ set +x
 source ../../common.tst
 
 GENHTML_OPTS="$PARALLEL $PROFILE"
-IGNORE="--ignore-errors inconsistent,unused,source"
+# 'empty' because most of the fixtures below carry only the metric whose
+#   rendering the case is about, and the tests/lcovrc in use here asks for
+#   function and branch coverage as well - so the read reports the metrics which
+#   are missing.  Nothing here looks at the log for messages, so the warning an
+#   ignored error leaves behind is harmless
+IGNORE="--ignore-errors inconsistent,unused,source,empty"
 
 rm -rf *.info *.log *.json *.udiff *.txt *.css proj css_dir html_* \
     perlcov.info pycov.info __pycache__
@@ -274,6 +279,34 @@ else
         $PAGE ; then
         fail ann "the per-line tooltip was truncated at the author name"
     fi
+fi
+# ..and the owner table:  its row of each owner is an anchor every owner link of
+#   the report leads to, so all of them spell the name the same way - one which
+#   is a valid 'id' - and the name is shown escaped
+OWNERS=`find html_ann -name index-bin_owner.html | head -1`
+for owner in 'NR_D__lead___boss_' 'Nplain.owner' ; do
+    if ! grep -q -F -e "id=\"$owner\"" $OWNERS ; then
+        fail ann "no '$owner' anchor in $OWNERS"
+    fi
+    if ! grep -r -q -F -e "index-bin_owner.html#$owner\"" html_ann ; then
+        fail ann "nothing leads to the '$owner' anchor"
+    fi
+done
+for spelling in 'id="NR&D' '#NR_amp_D' '#Nplain"' ; do
+    if grep -r -q -F -e "$spelling" html_ann ; then
+        fail ann "an owner anchor or link is spelled '$spelling'"
+    fi
+done
+if ! grep -q -F -e '>R&amp;D &quot;lead&quot; &lt;boss&gt;</a>' $OWNERS ; then
+    fail ann "the owner table does not show the escaped name"
+fi
+# ..which the validator confirms for every link of the report
+$COVER $GENHTML_TOOL $GENHTML_OPTS -o html_ann_v ann.info $IGNORE --validate \
+    --annotate-script `pwd`/annotate.pl --show-owners all --show-noncode \
+    --ignore-errors annotate > ann_v.log 2>&1
+if [ 0 != $? ] ; then
+    fail ann "a link of the annotated report leads nowhere:" \
+        `grep -E 'ERROR|WARNING' ann_v.log`
 fi
 
 # ----------------------------------------------------------------------

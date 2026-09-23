@@ -223,6 +223,8 @@ MCDC:30,U2,t,0,1,e&&f
 MCDC:30,U2,f,0,1,e&&f
 LF:3
 LH:2
+MCF:12
+MCH:4
 end_of_record
 EOF
 
@@ -254,6 +256,8 @@ MCDC:40,2,t,7,1,g&&h
 MCDC:40,2,f,0,1,g&&h
 LF:3
 LH:2
+MCF:12
+MCH:4
 end_of_record
 EOF
 
@@ -263,17 +267,42 @@ SETOP_IGNORE="--ignore source,inconsistent,unused,empty"
 function checkSetop
 {
     # checkSetop opDescription file expectedLine...
-    #  Assert exact lines in either the written '.info' or the run's log.  Both
-    #  matter, and they are not the same number:  the section-level BRF/BRH and
-    #  MCF/MCH are recomputed by the writer as it walks the data, whereas the
-    #  '<n> of <m>' summary lines report the CACHED found/hit that the set
-    #  operations maintain incrementally.  Only the latter catches a missing
-    #  count adjustment, so every case below asserts both.
+    #  Assert exact lines of the written '.info';  checkSummary below does the
+    #  same for the run's log.  Both matter, and they are not the same number:
+    #  the section-level BRF/BRH and MCF/MCH are recomputed by the writer as it
+    #  walks the data, whereas the '<n> of <m>' summary lines report the CACHED
+    #  found/hit that the set operations maintain incrementally.  Only the
+    #  latter catches a missing count adjustment, so every case below asserts
+    #  both.
     local WHAT=$1
     local OUT=$2
     shift 2
     for EXPECT in "$@" ; do
         grep -qxF "$EXPECT" $OUT
+        if [ 0 != $? ] ; then
+            echo "Error:  $WHAT is missing '$EXPECT':"
+            cat $OUT
+            status=1
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+    done
+}
+
+function checkSummary
+{
+    # checkSummary opDescription log expectedPattern...
+    #  checkSetop for the summary lines of a run's log, except that each
+    #  expectation is an extended regexp matched against a whole line.  The run
+    #  of '.' which pads a cover type's label out to the width of the widest one
+    #  is presentation, not data:  write it as '\.+' so that changing a label
+    #  does not drag every summary assertion in the suite along with it.
+    local WHAT=$1
+    local OUT=$2
+    shift 2
+    for EXPECT in "$@" ; do
+        grep -qxE "$EXPECT" $OUT
         if [ 0 != $? ] ; then
             echo "Error:  $WHAT is missing '$EXPECT':"
             cat $OUT
@@ -299,9 +328,9 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 checkSetop 'set-op union' setopU.info 'BRF:6' 'BRH:4' 'MCF:16' 'MCH:7'
-checkSetop 'set-op union summary' setopU.log \
-    '  branches....: 66.7% (4 of 6 branches)' \
-    '  conditions..: 58.3% (7 of 12 conditions)'
+checkSummary 'set-op union summary' setopU.log \
+    '  branches\.+: 66\.7% \(4 of 6 branches\)' \
+    '  MC/DC\.+: 58\.3% \(7 of 12 conditions\)'
 
 # Intersect: only line 20 (and excluded 30) survive.  Line 20's coverpoints
 #  merge in place - the arm where a count changes with nothing added or removed.
@@ -315,9 +344,9 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 checkSetop 'set-op intersect' setopI.info 'BRF:2' 'BRH:2' 'MCF:8' 'MCH:3'
-checkSetop 'set-op intersect summary' setopI.log \
-    '  branches....: 100.0% (2 of 2 branches)' \
-    '  conditions..: 75.0% (3 of 4 conditions)'
+checkSummary 'set-op intersect summary' setopI.log \
+    '  branches\.+: 100\.0% \(2 of 2 branches\)' \
+    '  MC/DC\.+: 75\.0% \(3 of 4 conditions\)'
 
 # Difference: lines 20 and 30 are dropped, leaving only line 10.
 $COVER $LCOV_TOOL --branch --mcdc -o setopD.info setopA.info \
@@ -330,9 +359,9 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 checkSetop 'set-op subtract' setopD.info 'BRF:2' 'BRH:1' 'MCF:4' 'MCH:2'
-checkSetop 'set-op subtract summary' setopD.log \
-    '  branches....: 50.0% (1 of 2 branches)' \
-    '  conditions..: 50.0% (2 of 4 conditions)'
+checkSummary 'set-op subtract summary' setopD.log \
+    '  branches\.+: 50\.0% \(1 of 2 branches\)' \
+    '  MC/DC\.+: 50\.0% \(2 of 4 conditions\)'
 
 #
 # A line present in BOTH operands whose blocks only PARTIALLY match: 'A' has two
@@ -353,6 +382,8 @@ BRDA:50,1,0,3
 BRDA:50,1,1,1
 BRF:4
 BRH:2
+LF:1
+LH:1
 end_of_record
 EOF
 
@@ -364,6 +395,8 @@ BRDA:50,0,0,5
 BRDA:50,0,1,2
 BRF:2
 BRH:2
+LF:1
+LH:1
 end_of_record
 EOF
 
@@ -382,8 +415,8 @@ fi
 #  replacement was not.
 checkSetop 'partial-block intersect' setopPi.info \
     'BRDA:50,0,0,5' 'BRDA:50,0,1,2' 'BRF:2' 'BRH:2'
-checkSetop 'partial-block intersect summary' setopPi.log \
-    '  branches....: 100.0% (2 of 2 branches)'
+checkSummary 'partial-block intersect summary' setopPi.log \
+    '  branches\.+: 100\.0% \(2 of 2 branches\)'
 
 $COVER $LCOV_TOOL --branch -o setopPd.info setopPa.info \
     --subtract setopPb.info $SETOP_IGNORE 2>&1 | tee setopPd.log
@@ -397,8 +430,8 @@ fi
 # the leading common block is removed; block 1 is kept, renumbered to 0
 checkSetop 'partial-block subtract' setopPd.info \
     'BRDA:50,0,0,3' 'BRDA:50,0,1,1' 'BRF:2' 'BRH:2'
-checkSetop 'partial-block subtract summary' setopPd.log \
-    '  branches....: 100.0% (2 of 2 branches)'
+checkSummary 'partial-block subtract summary' setopPd.log \
+    '  branches\.+: 100\.0% \(2 of 2 branches\)'
 
 #
 # SPARSE union: a small operand merged into a much larger accumulated map.
@@ -454,6 +487,8 @@ MCDC:60,2,t,6,0,k&&l
 MCDC:60,2,f,0,0,k&&l
 LF:6
 LH:6
+MCF:12
+MCH:6
 end_of_record
 EOF
 
@@ -474,6 +509,8 @@ MCDC:70,2,t,9,0,m&&n
 MCDC:70,2,f,0,0,m&&n
 LF:2
 LH:2
+MCF:4
+MCH:2
 end_of_record
 EOF
 
@@ -491,9 +528,9 @@ fi
 #  section counts and the summary counts agree.
 checkSetop 'sparse union' setopS.info \
     'BRDA:20,0,0,1' 'BRDA:20,0,1,4' 'BRF:14' 'BRH:8' 'MCF:14' 'MCH:8'
-checkSetop 'sparse union summary' setopS.log \
-    '  branches....: 57.1% (8 of 14 branches)' \
-    '  conditions..: 57.1% (8 of 14 conditions)'
+checkSummary 'sparse union summary' setopS.log \
+    '  branches\.+: 57\.1% \(8 of 14 branches\)' \
+    '  MC/DC\.+: 57\.1% \(8 of 14 conditions\)'
 
 #
 # Set operations across differing testcase names.
@@ -533,6 +570,8 @@ MCDC:20,2,t,3,1,c||d
 MCDC:20,2,f,0,1,c||d
 LF:2
 LH:2
+MCF:4
+MCH:2
 end_of_record
 EOF
 
@@ -563,6 +602,8 @@ MCDC:40,2,t,7,1,g&&h
 MCDC:40,2,f,0,1,g&&h
 LF:2
 LH:2
+MCF:8
+MCH:4
 end_of_record
 EOF
 
@@ -607,11 +648,11 @@ checkSetop 'cross-testname intersect' setopTi.info \
 checkNotSetop 'cross-testname intersect' setopTi.info \
     'DA:10,5' 'DA:40,7' 'FNA:0,5,fnA' 'FNA:1,7,fnD' \
     'BRDA:10,0,0,5' 'BRDA:40,0,0,7' 'TN:tcB'
-checkSetop 'cross-testname intersect summary' setopTi.log \
-    '  lines.......: 100.0% (1 of 1 line)' \
-    '  functions...: 100.0% (1 of 1 function)' \
-    '  branches....: 100.0% (2 of 2 branches)' \
-    '  conditions..: 75.0% (3 of 4 conditions)'
+checkSummary 'cross-testname intersect summary' setopTi.log \
+    '  lines\.+: 100\.0% \(1 of 1 line\)' \
+    '  functions\.+: 100\.0% \(1 of 1 function\)' \
+    '  branches\.+: 100\.0% \(2 of 2 branches\)' \
+    '  MC/DC\.+: 75\.0% \(3 of 4 conditions\)'
 
 # ..and the complement:  line 10 is mine alone, so it is what is left
 $COVER $LCOV_TOOL --branch --mcdc -o setopTd.info setopTa.info \
@@ -627,11 +668,11 @@ checkSetop 'cross-testname subtract' setopTd.info \
     'DA:10,5' 'FNA:0,5,fnA' 'BRDA:10,0,0,5' 'LF:1' 'LH:1' 'BRF:2' 'BRH:1'
 checkNotSetop 'cross-testname subtract' setopTd.info \
     'DA:20,3' 'DA:40,7' 'FNA:1,3,fnB' 'BRDA:20,0,0,3' 'TN:tcB'
-checkSetop 'cross-testname subtract summary' setopTd.log \
-    '  lines.......: 100.0% (1 of 1 line)' \
-    '  functions...: 100.0% (1 of 1 function)' \
-    '  branches....: 50.0% (1 of 2 branches)' \
-    '  conditions..: no data found'
+checkSummary 'cross-testname subtract summary' setopTd.log \
+    '  lines\.+: 100\.0% \(1 of 1 line\)' \
+    '  functions\.+: 100\.0% \(1 of 1 function\)' \
+    '  branches\.+: 50\.0% \(1 of 2 branches\)' \
+    '  MC/DC\.+: no data found'
 
 # The sharpest form:  two operands which differ ONLY in their 'TN:', so the
 #  correct difference is empty for every cover type - which is the case that
@@ -650,11 +691,11 @@ checkSetop 'identical-data subtract' setopTn.info 'LF:0' 'LH:0' 'FNF:0' 'FNH:0'
 checkNotSetop 'identical-data subtract' setopTn.info \
     'DA:10,5' 'DA:20,3' 'FNA:0,5,fnA' 'FNA:1,3,fnB' \
     'BRDA:10,0,0,5' 'BRDA:20,0,0,3' 'MCDC:20,2,t,3,0,c||d'
-checkSetop 'identical-data subtract summary' setopTn.log \
-    '  lines.......: no data found' \
-    '  functions...: no data found' \
-    '  branches....: no data found' \
-    '  conditions..: no data found'
+checkSummary 'identical-data subtract summary' setopTn.log \
+    '  lines\.+: no data found' \
+    '  functions\.+: no data found' \
+    '  branches\.+: no data found' \
+    '  MC/DC\.+: no data found'
 
 # ..and its intersection is the whole of it, with every count doubled
 $COVER $LCOV_TOOL --branch --mcdc -o setopTx.info setopTz.info \
@@ -669,11 +710,11 @@ fi
 checkSetop 'identical-data intersect' setopTx.info \
     'DA:10,10' 'DA:20,6' 'FNA:0,10,fnA' 'FNA:1,6,fnB' \
     'BRDA:10,0,0,10' 'BRDA:20,0,0,6' 'MCDC:20,2,t,6,0,c||d' 'LF:2' 'LH:2'
-checkSetop 'identical-data intersect summary' setopTx.log \
-    '  lines.......: 100.0% (2 of 2 lines)' \
-    '  functions...: 100.0% (2 of 2 functions)' \
-    '  branches....: 50.0% (2 of 4 branches)' \
-    '  conditions..: 50.0% (2 of 4 conditions)'
+checkSummary 'identical-data intersect summary' setopTx.log \
+    '  lines\.+: 100\.0% \(2 of 2 lines\)' \
+    '  functions\.+: 100\.0% \(2 of 2 functions\)' \
+    '  branches\.+: 50\.0% \(2 of 4 branches\)' \
+    '  MC/DC\.+: 50\.0% \(2 of 4 conditions\)'
 
 # Merging the per-line checksums of two tracefiles which disagree about one.
 #

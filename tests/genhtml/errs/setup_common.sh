@@ -75,6 +75,11 @@ IFS='.' read -r -a VER <<< `${CC} -dumpversion`
 if [ "${VER[0]}" -lt 5 ] ; then
     # can't get branch coverpoints in 'initial' mode, with ancient GCC
     IGNORE="--ignore usage"
+    # ..so geninfo turns branch coverage off for that capture, and every
+    #   later step which reads 'initial.info' with '--branch-coverage' finds
+    #   no branch data:  an 'empty' error.  A check which is about 'empty'
+    #   itself cannot ignore it - see '$EMPTY_CHECK_OPTS'
+    INITIAL_EMPTY="--ignore empty"
 elif [ "${VER[0]}" -ge 14 ] ; then
     ENABLE_MCDC=1
     BASE_OPTS="$BASE_OPTS --mcdc"
@@ -94,6 +99,15 @@ if [ 1 == $NO_INITIAL_CAPTURE ] ; then
     echo 'all tests skipped'
     exit 0
 fi
+
+# for a check of some other 'empty' error:  with no branch data in
+#   'initial.info', the branch one would be raised first - so don't ask for it
+EMPTY_CHECK_OPTS="$DIFFCOV_OPTS"
+if [ -n "$INITIAL_EMPTY" ] ; then
+    EMPTY_CHECK_OPTS="--filter line,function --function-coverage --demangle-cpp --prefix $PARENT_VERSION $PROFILE "
+fi
+LCOV_OPTS="$LCOV_OPTS $INITIAL_EMPTY"
+DIFFCOV_OPTS="$DIFFCOV_OPTS $INITIAL_EMPTY"
 
 IGNORE_MSG="'--all' ignored"
 if [ "${VER[0]}" -lt 5 ] ; then

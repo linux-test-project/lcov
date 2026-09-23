@@ -148,7 +148,7 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
 	exit 1
     fi
 fi
-grep "Both branch and MC/DC filtering" unreach_help.log
+grep "Branch, MC/DC and call site filtering are all selected" unreach_help.log
 if [ 0 != $? ] ; then
     echo "ERROR: unreach help message"
     if [ 0 == $KEEP_GOING ] ; then

@@ -24,8 +24,10 @@ rm -f list_default.log list_full.log list_nofull.log list_nocompat.log \
       remove.log intersect.log subtract.log \
       to_pkg.log from_pkg.log compile.log \
       capture_nodir.log capture_proc.log capture_foo.log capture_mutexcl.log \
+      capture_fakeproc.log capture_fakesys.log \
       removed.info intersect.info subtract.info from_pkg.info \
       test_pkg.tgz
+rm -rf fakeproc fakesys
 
 clean_cover
 
@@ -301,6 +303,33 @@ else
     if ! grep -q "could not find gcov kernel data at /foo" capture_foo.log; then
         die "--capture --rc lcov_gcov_dir=/foo missing expected error message"
     fi
+    pass
+fi
+
+echo "=== Test 13: --capture at a fake /proc-style gcov kernel directory ==="
+# 'vmlinux' is what marks the external gcov-kernel interface;  only the
+#   detection is checked - the empty directory then has no data to capture
+rm -rf fakeproc
+mkdir fakeproc && touch fakeproc/vmlinux
+$COVER $LCOV_TOOL $LCOV_OPTS --capture -o fakeproc.info \
+    --rc lcov_gcov_dir=`pwd`/fakeproc >capture_fakeproc.log 2>&1
+if ! grep -q "Found external gcov kernel support at `pwd`/fakeproc" \
+        capture_fakeproc.log; then
+    die "--capture did not detect the fake /proc gcov kernel directory"
+else
+    pass
+fi
+
+echo "=== Test 14: --capture at a fake /sys-style gcov kernel directory ==="
+# ..and 'reset' is what marks the vanilla 2.6.31+ one
+rm -rf fakesys
+mkdir fakesys && touch fakesys/reset
+$COVER $LCOV_TOOL $LCOV_OPTS --capture -o fakesys.info \
+    --rc lcov_gcov_dir=`pwd`/fakesys >capture_fakesys.log 2>&1
+if ! grep -q "Found upstream gcov kernel support at `pwd`/fakesys" \
+        capture_fakesys.log; then
+    die "--capture did not detect the fake /sys gcov kernel directory"
+else
     pass
 fi
 

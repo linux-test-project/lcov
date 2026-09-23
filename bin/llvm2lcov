@@ -618,6 +618,8 @@ if (!lcovutil::parseOptions(\%rc_opts, \%opts, \$output_filename)) {
     print(STDERR "argparse failed\n");
     exit(1);
 }
+lcovutil::reject_callgraph_coverage(
+        "'llvm-cov export' records segments, branches and MC/DC, but no edges");
 
 # translate windows path names, if necessary
 lcovutil::posix_paths(\@ARGV);

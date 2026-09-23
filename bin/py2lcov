@@ -166,6 +166,8 @@ Example:
                         help="ignore errors")
     parser.add_argument('--cmd', dest='cover_cmd', default=cover_cmd,
                         help='executable used to extract python data - e.g., "python3-coverage".  Default is "%s"%s.' % (cover_cmd, from_env))
+    parser.add_argument('--rc', dest='rc', default=None, action='append',
+                        help='pass specified RC options to lcov subcommand')
     parser.add_argument('inputs', nargs='*',
                         help="list of python coverage data input files - expected to be XML or Python .dat format")
 

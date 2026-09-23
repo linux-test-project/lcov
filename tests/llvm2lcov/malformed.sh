@@ -34,6 +34,9 @@ set +x
 #       their own ids
 #   12. MC/DC enabled for a file which has no MC/DC data at all
 #   13. a branch region which covers nothing but whitespace
+#   14. MC/DC records in the format before llvm-cov 3.0.1:  per file, and
+#       a decision which spans two lines
+#   15. MC/DC records in the 3.0.1 format:  per function
 # ============================================================================
 
 if [[ "x" == ${LCOV_HOME}x ]] ; then
@@ -48,10 +51,14 @@ source ../common.tst
 #   the harness runs the two concurrently, so a '*.json' glob here deletes the
 #   export that test just captured from llvm-cov, out from under it
 for stem in nofiles scalarfiles nofilename hashsegments nofunctions noname \
-    nofilenames noregions multiregion expansion noexpr nomcdc blankexpr ; do
+    nofilenames noregions multiregion expansion noexpr nomcdc blankexpr \
+    oldmcdc newmcdc ; do
     rm -f $stem.json $stem.info $stem.log
 done
-rm -f src.c
+for stem in nofilename noname nofilenames ; do
+    rm -f ${stem}_ign.info ${stem}_ign.log
+done
+rm -f src.c mcdc.c
 
 clean_cover
 
@@ -210,6 +217,28 @@ if [ 0 == ${PIPESTATUS[0]} ] ; then
     fail nofilenames "expected llvm2lcov to reject an empty 'filenames'"
 fi
 check_format nofilenames nofilenames.log "empty 'filenames' in"
+
+# ----------------------------------------------------------------------
+echo "*** 7a. cases 3, 6 and 7 with the 'format' error ignored"
+# ----------------------------------------------------------------------
+# the malformed entry is skipped and the run goes on to the next one, so it
+#   has to finish - and say what it skipped
+for CASE in "nofilename|no 'filename' in" "noname|no 'name' in" \
+            "nofilenames|empty 'filenames' in" ; do
+    NAME=${CASE%%|*}
+    EXPECT=${CASE#*|}
+    $COVER $LLVM2LCOV_TOOL --branch -o ${NAME}_ign.info $NAME.json \
+        --ignore empty,format 2>&1 | tee ${NAME}_ign.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        fail ${NAME}_ign "expected llvm2lcov to skip the malformed entry"
+    fi
+    for pattern in 'WARNING: (format)' "$EXPECT" ; do
+        if ! grep -F -q -e "$pattern" ${NAME}_ign.log ; then
+            cat ${NAME}_ign.log
+            fail ${NAME}_ign "message does not mention: $pattern"
+        fi
+    done
+done
 
 # ----------------------------------------------------------------------
 echo "*** 8. a function with no 'regions'"
@@ -378,6 +407,79 @@ fi
 if grep -F -q 'uninitialized' blankexpr.log ; then
     grep -F 'uninitialized' blankexpr.log
     fail blankexpr "the failed trim left the expression undefined"
+fi
+
+# ----------------------------------------------------------------------
+echo "*** 14. MC/DC records before llvm-cov 3.0.1"
+# ----------------------------------------------------------------------
+# A decision written over two lines, so that its expression is read from both:
+#   the end column of a region is exclusive on the last line of a multi-line
+#   region as it is on a single line, and the ')' which closes the 'if' is not
+#   part of the decision
+cat >mcdc.c <<'EOF'
+int g(int a, int b)
+{
+    if (a > 0 &&
+        b > 0)
+        return 1;
+    return 0;
+}
+EOF
+MCDC_SEGMENTS='"segments": [ [1,1,3,1,1,0], [3,9,2,1,1,0], [4,9,2,1,1,0],
+                             [5,9,1,1,1,0], [6,5,1,1,1,0], [7,2,0,0,0,0] ]'
+MCDC_BRANCHES='[ [3,9,3,14,2,1,0,0,6], [4,9,4,14,1,1,0,0,6] ]'
+# the old format puts the MC/DC records - and the branches - in the 'files'
+#   entry
+cat >oldmcdc.json <<EOF
+{ "version": "2.0.1", "data": [ {
+  "files": [ { "filename": "mcdc.c", $MCDC_SEGMENTS,
+               "branches": $MCDC_BRANCHES,
+               "mcdc_records": [ [3,9,4,14,0,5,[true,false]] ] } ],
+  "functions": [ { "name": "g", "count": 3, "filenames": [ "mcdc.c" ],
+                   "regions": [ [1,1,7,2,3,0,0,0] ], "branches": [] } ] } ] }
+EOF
+$COVER $LLVM2LCOV_TOOL --mcdc -o oldmcdc.info oldmcdc.json \
+    --ignore empty 2>&1 | tee oldmcdc.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail oldmcdc "llvm2lcov failed on old-format MC/DC records"
+fi
+grep -E '^MCDC:' oldmcdc.info
+if ! diff - <(grep -E '^MCDC:' oldmcdc.info) <<'EOF' ; then
+MCDC:3,2,t,1,0,'a > 0' in 'a > 0 &&        b > 0'
+MCDC:3,2,f,1,0,'a > 0' in 'a > 0 &&        b > 0'
+MCDC:3,2,t,0,1,'b > 0' in 'a > 0 &&        b > 0'
+MCDC:3,2,f,0,1,'b > 0' in 'a > 0 &&        b > 0'
+EOF
+    fail oldmcdc "unexpected MC/DC data from the old format"
+fi
+
+# ----------------------------------------------------------------------
+echo "*** 15. MC/DC records in the llvm-cov 3.0.1 format"
+# ----------------------------------------------------------------------
+# ..and 3.0.1 moved them, with the branches, to the function, and added
+#   fields to each record
+cat >newmcdc.json <<EOF
+{ "version": "3.0.1", "data": [ {
+  "files": [ { "filename": "mcdc.c", $MCDC_SEGMENTS, "branches": [] } ],
+  "functions": [ { "name": "g", "count": 3, "filenames": [ "mcdc.c" ],
+                   "regions": [ [1,1,7,2,3,0,0,0] ],
+                   "branches": $MCDC_BRANCHES,
+                   "mcdc_records": [ [3,9,4,14,1,2,0,0,5,[false,true]] ] } ]
+} ] }
+EOF
+$COVER $LLVM2LCOV_TOOL --mcdc -o newmcdc.info newmcdc.json \
+    --ignore empty 2>&1 | tee newmcdc.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail newmcdc "llvm2lcov failed on 3.0.1-format MC/DC records"
+fi
+grep -E '^MCDC:' newmcdc.info
+if ! diff - <(grep -E '^MCDC:' newmcdc.info) <<'EOF' ; then
+MCDC:3,2,t,0,0,'a > 0' in 'a > 0 &&        b > 0'
+MCDC:3,2,f,0,0,'a > 0' in 'a > 0 &&        b > 0'
+MCDC:3,2,t,1,1,'b > 0' in 'a > 0 &&        b > 0'
+MCDC:3,2,f,1,1,'b > 0' in 'a > 0 &&        b > 0'
+EOF
+    fail newmcdc "unexpected MC/DC data from the 3.0.1 format"
 fi
 
 # ----------------------------------------------------------------------

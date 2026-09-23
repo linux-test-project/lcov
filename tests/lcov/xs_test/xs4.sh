@@ -77,7 +77,7 @@ my ($f, $h) = $mb->totals();
 print "$f $h";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
-run_test "MCDC_Block::is_compatible same groups" '
+run_test "MCDC_Block::incompatible_group same groups" '
 use lcovutil;
 my $a = MCDC_Block->new(10);
 $a->insertExpr("f.c", 2, 1, 1, 0, "x>0", 0);
@@ -85,7 +85,7 @@ $a->insertExpr("f.c", 2, 1, 2, 1, "y>0", 0);
 my $b = MCDC_Block->new(10);
 $b->insertExpr("f.c", 2, 0, 3, 0, "x>0", 0);
 $b->insertExpr("f.c", 2, 0, 1, 1, "y>0", 0);
-print $a->is_compatible($b);
+print $a->incompatible_group($b) // "none";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 run_test "MCDC_Block::merge" '

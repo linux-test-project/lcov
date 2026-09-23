@@ -54,7 +54,8 @@ Table of Contents
 1. `Included files <#section-1-included-files>`_
 2. `Installing LCOV <#section-2-installing-lcov>`_
 3. `Dependencies <#section-3-dependencies>`_
-4. `How to access coverage data for a user space program <#section-4-user-space>`_
+4. `How to access coverage data for a user space program
+   <#section-4-user-space>`_
 5. `How to access Linux kernel coverage data <#section-5-linux-kernel>`_
 6. `LCOV Features <#section-6-lcov-features>`_
 7. `Questions and comments <#section-7-questions-comments>`_
@@ -115,12 +116,14 @@ To install the tarball, unpack it to a directory and run::
 If ``LCOV_NO_DOC`` is defined, then the install process will not build
 or install documentation.  (By default, documentation is built and installed.)
 
-Similarly, if ``LCOV_NO_XS`` is defined, then the install process will not build the XS lcov package.
-If you pass the ``make COVERAGE=1 ...`` flag, then the XS package will be built with coverage instrumentation.
+Similarly, if ``LCOV_NO_XS`` is defined, then the install process will not build
+the XS lcov package. If you pass the ``make COVERAGE=1 ...`` flag, then the XS
+package will be built with coverage instrumentation.
 
 The XS package is a C++ extension and needs a C++20-capable compiler;  see
-`Selecting the compiler for the XS extension <#selecting-the-compiler-for-the-xs-extension>`_
-if the default compiler on your ``PATH`` is older than that.
+`Selecting the compiler for the XS extension
+<#selecting-the-compiler-for-the-xs-extension>`_ if the default compiler on your
+``PATH`` is older than that.
 
 Use Git for the most recent (but possibly unstable) version::
 
@@ -263,7 +266,7 @@ well, and ``LCOV_CXX`` takes precedence::
     make LCOV_CXX=/opt/gcc-14.2.0/bin/g++ install
 
 If no suitable compiler can be found, the build will fail.  It does not
-fall back to building nothing, because that failure mode is easy to 
+fall back to building nothing, because that failure mode is easy to
 overlook:  lcov
 loads the extension if it is present and *silently* uses its pure-Perl
 implementation if it is not.  A missing or unloadable extension therefore does
@@ -313,7 +316,8 @@ a) Capture current coverage state to a file:
 
       Capture the current coverage state to a file::
 
-          $ lcov --directory path/to/my/testcase --capture --output-file app.info
+          $ lcov --directory path/to/my/testcase --capture \
+                --output-file app.info
 
       (LLVM users using the 'profdata path' will use a somewhat different
       command for this step - see the discussion referenced above.)
@@ -328,10 +332,26 @@ a) Capture current coverage state to a file:
         and your compile command line must include
         ``-fprofile-inst-generate -fcoverage-mapping -fcoverage-mcdc``.
         See the above referenced discussion for details.
-      - your lcov and genhtml command line must include flag
+      - your ``lcov`` and ``genhtml`` command line must include flag
         ``--mcdc-coverage``
 
-      See the ``--mcdc-coverage`` section in the genhtml and geninfo man pages.
+      Similarly, if you want to collect function callee/caller coverage data,
+      then:
+
+      - you must use ``gcc/14`` (or newer); LLVM has no equivalent.  gcc/10
+        writes the callgraph information, but the count of each call requires
+        ``gcc/14`` and later.
+      - your gcc compile command line must include flag
+        ``-fcallgraph-info=su,da``.
+      - a call which the compiler inlined is no longer in the caller's control
+        flow graph, so compile with ``-O0``, ``-O1`` or
+	``-fno-inline -fno-ipa-pure-const`` to
+        collect call site data reliably.
+      - your ``lcov`` and ``genhtml`` command line must include flag
+        ``--callgraph-coverage``.
+
+      See the ``--mcdc-coverage`` and ``--callgraph-coverage`` sections in 
+      :manpage:`genhtml(1)` and :manpage:`geninfo(1)`.
 
       Note that runtime coverage data exists only after the application has
       been started and stopped at least once. Otherwise, no data will be found
@@ -345,8 +365,8 @@ a) Capture current coverage state to a file:
       For further information on the gcc profiling mechanism, please
       consult the gcov man page.
 
-      See 'man lcov' for more information - especially if your build/test
-      environment is not trivial.
+      See :manpage:`lcov(1)` for more information - especially if your
+      build/test environment is not trivial.
 
    ii) Python code:
 
@@ -423,7 +443,7 @@ b) Generate an HTML coverage report:
    Point the web browser of your choice to the resulting file:
    html_report/index.html.
 
-   See 'man genhtml' for more details.
+   See :manpage:`genhtml(1)` for more details.
 
 c) Generate a differential coverage report:
 
@@ -479,13 +499,13 @@ a) Categorization
    Differential categorization and binning are orthogonal in the sense
    that you can generate differential report without binning as well
    as 'vanilla' coverage reports with binning. See the above papers
-   and the genhtml man page for details.
+   and :manpage:`genhtml(1)` for details.
 
    Related options:
 
-     ``--baseline-file``, ``--diff-file``, ``--annotate-script``, ``--select-script``,
-     ``--date-bins``, ``--date-labels``, ``--new-file-as-baseline``,
-     ``--elide-path-mismatch``
+     ``--baseline-file``, ``--diff-file``, ``--annotate-script``,
+     ``--select-script``, ``--date-bins``, ``--date-labels``,
+     ``--new-file-as-baseline``, ``--elide-path-mismatch``
 
 b) Error handling
 
@@ -495,7 +515,8 @@ b) Error handling
    message if desired. Note that ignoring certain errors can cause
    subsequent errors and/or can result in inconsistent or confusing
    coverage reports.
-   See the genhtml/lcov/geninfo man pages for details.
+   See :manpage:`genhtml(1)`/:manpage:`lcov(1)`/:manpage:`geninfo(1)`
+   for details.
 
    Note that some errors are unrecoverable - and cannot be suppressed or
    ignored.
@@ -509,7 +530,8 @@ b) Error handling
 
    Related options:
 
-     ``--ignore-error``, ``--expect-message-count``, ``--keep-going``, ``--msg-log``
+     ``--ignore-error``, ``--expect-message-count``, ``--keep-going``,
+     ``--msg-log``
 
 c) Navigation and display
 
@@ -528,7 +550,7 @@ c) Navigation and display
    popups, user-specified HTML header, footer, and table labels, etc.) are
    also available.
 
-   See the genhtml man page for some details, as well as the
+   See :manpage:`genhtml(1)` for some details, as well as the
    'gendiffcov/simple' testcases for some examples.
 
    Related options:
@@ -626,9 +648,10 @@ e) Callbacks/customization
    The callback may be any desired script or executable - but there
    may be performance advantages if it is written as a Perl module.
    See the "Additional considerations" and "Callbacks and parallel
-   execution" discussion in the genhtml man page.
+   execution" discussion in :manpage:`genhtml(1)`.
 
-   See the genhtml/lcov/geninfo man pages for details.
+   See :manpage:`genhtml(1)`/:manpage:`lcov(1)`/:manpage:`geninfo(1)`
+   for details.
 
    Note that the various sample scripts are found in the source code
    'scripts' directory, but are installed in the
@@ -655,11 +678,13 @@ f) Performance
    There are several configuration file options which can be used to
    tweak certain parallelization parameters to optimize performance
    for your environment in cases that the default behaviour is suboptimal.
-   See the lcovrc man page for more information.
+   See :manpage:`lcovrc(5)` for more information.
 
-   See the genhtml/lcov/geninfo man pages for details
+   See :manpage:`genhtml(1)`/:manpage:`lcov(1)`/:manpage:`geninfo(1)`
+   for details.
 
-   Related options: ``--parallel``, ``--memory``, ``--profile``, ``--history-script``
+   Related options: ``--parallel``, ``--memory``, ``--profile``,
+   ``--history-script``
 
 g) Language/tool support
 
@@ -668,16 +693,18 @@ g) Language/tool support
 
    - **llvm2lcov**:
 
-     translates JSON coverage data generated by ``llvm-cov export -format=text ...``
-     to lcov format.
+     translates JSON coverage data generated by
+     ``llvm-cov export -format=text ...`` to lcov format.
 
-     See ``llvm2lcov --help`` for brief instruction on how to use the
+     See ``llvm2lcov --help`` and :manpage:`llvm2lcov(1)` for brief
+     instruction on how to use the
      translator. Note that llvm2lcov uses a similar set of command line
      and configuration file options as lcov, genhtml, and geninfo.
 
    - **py2lcov**:
 
      translates python ``Coverage.py`` XML data to lcov format.
+     See ``py2lcov --help`` and :manpage:`py2lcov(1)` for more information.
 
      See the Coverage.py documentation at https://coverage.readthedocs.io,
      as well as ``.../py2lcov --help``
@@ -690,8 +717,8 @@ g) Language/tool support
      https://metacpan.org/pod/Devel::Cover
      to find out how to generate coverage data for Perl code.
 
-     See ``perl2lcov --help`` for brief instructions on how to
-     use the translator.
+     See ``perl2lcov --help`` and :manpage:`perl2lcov(1)` for brief
+     instructions on how to use the translator.
      Note that perl2lcov uses a similar set of command line and
      config file options as lcov, genhtml, and geninfo.
 
@@ -704,9 +731,8 @@ g) Language/tool support
      JaCoCo data does not say where the source files are, so
      ``--source-directory`` has to.
 
-     See ``xml2lcov --help`` and the ``xml2lcov`` man page for brief
-     instructions on how to use
-     the translator.
+     See ``xml2lcov --help`` and :manpage:`xml2lcov(1)` for brief
+     instructions on how to use the translator.
      See the Cobertura or JaCoCo documentation for directions on how
      to generate XML data.
 
@@ -721,7 +747,7 @@ g) Language/tool support
      not implement itself.  Each of the three steps remains available on its
      own.
 
-     See ``jacoco2lcov --help`` and the ``jacoco2lcov`` man page
+     See ``jacoco2lcov --help`` and :manpage:`jacoco2lcov(1)`
      for brief instructions on how to use it.
 
    - **html2lcov**:
@@ -731,16 +757,17 @@ g) Language/tool support
      to generate differential coverage report after un-tracked code changes
      (*i.e.*, not available from a revision control tool).
 
-     See ``html2lcov --help`` for brief instructions on how to use
+     See ``html2lcov --help`` and :manpage:`html2lcov(1)` for brief
+     instructions on how to use
      the translator.  In particular: this tool enables a relatively
      simple entry into differential coverage reporting.
 
    Other languages can be integrated using a similar approach.
 
 In general, the new features and options are implemented uniformly in lcov,
-genhtml, and geninfo. Most of the features can be enabled/disabled
+genhtml, and other tools. Most of the features can be enabled/disabled
 using either command line options or by setting defaults in your 'lcovrc'
-file. See the lcovrc man page for details.
+file. See :manpage:`lcovrc(5)` for details.
 
 
 .. _section-7-questions-comments:

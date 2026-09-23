@@ -5,7 +5,7 @@
 # xs6 of the former monolithic 'xs_test.sh' (see setup_common.sh).
 # Covers: variable-argument callers; BranchData/MCDCData set operations;
 # write_data batch accessors; keylist in scalar context; _checkCounts;
-# MCDC_Block::is_compatible; the MCDC_Data union/intersect incompatible-record
+# MCDC_Block::incompatible_group; the MCDC_Data union/intersect incompatible-record
 # gate; remove() without the 'check' flag; append_mcdc; insertExpr undef count.
 #
 # Run with: make check, or tests/bin/runtests.py lcov/xs_test/xs6.sh
@@ -484,9 +484,9 @@ $mc->_checkCounts();
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 # ==============================================================================
-# MCDC_Block::is_compatible
+# MCDC_Block::incompatible_group
 #
-# 'is_compatible' is the gate MCDC_Data::union/intersect use to decide whether
+# 'incompatible_group' is the gate MCDC_Data::union/intersect use to decide whether
 # two blocks recorded for the same line describe the same decisions and may
 # therefore be merged.  Two things make it easy to get wrong in opposite
 # directions:  comparing group COUNTS or group SIZES rejects blocks that merely
@@ -498,7 +498,7 @@ $mc->_checkCounts();
 # A group size present in only one block is not a conflict - merge() copies
 # such a group in wholesale - so these must be compatible regardless of which
 # side carries the extra group.
-run_test "MCDC_Block::is_compatible extra group in argument" '
+run_test "MCDC_Block::incompatible_group extra group in argument" '
 use lcovutil;
 my $a = MCDC_Block->new(10);
 $a->insertExpr("f.c", 2, 1, 1, 0, "a", 0);
@@ -509,10 +509,10 @@ $b->insertExpr("f.c", 2, 1, 1, 1, "b", 0);
 $b->insertExpr("f.c", 3, 1, 1, 0, "p", 0);
 $b->insertExpr("f.c", 3, 1, 1, 1, "q", 0);
 $b->insertExpr("f.c", 3, 1, 1, 2, "r", 0);
-print $a->is_compatible($b) ? 1 : 0;
+print $a->incompatible_group($b) // "none";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
-run_test "MCDC_Block::is_compatible extra group in self" '
+run_test "MCDC_Block::incompatible_group extra group in self" '
 use lcovutil;
 my $a = MCDC_Block->new(10);
 $a->insertExpr("f.c", 2, 1, 1, 0, "a", 0);
@@ -523,13 +523,13 @@ $a->insertExpr("f.c", 3, 1, 1, 2, "r", 0);
 my $b = MCDC_Block->new(10);
 $b->insertExpr("f.c", 2, 1, 1, 0, "a", 0);
 $b->insertExpr("f.c", 2, 1, 1, 1, "b", 0);
-print $a->is_compatible($b) ? 1 : 0;
+print $a->incompatible_group($b) // "none";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 # Same line, same group size, DIFFERENT expression text:  the two files are
 # describing different decisions, so merging would attribute counts to the
 # wrong expression.  A size-only comparison would call these compatible.
-run_test "MCDC_Block::is_compatible differing expression text" '
+run_test "MCDC_Block::incompatible_group differing expression text" '
 use lcovutil;
 my $a = MCDC_Block->new(10);
 $a->insertExpr("f.c", 2, 1, 1, 0, "a", 0);
@@ -537,38 +537,51 @@ $a->insertExpr("f.c", 2, 1, 1, 1, "b", 0);
 my $b = MCDC_Block->new(10);
 $b->insertExpr("f.c", 2, 1, 1, 0, "a", 0);
 $b->insertExpr("f.c", 2, 1, 1, 1, "c", 0);
-print $a->is_compatible($b) ? 1 : 0;
+print $a->incompatible_group($b) // "none";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 # A SHARED group of unequal length is incompatible:  merge() walks the two
 # lists index-wise, so the longer side has expressions with nothing to merge
 # against.  Pure Perl used to index off the end of the shorter list and die
 # in expression() on undef.  Both orderings are checked.
-run_test "MCDC_Block::is_compatible shared group shorter in argument" '
+run_test "MCDC_Block::incompatible_group shared group shorter in argument" '
 use lcovutil;
 my $a = MCDC_Block->new(10);
 $a->insertExpr("f.c", 2, 1, 1, 0, "aa", 0);
 $a->insertExpr("f.c", 2, 1, 1, 1, "bb", 0);
 my $b = MCDC_Block->new(10);
 $b->insertExpr("f.c", 2, 1, 1, 0, "aa", 0);
-print $a->is_compatible($b) ? 1 : 0;
+print $a->incompatible_group($b) // "none";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
-run_test "MCDC_Block::is_compatible shared group longer in argument" '
+run_test "MCDC_Block::incompatible_group shared group longer in argument" '
 use lcovutil;
 my $a = MCDC_Block->new(10);
 $a->insertExpr("f.c", 2, 1, 1, 0, "aa", 0);
 my $b = MCDC_Block->new(10);
 $b->insertExpr("f.c", 2, 1, 1, 0, "aa", 0);
 $b->insertExpr("f.c", 2, 1, 1, 1, "bb", 0);
-print $a->is_compatible($b) ? 1 : 0;
+print $a->incompatible_group($b) // "none";
+' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
+
+# Of several groups which differ, the one written at the lowest line is named
+run_test "MCDC_Block::incompatible_group lowest location" '
+use lcovutil;
+my $a = MCDC_Block->new(10);
+my $b = MCDC_Block->new(10);
+foreach my $g (["2", "a", "a"], ["3^2", "p", "x"], ["2^1", "q", "y"]) {
+    my ($key, $mine, $yours) = @$g;
+    $a->insertExpr("f.c", $key, 1, 1, 0, $mine, 0);
+    $b->insertExpr("f.c", $key, 1, 1, 0, $yours, 0);
+}
+print $a->incompatible_group($b) // "none";
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 # ==============================================================================
 # MCDC_Data::union / ::intersect incompatible-record gate
 #
 # The XS union/intersect replace the pure-Perl subs wholesale, and they used to
-# omit the is_compatible() check those subs perform - so XS silently merged
+# omit the incompatible_group() check those subs perform - so XS silently merged
 # MC/DC records that pure Perl rejects with ERROR_INCONSISTENT_DATA.  With the
 # error ignored, both the warning text and the surviving (unmerged) counts are
 # compared.
@@ -624,7 +637,7 @@ print "changed=$changed f/h=", join(",", $x->get_found_and_hit()),
 ' || { status=1; [ $KEEP_GOING == 0 ] && exit 1; }
 
 # A shared group of unequal length reaches the same gate.  This case used to
-# make pure Perl die inside is_compatible (and, with that fixed but the XS gate
+# make pure Perl die inside incompatible_group (and, with that fixed but the XS gate
 # still missing, made XS merge where pure Perl warns).
 run_test "MCDC_Data::union rejects a short shared group" '
 use lcovutil;

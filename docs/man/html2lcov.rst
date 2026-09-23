@@ -17,7 +17,8 @@ SYNOPSIS
 
 ::
 
-    html2lcov [--output filename] [--source-directory dir]+ [--current-file file]+ [options] report_directory+
+    html2lcov [--output filename] [--source-directory dir]+
+              [--current-file file]+ [options] report_directory+
 
 DESCRIPTION
 -----------
@@ -74,7 +75,7 @@ OPTIONS
 -------
 
 ``html2lcov`` supports the options that are common to the other tools in the
-|ToolName| suite, and honours the corresponding ``lcovrc(5)`` settings.  In
+|ToolName| suite, and honours the corresponding :manpage:`lcovrc(5)` settings.  In
 particular:
 
 - file selection and path manipulation:  ``--include``, ``--exclude``,
@@ -83,6 +84,14 @@ particular:
   report exactly as they do when the same data is read by ``lcov`` - so a
   file which is excluded is also absent from the universal diff and from the
   difference report.
+- cover type selection:  ``--branch-coverage``, ``--mcdc-coverage``,
+  ``--callgraph-coverage``.  A metric which is not enabled is dropped as the
+  report's saved ``.info`` files are read, and so is absent from the recovered
+  one:  to recover call site (``FNC:``) records from a report which was
+  generated with ``--callgraph-coverage``, ``html2lcov`` must be given that
+  option too.  Asking for callgraph coverage when no file in the report has a
+  call site raises an ignorable ``empty`` error; ignoring that error turns the
+  metric off.
 - parallelism and resource limits:  ``--parallel`` (``-j``), ``--memory``,
   ``--tempdir``, ``--preserve``.  ``html2lcov`` forks children both to read
   the report's saved ``.info`` file(s) and to scrape and diff the report's
@@ -108,13 +117,14 @@ The tool-specific options are:
 ``--source-directory`` *dir*
    Search *dir* for the current source files to diff against the report's
    embedded source.  May be used more than once.  Files are matched by their
-   path relative to the report's recovered source root.  When ``--source-directory``
-   is not specified it defaults to ``.`` (the current directory).
+   path relative to the report's recovered source root.  When
+   ``--source-directory`` is not specified it defaults to ``.`` (the current
+   directory).
 
 ``--current-file`` *filename*
    An lcov ``.info`` file whose ``SF:`` records name the current source files.
    May be specified more than once, and each value may itself be a list
-   separated by the configured list separator (see ``lcovrc(5)``).
+   separated by the configured list separator (see :manpage:`lcovrc(5)`).
 
    When any ``--current-file`` is given, its union of ``SF:`` paths becomes an
    authoritative whitelist of the current source files:
@@ -169,13 +179,14 @@ OUTPUTS
 
 - **universal diff** (*base*\ ``.udiff``) - written to *base*\ ``.udiff``, or
   to standard output when ``--output`` is omitted;  ``--diff-file`` redirects it
-  elsewhere.  Standard ``diff -u`` format, so it can be consumed by ``genhtml
-  --diff``.  Files only under ``--source-directory`` appear as additions (versus
-  ``/dev/null``);  files only in the report appear as removals.  May be empty
-  when there are no code changes.  For a changed file both diff headers (``---``
-  and ``+++``) name the same path -- the source path recovered from the report,
-  which is exactly the ``SF:`` record in the aggregated ``.info`` -- so
-  ``genhtml`` can associate the diff with the recovered baseline coverage.
+  elsewhere.  Standard ``diff -u`` format, so it can be consumed by
+  ``genhtml --diff``.  Files only under ``--source-directory`` appear as
+  additions (versus ``/dev/null``);  files only in the report appear as
+  removals.  May be empty when there are no code changes.  For a changed file
+  both diff headers (``---`` and ``+++``) name the same path -- the source path
+  recovered from the report, which is exactly the ``SF:`` record in the
+  aggregated ``.info`` -- so ``genhtml`` can associate the diff with the
+  recovered baseline coverage.
 
 - **aggregated coverage** (*base*\ ``.info``) - the ``current`` coverage
   recovered from the report's saved ``.info`` file(s).
@@ -225,16 +236,19 @@ Recover coverage and diff current source against a saved report:
     $ lcov --capture -d . -o current.info
 
     # Recover the .info data and diff the current source tree
-    $ html2lcov -o changes html_report --source-directory ./src --current-file current.info
+    $ html2lcov -o changes html_report --source-directory ./src \
+        --current-file current.info
 
     # 'changes.udiff' is the universal diff (diff -u format)
     # 'changes.info'  is the recovered coverage data
     # 'changes.rpt'   is the human-readable difference report
 
     # now generate a differential report - to see what has changed:
-    $ genhtml -o differential --baseline-file changes.info --diff-file changes.udiff current.info
+    $ genhtml -o differential --baseline-file changes.info \
+        --diff-file changes.udiff current.info
 
-Also see the ``example_html2lcov`` in the *example* directory ``|ToolName|_HOME/share/lcov/example``:
+Also see the ``example_html2lcov`` in the *example* directory
+``|ToolName|_HOME/share/lcov/example``:
 
 ::
 

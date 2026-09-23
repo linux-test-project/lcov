@@ -44,6 +44,7 @@
 #include <utility>
 #include "BranchData.hpp"
 #include "MCDCData.hpp"
+#include "FunctionData.hpp"
 #include "BinarySerializer.hpp"
 
 #ifdef __cplusplus
@@ -328,6 +329,7 @@ static CountData_impl* countdata_deserialize_binary(const uint8_t* data, size_t 
  *       [LABEL:str]          (line_label(); empty => plain numeric line)
  *       [NUM_BLK:4]  uint32  (blocks in blocks(false) order)
  *         per block:
+ *           [LOCATION:1] int8    (BranchBlock::locationOffset())
  *           [NUM_ELEM:4] uint32
  *             per element:
  *               [ID:4]    int32
@@ -396,6 +398,7 @@ static BranchElement branchelement_read(lcov_binary::BinaryReader& r) {
 
 static void branchblock_write(lcov_binary::BinaryWriter& w, const BranchBlock* b) {
     const auto& elems = b->elements();
+    w.write_u8(static_cast<uint8_t>(b->locationOffset()));
     w.write_u32(static_cast<uint32_t>(elems.size()));
     for (const auto& e : elems)
         branchelement_write(w, &e);
@@ -405,6 +408,7 @@ static BranchBlock branchblock_read(lcov_binary::BinaryReader& r) {
     /* idx is auto-assigned by BranchLocation::insertBlock and the signature is
      * derived from the elements on demand, so neither is stored. */
     BranchBlock b;
+    b.setLocationOffset(static_cast<int8_t>(r.read_u8()));
     uint32_t n = r.read_u32();
     b.reserveElements(n);
     for (uint32_t i = 0; i < n; ++i)
@@ -505,7 +509,7 @@ static BranchData* branchdata_deserialize_binary(const uint8_t* data, size_t len
  *       [LABEL:str]
  *       [NUM_GRP:4]  uint32
  *         per group:
- *           [GROUP_SIZE:4] int32
+ *           [GROUP_KEY:4]  int32 (see mcdcGroupKey)
  *           [NUM_EXPR:4]   uint32
  *             per expr:
  *               [GS:4][IDX:4][EXPR:str][EXCL0:1][EXCL1:1]
@@ -514,6 +518,28 @@ static BranchData* branchdata_deserialize_binary(const uint8_t* data, size_t len
  *                 if diff: [TLA:str][HAS_BASE:1][BASE:8][HAS_CURR:1][CURR:8]
  *                 else:    [COUNT:8 int64]
  * ========================================================================= */
+
+/* The packed group key (see mcdcGroupKey) of a Perl group key:  "<size>" or
+ * "<size>^<offset>", or a plain integer size.  A size or an offset which does
+ * not fit its field is refused rather than masked:  masking it would make the
+ * key equal to that of some other group. */
+static int32_t sv_to_mcdc_key(SV* sv) {
+    long size;
+    long offset = 0;
+    if (SvIOK(sv) && !SvPOK(sv)) {
+        size = (long)SvIV(sv);
+    } else {
+        STRLEN len;
+        const char* s = SvPV(sv, len);
+        char* end = NULL;
+        size = strtol(s, &end, 10);
+        if (end && *end == '^')
+            offset = strtol(end + 1, NULL, 10);
+    }
+    if (size < 0 || size > 0xFFFFFF || offset < -128 || offset > 127)
+        croak("MC/DC group key '%s' out of range", SvPV_nolen(sv));
+    return mcdcGroupKey((int32_t)size, (int32_t)offset);
+}
 
 static void mcdcexpr_write(lcov_binary::BinaryWriter& w, const MCDC_Expression* e) {
     w.write_i32(e->groupSize());
@@ -1284,6 +1310,696 @@ static SV* branchdata_location_sv(BranchData_wrapper* w, int32_t line,
 }
 
 /* =========================================================================
+ * The function family -- FunctionAlias, FunctionEntry, FunctionMap.
+ *
+ * Representation:
+ *   FunctionMap    owns its C++ object through a wrapper, which also holds the
+ *                  per-entry identity cache (see below).
+ *   FunctionEntry  is a pointer in the inner IV, tagged with bit 1 the same way
+ *                  borrow_branchelement() tags one.  An entry created by
+ *                  new()/cloneWithEndLine()/thaw() is OWNED by its Perl object
+ *                  and stored untagged;  one handed out by a FunctionMap is a
+ *                  tagged FunctionEntryRef, a counted share of an entry the map
+ *                  also holds, so it stays valid if the map goes away first.
+ *   FunctionAlias  is always a borrowed view into its entry's alias map, held by
+ *                  a wrapper which keeps a refcount on the entry's Perl object
+ *                  (the MCDC_Expression pattern) so the alias cannot outlive the
+ *                  storage it points into.
+ *
+ * Entry identity is required:
+ * 'sumfnc' in lcovutil.pm may be a testcase's own FunctionMap, and
+ * TraceInfo::_fixFunction  * de-duplicates the entries it is about to adjust
+ *  with Scalar::Util::refaddr($func) - so two findKey() calls for one entry
+ * must return the SAME blessed ref, or the alias counts get applied twice.  The
+ * cache is keyed by the C++ entry pointer rather than by line so that identity
+ * survives '_relocate', which is exactly the case _fixFunction is guarding
+ * against (define_function moves an entry to a smaller start line).
+ * ========================================================================= */
+
+/* Intern the string in 'sv'.  An undef or missing SV interns as id 0, which is
+ * the empty string -- the representation of "no value" for a TLA. */
+static uint32_t intern_sv(SV* sv)
+{
+    if (!sv || !SvOK(sv))
+        return 0;
+    STRLEN      len;
+    const char* s = SvPV(sv, len);
+    return lcov::intern(s, len);
+}
+
+/* The string for an interned id, as a mortal SV. */
+static SV* interned_sv(uint32_t id)
+{
+    const std::string& s = lcov::interned(id);
+    return newSVpvn(s.data(), s.size());
+}
+
+/* The string for an interned id, or undef for id 0:  a name is never empty, so
+ * an unset TLA comes back to Perl as undef - same as pure Perl. */
+static SV* interned_or_undef_sv(uint32_t id)
+{
+    if (0 == id)
+        return SvREFCNT_inc(&PL_sv_undef);
+    return interned_sv(id);
+}
+
+/* ---- differential categories ---------------------------------------------
+ *
+ * The TLA of a call site is a one byte index into lcov::CategoryTable rather
+ * than an interned string id, because there are many call site records,
+ * each holding a TLA.
+ * There are two directions of that, and the one diagnostic the
+ * narrow index needs.
+ */
+static uint8_t category_index_str(const std::string& tla)
+{
+    bool    overflow = false;
+    uint8_t idx      = lcov::category_index(tla, &overflow);
+    if (overflow)
+        croak("cannot record more than %d distinct differential categories:  '%s' is one too many",
+              (int)lcov::CategoryTable::MAX_CATEGORIES, tla.c_str());
+    return idx;
+}
+
+static uint8_t category_index_sv(SV* sv)
+{
+    if (!sv || !SvOK(sv))
+        return 0;
+    STRLEN      len;
+    const char* s = SvPV(sv, len);
+    return category_index_str(std::string(s, len));
+}
+
+/* The name of a category index, or undef for 0:  an uncategorized site return
+   undef - same as pure Perl. */
+static SV* category_or_undef_sv(uint8_t index)
+{
+    if (0 == index)
+        return SvREFCNT_inc(&PL_sv_undef);
+    const std::string& s = lcov::category_string(index);
+    return newSVpvn(s.data(), s.size());
+}
+
+/* An alias always lives in some FunctionEntry's alias map:  a borrowed one in
+ * the entry it belongs to, and a standalone one (FunctionAlias->new, clone, or
+ * thaw) in a private entry this wrapper owns.  One storage rule rather than two
+ * is what keeps 'FunctionAlias' a single C++ class with no life cycle of its
+ * own - and the private entry costs one allocation on a path pure Perl reaches
+ * only from FunctionEntry, which under XS does its own alias handling in C++. */
+struct FunctionAlias_wrapper {
+    FunctionAlias* alias;
+    SV*            parent_sv;  /* ref-counted entry SV; null when standalone */
+    FunctionEntry* owner;      /* the private entry; null when borrowed */
+
+    /* Borrow an alias out of the entry whose Perl object is 'parent'. */
+    FunctionAlias_wrapper(FunctionAlias* a, SV* parent)
+        : alias(a), parent_sv(parent), owner(nullptr)
+    {
+        SvREFCNT_inc(parent_sv);
+    }
+    /* Take ownership of a standalone alias and the entry holding it. */
+    FunctionAlias_wrapper(FunctionEntry* own, FunctionAlias* a)
+        : alias(a), parent_sv(nullptr), owner(own) {}
+
+    ~FunctionAlias_wrapper() {
+        delete owner;               /* nullptr-safe; destroys 'alias' with it */
+        if (parent_sv)
+            SvREFCNT_dec(parent_sv);
+    }
+};
+
+static FunctionAlias_wrapper* sv_to_functionalias_wrapper(SV* sv) {
+    if (!sv || !SvROK(sv))
+        croak("FunctionAlias: not a reference");
+    SV* inner = SvRV(sv);
+    if (!SvIOK(inner))
+        croak("FunctionAlias: invalid object (not IV)");
+    return (FunctionAlias_wrapper*)(intptr_t)SvIV(inner);
+}
+
+static FunctionAlias* sv_to_functionalias(SV* sv) {
+    return sv_to_functionalias_wrapper(sv)->alias;
+}
+
+/* A standalone alias:  a private entry holding exactly this one alias. */
+static FunctionAlias_wrapper* standalone_alias(uint32_t name, int64_t count,
+                                               bool count_defined,
+                                               bool differential, uint32_t tla,
+                                               bool    external = false,
+                                               int64_t external_calls =
+                                                   FunctionAlias::NO_EXTERNAL_CALLS,
+                                               const FunctionAlias::MergedNames*
+                                                   merged = nullptr)
+{
+    FunctionEntry* owner = new FunctionEntry(name, 0, 0, 0, false);
+    owner->appendAliasRaw(name, count, count_defined, differential, tla,
+                          external, external_calls, merged);
+    return new FunctionAlias_wrapper(owner, owner->alias(name));
+}
+
+static SV* make_functionalias_sv(FunctionAlias_wrapper* w, const char* klass) {
+    SV* inner = newSViv((IV)(intptr_t)w);
+    SV* rv    = newRV_noinc(inner);
+    sv_bless(rv, gv_stashpv(klass, GV_ADD));
+    return rv;
+}
+
+/* One share of an entry which lives in a FunctionMap.
+ *
+ * The Perl object holds a reference to the entry rather than a bare pointer,
+ * because it can outlive the map it came from:  'dclone($map)->findKey(10)'
+ * frees the cloned map at the end of the statement, and pure Perl's reference
+ * count keeps the entry alive there.  The map's identity cache (below) holds one
+ * of these through the entry SV it caches, so the entry also outlives its own
+ * removal from the map - which is the other thing a Perl reference does. */
+struct FunctionEntryRef {
+    std::shared_ptr<FunctionEntry> keep;
+
+    explicit FunctionEntryRef(const std::shared_ptr<FunctionEntry>& e) : keep(e)
+    {
+    }
+};
+
+/* The entry a Perl object points at:  bit 1 of the stored pointer says which of
+ * the two shapes it is - a borrowed share, or an entry this object owns
+ * outright (FunctionEntry->new, cloneWithEndLine, thaw). */
+static FunctionEntry* sv_to_functionentry(SV* sv) {
+    if (!sv || !SvROK(sv))
+        croak("FunctionEntry: not a reference");
+    SV* inner = SvRV(sv);
+    if (!SvIOK(inner))
+        croak("FunctionEntry: invalid object (not IV)");
+    intptr_t tagged = (intptr_t)SvIV(inner);
+    if (tagged & 1)
+        return ((FunctionEntryRef*)(tagged & ~(intptr_t)1))->keep.get();
+    return (FunctionEntry*)tagged;
+}
+
+static SV* own_functionentry_sv(FunctionEntry* e, const char* klass) {
+    SV* inner = newSViv((IV)(intptr_t)e);
+    SV* rv    = newRV_noinc(inner);
+    sv_bless(rv, gv_stashpv(klass, GV_ADD));
+    return rv;
+}
+
+static SV* borrow_functionentry_sv(const std::shared_ptr<FunctionEntry>& e) {
+    FunctionEntryRef* ref = new FunctionEntryRef(e);
+    SV* inner = newSViv((IV)((intptr_t)ref | 1));   /* borrowed share tag */
+    SV* rv    = newRV_noinc(inner);
+    sv_bless(rv, gv_stashpv("FunctionEntry", GV_ADD));
+    return rv;
+}
+
+/* FunctionMap_wrapper -- the C++ map plus the identity cache described above.
+ *
+ * A cache slot holds the blessed entry SV, and that SV holds a share of the
+ * entry (see FunctionEntryRef), so a Perl entry object stays valid even after
+ * the map drops the entry -- which 'FunctionMap::remove' and the '_removeKey' of
+ * intersect and difference all do while the caller still holds it in a loop
+ * variable.  That is what pure Perl's reference count does there, and it is why
+ * nothing is ever uncached:  identity has to survive '_relocate' and removal
+ * both. */
+struct FunctionMap_wrapper {
+    FunctionMap* map;
+    std::unordered_map<const FunctionEntry*, SV*> cache;
+
+    explicit FunctionMap_wrapper(FunctionMap* m) : map(m) {}
+
+    ~FunctionMap_wrapper() { clear_cache(); delete map; }
+
+    void clear_cache() {
+        for (auto& kv : cache)
+            if (kv.second)
+                SvREFCNT_dec(kv.second);
+        cache.clear();
+    }
+};
+
+static FunctionMap_wrapper* sv_to_functionmap(SV* sv) {
+    if (!sv || !SvROK(sv))
+        croak("FunctionMap: not a reference");
+    SV* inner = SvRV(sv);
+    if (!SvIOK(inner))
+        croak("FunctionMap: invalid object (not IV)");
+    return (FunctionMap_wrapper*)(intptr_t)SvIV(inner);
+}
+
+/* The cached Perl object for one of my entries, created on first use.  The
+ * returned SV has had its refcount incremented for the caller;  undef for an
+ * entry which is not there at all. */
+static SV* functionmap_entry_sv(FunctionMap_wrapper* w,
+                                const std::shared_ptr<FunctionEntry>& e) {
+    if (!e)
+        return SvREFCNT_inc(&PL_sv_undef);
+
+    auto it = w->cache.find(e.get());
+    if (it != w->cache.end())
+        return SvREFCNT_inc(it->second);
+
+    SV* rv = borrow_functionentry_sv(e);
+    SvREFCNT_inc(rv);           /* one ref for the cache */
+    w->cache[e.get()] = rv;
+    return rv;                  /* one ref for the caller */
+}
+
+/* Everything Perl hands us as a count has already been through
+ * lcovutil::normalize_count, so it is a non-negative integer no larger than
+ * MAX_COUNT;  this only has to not turn it into something else. */
+static int64_t sv_to_count(SV* sv)
+{
+    if (!sv || !SvOK(sv))
+        return 0;
+    double nv = SvNV(sv);
+    if (count_is_not_finite(nv) || nv < 0.0)
+        return 0;
+    if (nv >= (double)lcov::MAX_COUNT)
+        return lcov::MAX_COUNT;
+    return (int64_t)nv;
+}
+
+/* A call site's count, which unlike every other count in this layer may be the
+ * '-' of a 'FNC:' record -- the call is in the compiled code and its count is
+ * not known.  Held in the count field as CallSite::DASH, exactly as
+ * BranchElement holds the '-' of a 'BRDA:' record.
+ *
+ * The string is only looked at for an SV which has no numeric slot, so the
+ * ordinary case of a count pays nothing:  no count ever stringifies to "-". */
+static int64_t sv_to_site_count(SV* sv)
+{
+    if (sv && SvOK(sv) && !SvIOK(sv) && !SvNOK(sv)) {
+        STRLEN      len = 0;
+        const char* s   = SvPV(sv, len);
+        if (len == 1 && s[0] == '-')
+            return CallSite::DASH;
+    }
+    return sv_to_count(sv);
+}
+
+/* ..and the other direction, for the readers which hand a count back to Perl. */
+static SV* site_count_sv(int64_t count)
+{
+    if (CallSite::DASH == count)
+        return newSVpvn("-", 1);
+    return newSViv((IV)count);
+}
+
+/* The optional flag field of an alias's 'FNA:' record, as a Perl string -- see
+ * pure Perl's FunctionAlias::flags for the letters.  Empty for almost every
+ * alias.  Both the 'flags' method and the 'write_data' which answers the whole
+ * record at once come through here, so the letters are named in one place. */
+static SV* alias_flags_sv(const FunctionAlias& a)
+{
+    /* 'e', then 'x' and the calls it carries where they are known:  a count
+     * is at most 20 digits */
+    char buf[32];
+    int  len = 0;
+    if (a.is_external())
+        buf[len++] = 'e';
+    if (a.has_external_callers()) {
+        buf[len++] = 'x';
+        if (CallSite::DASH != a.external_calls())
+            len += snprintf(buf + len, sizeof(buf) - len, "%lld",
+                            (long long)a.external_calls());
+    }
+    return newSVpvn(buf, len);
+}
+
+/* The calls an alias' 'x' flag carries, as pure Perl's
+ * FunctionAlias::external_calls answers them:  0 where there is no flag, and
+ * undef where there is one and its count is not known */
+static SV* external_calls_sv(const FunctionAlias& a)
+{
+    if (!a.has_external_callers())
+        return newSViv(0);
+    if (CallSite::DASH == a.external_calls())
+        return newSV(0);
+    return newSViv((IV)a.external_calls());
+}
+
+/* Split a call site key -- "<line>:<column>:<ordinal>[:<file>]", the string
+ * FunctionEntry::_siteKey builds -- back into its three numbers and the interned
+ * name of the file the call is written in (0 when the key has no fourth field,
+ * which is the site of a call written in the function's own file).  The key comes
+ * from callSiteKeys(), so a malformed one is a caller bug and reads as zeros
+ * rather than raising:  the lookup it is used for then simply finds nothing.
+ *
+ * The file is the rest of the string and not the fourth colon-separated field,
+ * exactly as pure Perl's 'split(":", $key, 4)' has it:  a path may contain a
+ * colon, and on Windows the second character of one usually does. */
+static void parse_site_key(SV* key, int32_t& line, int32_t& column,
+                           int32_t& ordinal, uint32_t& file)
+{
+    line = column = ordinal = 0;
+    file                    = 0;
+    if (!key || !SvOK(key))
+        return;
+    STRLEN      len = 0;
+    const char* s   = SvPV(key, len);
+    const char* end_of_key = s + len;
+    long        v[3]       = { 0, 0, 0 };
+    for (int i = 0; i < 3 && *s; ++i) {
+        char* end = nullptr;
+        v[i]      = strtol(s, &end, 10);
+        if (end == s)
+            break;
+        s = (*end == ':') ? end + 1 : end;
+    }
+    line    = (int32_t)v[0];
+    column  = (int32_t)v[1];
+    ordinal = (int32_t)v[2];
+    if (s < end_of_key)
+        file = lcov::intern(s, (std::size_t)(end_of_key - s));
+}
+
+/* The key string for a site, as a mortal SV -- the other direction. */
+static SV* site_key_sv(const CallSite& s)
+{
+    char buf[48];
+    int  len = snprintf(buf, sizeof(buf), "%d:%d:%d", (int)s.line, (int)s.column,
+                        (int)s.ordinal);
+    if (0 == s.file)
+        return newSVpvn(buf, len);
+    /* the file is appended rather than formatted in, because it is a path and
+     * not a bounded field */
+    SV*                sv   = newSVpvn(buf, len);
+    const std::string& file = lcov::interned(s.file);
+    sv_catpvn(sv, ":", 1);
+    sv_catpvn(sv, file.data(), file.size());
+    return sv;
+}
+
+/* =========================================================================
+ * Function-family binary serialization
+ *
+ * Format (version 2), shared by all three classes:  an alias payload is
+ * embedded in an entry payload, and an entry payload in a map payload, so the
+ * three magics differ only in what wraps what.
+ *
+ *   alias:  [NAME:str] [FLAGS:1] [TLA:str] [COUNT:8] [EXTERNAL_CALLS:8]?
+ *              FLAGS bit 0 -> differential, bit 1 -> count is defined,
+ *                    bit 2 -> the symbol has external linkage,
+ *                    bit 3 -> it was called from a site the report cannot name
+ *              EXTERNAL_CALLS is written only where bit 3 is set:  the calls
+ *                    those sites made, CallSite::DASH where not known
+ *   entry:  [NAME:str] [FILE:str] [FLAGS:1] [TLA:str] [FIRST:4] [LAST:4]
+ *           [COUNT:8] [NALIAS:4] alias x NALIAS [NSITE:4]
+ *           ( [LINE:4] [COL:4] [ORD:4] [COUNT:8] [CALLEE:str] [TLA:str]
+ *             [FILE:str] ) x NSITE
+ *              FILE is the file the call is written in, and is empty for a call
+ *                   written in the function's own file -- which is nearly all of
+ *                   them, so it costs the length byte of an empty string
+ *              FLAGS bit 0 -> differential, bit 1 -> end line is known,
+ *                    bit 2 -> it called out of the boundary of the report
+ *   map:    'FMAP' [VERSION:4] [FILE:str] [NENTRY:4]
+ *           ( [IN_LINE_MAP:1] entry ) x NENTRY
+ *           [NNAME:4] ( [NAME:str] [ENTRY_INDEX:4] ) x NNAME
+ *
+ * Strings go on the wire rather than interned ids:  an id is process-local (see
+ * lcov::StringTable), and the reader interns what it reads.
+ *
+ * A frozen alias never carries its callers list:  it is cross-file, derived and
+ * transient, and TraceFile::serialize refuses to run at all once call sites have
+ * been resolved -- so a thawed alias is unresolved, which is the truth about it.
+ * The name map is written as indexes into the entry list so that an entry which
+ * both maps reach stays ONE entry on the other side, and so that an entry only
+ * the name map has -- FunctionMap::difference leaves those behind -- survives.
+ * ========================================================================= */
+
+/* the version all three magics above carry */
+static const uint32_t FUNCTION_WIRE_VERSION = 4;
+
+static void write_alias_payload(lcov_binary::BinaryWriter& w, uint32_t name,
+                                const FunctionAlias& a)
+{
+    w.write_string(lcov::interned(name));
+    uint8_t flags = (uint8_t)((a.is_differential() ? 1 : 0) |
+                              (a.has_count() ? 2 : 0) |
+                              (a.is_external() ? 4 : 0) |
+                              (a.has_external_callers() ? 8 : 0) |
+                              (a.merged() ? 16 : 0));
+    w.write_u8(flags);
+    w.write_string(lcov::interned(a.tla_id()));
+    w.write_i64(a.count());
+    if (a.has_external_callers())
+        w.write_i64(a.external_calls());
+    /* the merged names and their counts */
+    if (const FunctionAlias::MergedNames* m = a.merged()) {
+        w.write_u32((uint32_t)m->size());
+        for (const auto& n : *m) {
+            w.write_string(lcov::interned(n.first));
+            w.write_i64(n.second);
+        }
+    }
+}
+
+static void read_alias_payload(lcov_binary::BinaryReader& r, FunctionEntry& e)
+{
+    uint32_t name  = lcov::intern(r.read_string());
+    uint8_t  flags = r.read_u8();
+    uint32_t tla   = lcov::intern(r.read_string());
+    int64_t  count = r.read_i64();
+    int64_t  calls =
+        (flags & 8) ? r.read_i64() : FunctionAlias::NO_EXTERNAL_CALLS;
+    FunctionAlias::MergedNames merged;
+    if (flags & 16) {
+        uint32_t n = r.read_u32();
+        merged.reserve(n);
+        while (n--) {
+            uint32_t m = lcov::intern(r.read_string());
+            merged.emplace_back(m, r.read_i64());
+        }
+    }
+    e.appendAliasRaw(name, count, 0 != (flags & 2), 0 != (flags & 1), tla,
+                     0 != (flags & 4), calls,
+                     (flags & 16) ? &merged : nullptr);
+}
+
+static void write_entry_payload(lcov_binary::BinaryWriter& w,
+                                const FunctionEntry& e)
+{
+    w.write_string(e.name());
+    w.write_string(e.filename());
+    uint8_t flags = (uint8_t)((e.is_differential() ? 1 : 0) |
+                              (e.has_end_line() ? 2 : 0) |
+                              (e.has_external_callees() ? 4 : 0));
+    w.write_u8(flags);
+    w.write_string(lcov::interned(e.tla_id()));
+    w.write_i32(e.line());
+    w.write_i32(e.end_line());
+    w.write_i64(e.hit());
+    w.write_u32((uint32_t)e.numAliases());
+    e.for_each_alias([&w](uint32_t name, const FunctionAlias& a) {
+        write_alias_payload(w, name, a);
+    });
+    const CallSiteList& sites = e.callSites();
+    w.write_u32((uint32_t)sites.size());
+    for (const CallSite& s : sites) {
+        w.write_i32(s.line);
+        w.write_i32(s.column);
+        w.write_i32((int32_t)s.ordinal);
+        w.write_i64(s.count);
+        w.write_string(lcov::interned(s.callee));
+        /* the category as a string:  an index is process-local, exactly as an
+         * interned string id is -- see lcov::CategoryTable */
+        w.write_string(lcov::category_string(s.tla));
+        w.write_string(lcov::interned(s.file));
+        /* the alias set as its string, for the reason the callee is one */
+        w.write_string(lcov::interned(s.aliases));
+        w.write_u8((uint8_t)s.statement);
+    }
+}
+
+static FunctionEntry* read_entry_payload(lcov_binary::BinaryReader& r)
+{
+    uint32_t name  = lcov::intern(r.read_string());
+    uint32_t file  = lcov::intern(r.read_string());
+    uint8_t  flags = r.read_u8();
+    uint32_t tla   = lcov::intern(r.read_string());
+    int32_t  first = r.read_i32();
+    int32_t  last  = r.read_i32();
+    int64_t  count = r.read_i64();
+
+    FunctionEntry* e =
+        new FunctionEntry(name, file, first, last, 0 != (flags & 2));
+    if (flags & 4)
+        e->set_external_callees();
+    if (flags & 1)
+        e->set_differential(count, tla);
+    else
+        e->set_hit(count);
+
+    uint32_t nalias = r.read_u32();
+    for (uint32_t i = 0; i < nalias; ++i)
+        read_alias_payload(r, *e);
+
+    uint32_t nsite = r.read_u32();
+    /* the count is known, so the sites are one allocation of exactly the right
+     * size rather than a sequence of them:  every forked child hands its data
+     * back through here */
+    e->reserveCallSites(nsite);
+    for (uint32_t i = 0; i < nsite; ++i) {
+        CallSite s;
+        s.line    = r.read_i32();
+        s.column  = r.read_i32();
+        s.ordinal = (uint16_t)r.read_i32();
+        s.count   = r.read_i64();
+        s.callee  = lcov::intern(r.read_string());
+        s.tla     = category_index_str(r.read_string());
+        s.file    = lcov::intern(r.read_string());
+        s.aliases   = lcov::intern(r.read_string());
+        s.statement = (int8_t)r.read_u8();
+        /* The writer walked the sorted list, so this appends in order. */
+        e->appendCallSiteRaw(s);
+    }
+    return e;
+}
+
+static SV* functionalias_serialize_binary(const FunctionAlias& a)
+{
+    using namespace lcov_binary;
+    BinaryWriter w;
+    w.write_bytes("FALI", 4);
+    w.write_u32(FUNCTION_WIRE_VERSION);
+    write_alias_payload(w, a.name_id(), a);
+    const std::vector<uint8_t>& buf = w.data();
+    return newSVpvn((const char*)buf.data(), buf.size());
+}
+
+/* A thawed alias is standalone, so it thaws into a private entry of its own. */
+static FunctionAlias_wrapper* functionalias_deserialize_binary(
+    const uint8_t* data, size_t len)
+{
+    using namespace lcov_binary;
+    FunctionEntry* owner = nullptr;
+    try {
+        BinaryReader r(data, len);
+        r.verify_magic("FALI");
+        uint32_t version = r.read_u32();
+        if (version != FUNCTION_WIRE_VERSION)
+            croak("FunctionAlias: unsupported binary version %u", version);
+        owner = new FunctionEntry(0, 0, 0, 0, false);
+        read_alias_payload(r, *owner);
+        std::vector<uint32_t> names = owner->aliasNames();
+        if (names.empty())
+            throw std::runtime_error("empty payload");
+        return new FunctionAlias_wrapper(owner, owner->alias(names[0]));
+    } catch (const std::exception& e) {
+        delete owner;
+        croak("FunctionAlias binary deserialization failed: %s", e.what());
+    }
+    return nullptr; /* LCOV_UNREACHABLE_LINE */
+}
+
+static SV* functionentry_serialize_binary(const FunctionEntry& e)
+{
+    using namespace lcov_binary;
+    BinaryWriter w;
+    w.write_bytes("FENT", 4);
+    w.write_u32(FUNCTION_WIRE_VERSION);
+    write_entry_payload(w, e);
+    const std::vector<uint8_t>& buf = w.data();
+    return newSVpvn((const char*)buf.data(), buf.size());
+}
+
+static FunctionEntry* functionentry_deserialize_binary(const uint8_t* data,
+                                                      size_t len)
+{
+    using namespace lcov_binary;
+    try {
+        BinaryReader r(data, len);
+        r.verify_magic("FENT");
+        uint32_t version = r.read_u32();
+        if (version != FUNCTION_WIRE_VERSION)
+            croak("FunctionEntry: unsupported binary version %u", version);
+        return read_entry_payload(r);
+    } catch (const std::exception& e) {
+        croak("FunctionEntry binary deserialization failed: %s", e.what());
+    }
+    return nullptr; /* LCOV_UNREACHABLE_LINE */
+}
+
+static SV* functionmap_serialize_binary(const FunctionMap& m)
+{
+    using namespace lcov_binary;
+    BinaryWriter w;
+    w.write_bytes("FMAP", 4);
+    w.write_u32(FUNCTION_WIRE_VERSION);
+    w.write_string(m.filename());
+
+    /* The entry list is the line map followed by whatever only the name map
+     * still holds, and the index of each is what the name records refer to. */
+    std::vector<const FunctionEntry*>                  entries;
+    std::unordered_map<const FunctionEntry*, uint32_t> index;
+    entries.reserve(m.byLine().size());
+    for (const auto& kv : m.byLine()) {
+        index[kv.second.get()] = (uint32_t)entries.size();
+        entries.push_back(kv.second.get());
+    }
+    size_t in_line_map = entries.size();
+    for (const auto& kv : m.byName()) {
+        if (index.find(kv.second.get()) != index.end())
+            continue;
+        index[kv.second.get()] = (uint32_t)entries.size();
+        entries.push_back(kv.second.get());
+    }
+
+    w.write_u32((uint32_t)entries.size());
+    for (size_t i = 0; i < entries.size(); ++i) {
+        w.write_u8(i < in_line_map ? 1 : 0);
+        write_entry_payload(w, *entries[i]);
+    }
+
+    w.write_u32((uint32_t)m.byName().size());
+    for (const auto& kv : m.byName()) {
+        w.write_string(lcov::interned(kv.first));
+        w.write_u32(index[kv.second.get()]);
+    }
+
+    const std::vector<uint8_t>& buf = w.data();
+    return newSVpvn((const char*)buf.data(), buf.size());
+}
+
+static FunctionMap* functionmap_deserialize_binary(const uint8_t* data,
+                                                   size_t len)
+{
+    using namespace lcov_binary;
+    FunctionMap* m = nullptr;
+    try {
+        BinaryReader r(data, len);
+        r.verify_magic("FMAP");
+        uint32_t version = r.read_u32();
+        if (version != FUNCTION_WIRE_VERSION)
+            croak("FunctionMap: unsupported binary version %u", version);
+        m = new FunctionMap(lcov::intern(r.read_string()));
+
+        uint32_t nentry = r.read_u32();
+        std::vector<std::shared_ptr<FunctionEntry> > entries;
+        entries.reserve(nentry);
+        for (uint32_t i = 0; i < nentry; ++i) {
+            uint8_t in_line_map = r.read_u8();
+            std::shared_ptr<FunctionEntry> e(read_entry_payload(r));
+            if (in_line_map)
+                m->insertEntry(e->line(), e);
+            entries.push_back(std::move(e));
+        }
+
+        uint32_t nname = r.read_u32();
+        for (uint32_t i = 0; i < nname; ++i) {
+            uint32_t name  = lcov::intern(r.read_string());
+            uint32_t which = r.read_u32();
+            if (which >= entries.size())
+                throw std::runtime_error("name refers to no entry");
+            m->registerEntryName(name, entries[which]);
+        }
+        return m;
+    } catch (const std::exception& e) {
+        delete m;
+        croak("FunctionMap binary deserialization failed: %s", e.what());
+    }
+    return nullptr; /* LCOV_UNREACHABLE_LINE */
+}
+
+/* =========================================================================
  * XS definitions
  * ========================================================================= */
 
@@ -1314,6 +2030,18 @@ BOOT:
         PUTBACK;
         call_pv("lcovutil::ignorable_error", G_DISCARD);
         FREETMPS; LEAVE;
+    };
+
+    /* Release the callers list a FunctionAlias holds.  A hook rather than a
+     * direct SvREFCNT_dec so that FunctionData.{hpp,cpp} stay free of the Perl
+     * API and keep compiling standalone in the COVERAGE build. */
+    FunctionDataCallbacks::callers_release = [](void* handle) {
+        dTHX;
+        /* Global destruction may already have freed the list; the interpreter
+         * check mirrors the one above. */
+        if (!handle || !PL_curinterp || PL_dirty)
+            return;
+        SvREFCNT_dec((SV*)handle);
     };
 }
 
@@ -2381,6 +3109,31 @@ signature(self)
   OUTPUT:
     RETVAL
 
+SV*
+code(self)
+    SV* self
+  CODE:
+    const std::string code = sv_to_branchblock(self)->code();
+    RETVAL = newSVpv(code.c_str(), code.size());
+  OUTPUT:
+    RETVAL
+
+IV
+locationOffset(self)
+    SV* self
+  CODE:
+    RETVAL = sv_to_branchblock(self)->locationOffset();
+  OUTPUT:
+    RETVAL
+
+void
+setLocationOffset(self, offset)
+    SV* self
+    IV  offset
+  CODE:
+    /* the caller has checked the range - see the pure-Perl setLocationOffset */
+    sv_to_branchblock(self)->setLocationOffset(static_cast<int32_t>(offset));
+
 int
 empty(self)
     SV* self
@@ -2886,7 +3639,7 @@ groups(self)
         HV* ghv = newHV();
         w->block->for_each_group([&](int32_t gs,
                                      std::vector<MCDC_Expression>& exprs) {
-            std::string ks = std::to_string(gs);
+            std::string ks = mcdcKeyString(gs);
             AV* earr = newAV();
             for (size_t i = 0; i < exprs.size(); ++i) {
                 MCDC_Expression* ep = &exprs[i];
@@ -2908,12 +3661,13 @@ num_groups(self)
     RETVAL
 
 SV*
-expressions(self, size)
+expressions(self, key)
     SV* self
-    IV  size
+    SV* key
   CODE:
     MCDC_Block_wrapper* w = sv_to_mcdcblock(self);
-    std::vector<MCDC_Expression>* vec = w->block->expressions((int32_t)size);
+    std::vector<MCDC_Expression>* vec =
+        w->block->expressions(sv_to_mcdc_key(key));
     if (!vec) {
         RETVAL = SvREFCNT_inc(&PL_sv_undef);
     } else {
@@ -2928,9 +3682,9 @@ expressions(self, size)
     RETVAL
 
 SV*
-expr(self, groupSize, idx)
+expr(self, groupKey, idx)
     SV* self
-    IV  groupSize
+    SV* groupKey
     IV  idx
   CODE:
     MCDC_Block_wrapper* w = sv_to_mcdcblock(self);
@@ -2942,7 +3696,7 @@ expr(self, groupSize, idx)
     std::string err;
     MCDC_Expression* e = NULL;
     try {
-        e = w->block->expr((int32_t)groupSize, (int32_t)idx);
+        e = w->block->expr(sv_to_mcdc_key(groupKey), (int32_t)idx);
     } catch (const std::out_of_range& ex) {
         err = ex.what();
     }
@@ -2953,10 +3707,10 @@ expr(self, groupSize, idx)
     RETVAL
 
 void
-insertExpr(self, filename, groupSize, sense, count, idx, expr_str, ...)
+insertExpr(self, filename, groupKey, sense, count, idx, expr_str, ...)
     SV* self
     SV* filename
-    IV  groupSize
+    SV* groupKey
     IV  sense
     SV* count
     IV  idx
@@ -2969,10 +3723,11 @@ insertExpr(self, filename, groupSize, sense, count, idx, expr_str, ...)
         croak("insertExpr: NULL wrapper pointer");
     }
     /* Autovivifies the group, exactly as pure Perl's
-       'push @{$self->[GROUPS]{$groupSize}}' does.  The reference stays valid for
+       'push @{$self->[GROUPS]{$groupKey}}' does.  The reference stays valid for
        the rest of this XSUB:  find_or_create_group is the only call here that
        can change the block's shape, and it is called once. */
-    auto& vec = w->block->find_or_create_group((int32_t)groupSize);
+    int32_t key = sv_to_mcdc_key(groupKey);
+    auto& vec = w->block->find_or_create_group(key);
     STRLEN elen; const char* es = SvOK(expr_str) ? SvPV(expr_str, elen) : "";
     std::string estr(es, SvOK(expr_str) ? elen : 0);
     if ((size_t)idx < vec.size()) {
@@ -2983,8 +3738,8 @@ insertExpr(self, filename, groupSize, sense, count, idx, expr_str, ...)
             SV* errType = get_sv("lcovutil::ERROR_INCONSISTENT_DATA", 0);
             std::string msg = "\"" +
                 std::string(SvOK(filename) ? SvPV_nolen(filename) : "") +
-                "\":" + std::to_string(w->line()) +
-                ": MC/DC group " + std::to_string(groupSize) +
+                "\":" + std::to_string(mcdcKeyLine(key, w->line())) +
+                ": MC/DC group " + std::to_string(mcdcKeySize(key)) +
                 " expression " + std::to_string(idx) +
                 " changed from '" + old_expr +
                 "' to '" + estr + "'";
@@ -3000,8 +3755,8 @@ insertExpr(self, filename, groupSize, sense, count, idx, expr_str, ...)
             SV* errType = get_sv("lcovutil::ERROR_FORMAT", 0);
             std::string msg = "\"" +
                 std::string(SvOK(filename) ? SvPV_nolen(filename) : "") +
-                "\":" + std::to_string(w->line()) +
-                ": MC/DC group " + std::to_string(groupSize) +
+                "\":" + std::to_string(mcdcKeyLine(key, w->line())) +
+                ": MC/DC group " + std::to_string(mcdcKeySize(key)) +
                 ": non-contiguous expression '" + std::to_string(idx) +
                 "' found - should be '" + std::to_string(vec.size()) + "'.";
             XPUSHs(errType ? errType : &PL_sv_undef);
@@ -3009,7 +3764,7 @@ insertExpr(self, filename, groupSize, sense, count, idx, expr_str, ...)
             PUTBACK; call_pv("lcovutil::ignorable_error", G_DISCARD);
             FREETMPS; LEAVE;
         }
-        vec.push_back(MCDC_Expression((int32_t)groupSize, (int32_t)idx, estr));
+        vec.push_back(MCDC_Expression(mcdcKeySize(key), (int32_t)idx, estr));
     }
     /* Structural change -- expression wrappers handed out by an earlier groups()
        call point into 'vec', which may just have reallocated, so a caller must
@@ -3027,13 +3782,20 @@ totals(self, ...)
     XPUSHs(sv_2mortal(newSViv((IV)p.first)));
     XPUSHs(sv_2mortal(newSViv((IV)p.second)));
 
-int
-is_compatible(self, you)
+SV*
+incompatible_group(self, you)
     SV* self
     SV* you
   CODE:
-    RETVAL = sv_to_mcdcblock(self)->block->is_compatible(
-                 *sv_to_mcdcblock(you)->block) ? 1 : 0;
+    /* the key - in the form 'groups' uses - or undef */
+    const int32_t gs = sv_to_mcdcblock(self)->block->incompatible_group(
+                           *sv_to_mcdcblock(you)->block);
+    if (gs) {
+        std::string ks = mcdcKeyString(gs);
+        RETVAL = newSVpvn(ks.c_str(), ks.size());
+    } else {
+        RETVAL = &PL_sv_undef;
+    }
   OUTPUT:
     RETVAL
 
@@ -3979,5 +4741,1109 @@ STORABLE_thaw(self, cloning, serialized, ...)
     if (SvIOK(inner))
         delete (MCDC_Data_wrapper*)(intptr_t)SvIV(inner);
 
+    sv_setiv(inner, (IV)(intptr_t)w);
+    SvIOK_on(inner);
+
+# ----------------------------------------------------------------------------
+# FunctionAlias
+#
+# One alias of one function.  Every method here is representation:  the
+# diagnostics of the function family stay in lcovutil.pm, which is the reference
+# implementation this mirrors -- see the header comment of FunctionData.hpp.
+# ----------------------------------------------------------------------------
+
+MODULE = LcovUtil    PACKAGE = FunctionAlias
+
+SV*
+new(klass, name, count)
+    char* klass
+    SV* name
+    SV* count
+  CODE:
+    FunctionAlias_wrapper* w = standalone_alias(intern_sv(name),
+                                                sv_to_count(count),
+                                                SvOK(count) ? true : false,
+                                                false, 0);
+    RETVAL = make_functionalias_sv(w, klass);
+  OUTPUT:
+    RETVAL
+
+void
+DESTROY(self)
+    SV* self
+  CODE:
+    if (SvROK(self) && SvIOK(SvRV(self))) {
+        delete (FunctionAlias_wrapper*)(intptr_t)SvIV(SvRV(self));
+        SvIV_set(SvRV(self), 0);
+    }
+
+SV*
+clone(self)
+    SV* self
+  CODE:
+    /* As pure Perl's clone does, the copy holds the same count and the same
+     * category -- but not the callers, which belong to the alias which was
+     * actually called. */
+    FunctionAlias* a = sv_to_functionalias(self);
+    FunctionAlias_wrapper* w = standalone_alias(a->name_id(), a->count(),
+                                                a->has_count(),
+                                                a->is_differential(),
+                                                a->tla_id(),
+                                                a->is_external(),
+                                                a->external_calls(),
+                                                a->merged());
+    RETVAL = make_functionalias_sv(w, "FunctionAlias");
+  OUTPUT:
+    RETVAL
+
+SV*
+name(self)
+    SV* self
+  CODE:
+    RETVAL = interned_sv(sv_to_functionalias(self)->name_id());
+  OUTPUT:
+    RETVAL
+
+int
+is_differential(self)
+    SV* self
+  CODE:
+    RETVAL = sv_to_functionalias(self)->is_differential() ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+int
+is_external(self)
+    SV* self
+  CODE:
+    RETVAL = sv_to_functionalias(self)->is_external() ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+void
+set_external(self)
+    SV* self
+  CODE:
+    sv_to_functionalias(self)->set_external();
+
+int
+has_external_callers(self)
+    SV* self
+  CODE:
+    RETVAL = sv_to_functionalias(self)->has_external_callers() ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+SV*
+external_calls(self)
+    SV* self
+  CODE:
+    RETVAL = external_calls_sv(*sv_to_functionalias(self));
+  OUTPUT:
+    RETVAL
+
+void
+add_external_calls(self, count)
+    SV* self
+    SV* count
+  CODE:
+    sv_to_functionalias(self)->add_external_calls(sv_to_site_count(count));
+
+SV*
+merged(self)
+    SV* self
+  CODE:
+    /* the other names I represent, { name => count }, or undef -- see pure
+     * Perl's FunctionAlias::merged */
+    const FunctionAlias::MergedNames* m = sv_to_functionalias(self)->merged();
+    if (m) {
+        HV* hv = newHV();
+        for (const auto& n : *m) {
+            const std::string& name = lcov::interned(n.first);
+            (void)hv_store(hv, name.data(), (I32)name.size(),
+                           newSViv((IV)n.second), 0);
+        }
+        RETVAL = newRV_noinc((SV*)hv);
+    } else {
+        RETVAL = SvREFCNT_inc(&PL_sv_undef);
+    }
+  OUTPUT:
+    RETVAL
+
+void
+add_merged(self, ...)
+    SV* self
+  CODE:
+    /* add_merged(name, count, ...) -- see pure Perl's FunctionAlias::add_merged */
+    if (0 == items % 2)
+        croak("FunctionAlias::add_merged: expected (name, count) pairs");
+    FunctionAlias* a = sv_to_functionalias(self);
+    for (I32 i = 1; i + 1 < items; i += 2)
+        a->add_merged(intern_sv(ST(i)), sv_to_count(ST(i + 1)));
+
+SV*
+flags(self)
+    SV* self
+  CODE:
+    /* the optional flag field of my 'FNA:' record, empty for almost every
+     * alias -- see pure Perl's FunctionAlias::flags for the letters */
+    RETVAL = alias_flags_sv(*sv_to_functionalias(self));
+  OUTPUT:
+    RETVAL
+
+SV*
+count(self)
+    SV* self
+  CODE:
+    FunctionAlias* a = sv_to_functionalias(self);
+    RETVAL = a->has_count() ? newSViv((IV)a->count())
+                            : SvREFCNT_inc(&PL_sv_undef);
+  OUTPUT:
+    RETVAL
+
+void
+set_count(self, count)
+    SV* self
+    SV* count
+  CODE:
+    FunctionAlias* a = sv_to_functionalias(self);
+    if (SvOK(count))
+        a->set_count(sv_to_count(count));
+    else
+        a->set_count_undef();
+
+void
+add_count(self, count)
+    SV* self
+    SV* count
+  CODE:
+    sv_to_functionalias(self)->add_count(sv_to_count(count));
+
+SV*
+tla(self)
+    SV* self
+  CODE:
+    /* undef unless this is a differential report */
+    RETVAL = interned_or_undef_sv(sv_to_functionalias(self)->tla_id());
+  OUTPUT:
+    RETVAL
+
+void
+set_tla(self, tla)
+    SV* self
+    SV* tla
+  CODE:
+    FunctionAlias* a = sv_to_functionalias(self);
+    if (!a->is_differential())
+        croak("unexpected set_tla() call with non-differential data");
+    a->set_tla(intern_sv(tla));
+
+void
+set_differential(self, data)
+    SV* self
+    SV* data
+  CODE:
+    if (!(SvROK(data) && SvTYPE(SvRV(data)) == SVt_PVAV &&
+          2 == av_len((AV*)SvRV(data)) + 1))
+        croak("expected array");
+    AV* av = (AV*)SvRV(data);
+    SV** cp = av_fetch(av, 0, 0);
+    SV** tp = av_fetch(av, 1, 0);
+    bool defined_count = cp && *cp && SvOK(*cp);
+    sv_to_functionalias(self)->set_differential(
+        defined_count ? sv_to_count(*cp) : 0, defined_count,
+        (tp && *tp) ? intern_sv(*tp) : 0);
+
+void
+write_data(self)
+    SV* self
+  PPCODE:
+    /* everything the '.info' writer needs for one 'FNA:' record, in one call */
+    FunctionAlias* a = sv_to_functionalias(self);
+    XPUSHs(sv_2mortal(interned_sv(a->name_id())));
+    XPUSHs(a->has_count() ? sv_2mortal(newSViv((IV)a->count()))
+                          : &PL_sv_undef);
+    XPUSHs(sv_2mortal(alias_flags_sv(*a)));
+
+int
+is_resolved(self)
+    SV* self
+  CODE:
+    RETVAL = nullptr != sv_to_functionalias(self)->callers() ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+void
+clear_callers(self)
+    SV* self
+  CODE:
+    /* an empty list, which is "resolved, and nothing calls me" -- distinct from
+     * the null handle, which is "not resolved" */
+    sv_to_functionalias(self)->set_callers((void*)newAV());
+
+void
+add_caller(self, callerEntry, line, column, ordinal, count, file = &PL_sv_undef)
+    SV* self
+    SV* callerEntry
+    SV* line
+    SV* column
+    SV* ordinal
+    SV* count
+    SV* file
+  CODE:
+    FunctionAlias* a = sv_to_functionalias(self);
+    AV* callers = (AV*)a->callers();
+    if (!callers)
+        croak("cannot add a caller of '%s' before resolving",
+              a->name().c_str());
+    AV* row = newAV();
+    av_extend(row, 5);
+    /* a copy of the reference, as 'push' makes -- not the caller's own SV */
+    av_push(row, newSVsv(callerEntry));
+    av_push(row, newSViv((IV)SvIV(line)));
+    av_push(row, newSViv((IV)SvIV(column)));
+    av_push(row, newSViv((IV)SvIV(ordinal)));
+    /* the count verbatim, which is what pure Perl pushes:  it came from
+     * 'callSiteData', so it is already normalized, and it may be the '-' of a
+     * site whose count is not known */
+    av_push(row, newSVsv(count));
+    /* ..and last the file the call is written in, undef when that is the file
+     * the caller is defined in - see CallSite */
+    av_push(row, newSVsv(file));
+    av_push(callers, newRV_noinc((SV*)row));
+
+void
+callers(self)
+    SV* self
+  PPCODE:
+    FunctionAlias* a = sv_to_functionalias(self);
+    AV* callers = (AV*)a->callers();
+    if (!callers)
+        croak("the call sites of '%s' have not been resolved:  TraceFile::resolveCallSites() must run after the last filter and before any summary",
+              a->name().c_str());
+    SSize_t n = av_len(callers) + 1;
+    if (GIMME_V == G_SCALAR) {
+        XPUSHs(sv_2mortal(newSViv((IV)n)));
+        XSRETURN(1);
+    }
+    for (SSize_t i = 0; i < n; ++i) {
+        SV** e = av_fetch(callers, i, 0);
+        XPUSHs(sv_2mortal(newSVsv(e && *e ? *e : &PL_sv_undef)));
+    }
+
+void
+STORABLE_freeze(self, cloning)
+    SV* self
+    SV* cloning
+  PPCODE:
+    XPUSHs(sv_2mortal(
+        functionalias_serialize_binary(*sv_to_functionalias(self))));
+
+void
+STORABLE_thaw(self, cloning, serialized, ...)
+    SV* self
+    SV* cloning
+    SV* serialized
+  CODE:
+    STRLEN len;
+    const uint8_t* data = (const uint8_t*)SvPVbyte(serialized, len);
+    /* Deserialize BEFORE releasing the old wrapper -- see the MCDC_Data
+     * STORABLE_thaw for why. */
+    FunctionAlias_wrapper* w = functionalias_deserialize_binary(data, len);
+    SV* inner = SvRV(self);
+    if (SvIOK(inner))
+        delete (FunctionAlias_wrapper*)(intptr_t)SvIV(inner);
+    sv_setiv(inner, (IV)(intptr_t)w);
+    SvIOK_on(inner);
+
+# ----------------------------------------------------------------------------
+# FunctionEntry
+#
+# All the aliases of one function, plus the call sites in its body.  The
+# underscore-prefixed methods are the primitives the shared Perl implementation
+# in lcovutil.pm is built on -- 'addAlias' normalizes the count and reports a
+# bad one, then calls '_addAliasCount' here.
+# ----------------------------------------------------------------------------
+
+MODULE = LcovUtil    PACKAGE = FunctionEntry
+
+SV*
+new(klass, name, map, startLine, endLine)
+    char* klass
+    SV* name
+    SV* map
+    SV* startLine
+    SV* endLine
+  CODE:
+    if (!(SvROK(map) && sv_isobject(map) && sv_derived_from(map, "FunctionMap")))
+        croak("unexpected type %s",
+              SvROK(map) ? sv_reftype(SvRV(map), TRUE) : "");
+    /* Only the filename is taken from the map:  an entry holds the file it is
+     * in, not a pointer back to the map it is stored in -- see FunctionData.hpp
+     * for the three reasons. */
+    FunctionMap_wrapper* mw = sv_to_functionmap(map);
+    uint32_t nameId = intern_sv(name);
+    /* gcov gives the next line only the cleanup block that frees the memory
+     * if the constructor throws, which it does only on std::bad_alloc */
+    FunctionEntry* e =
+        new FunctionEntry(nameId, mw->map->file_id(), (int32_t)SvIV(startLine), /* LCOV_UNREACHABLE_LINE */
+                          SvOK(endLine) ? (int32_t)SvIV(endLine) : 0,
+                          SvOK(endLine) ? true : false);
+    e->addAliasCount(nameId, 0);   /* not hit, yet */
+    RETVAL = own_functionentry_sv(e, klass);
+  OUTPUT:
+    RETVAL
+
+void
+DESTROY(self)
+    SV* self
+  CODE:
+    if (SvROK(self) && SvIOK(SvRV(self))) {
+        intptr_t tagged = (intptr_t)SvIV(SvRV(self));
+        /* bit 1 marks a share of an entry which lives in a FunctionMap:  drop
+         * the share rather than the entry, which goes away with the last one */
+        if (tagged & 1)
+            delete (FunctionEntryRef*)(tagged & ~(intptr_t)1);
+        else
+            delete (FunctionEntry*)tagged;
+        SvIV_set(SvRV(self), 0);
+    }
+
+SV*
+cloneWithEndLine(self, withEnd, ...)
+    SV* self
+    SV* withEnd
+  CODE:
+    FunctionEntry* src = sv_to_functionentry(self);
+    bool keepEnd = SvTRUE(withEnd) && src->has_end_line();
+    bool cloneAliases = items >= 3 && SvOK(ST(2)) && SvTRUE(ST(2));
+    FunctionEntry* fn =
+        new FunctionEntry(src->name_id(), src->file_id(), src->line(),
+                          keepEnd ? src->end_line() : 0, keepEnd);
+    fn->addAliasCount(src->name_id(), 0);
+    if (cloneAliases) {
+        int64_t total = 0;
+        src->for_each_alias([&fn, &total](uint32_t name,
+                                          const FunctionAlias& a) {
+            fn->appendAliasRaw(name, a.count(), a.has_count(),
+                               a.is_differential(), a.tla_id(),
+                               a.is_external(), a.external_calls(),
+                               a.merged());
+            total = lcov::add_sat(total, a.count());
+        });
+        fn->set_hit(total);
+    }
+    RETVAL = own_functionentry_sv(fn, "FunctionEntry");
+  OUTPUT:
+    RETVAL
+
+SV*
+name(self)
+    SV* self
+  CODE:
+    RETVAL = interned_sv(sv_to_functionentry(self)->name_id());
+  OUTPUT:
+    RETVAL
+
+SV*
+filename(self)
+    SV* self
+  CODE:
+    RETVAL = interned_sv(sv_to_functionentry(self)->file_id());
+  OUTPUT:
+    RETVAL
+
+SV*
+file(self)
+    SV* self
+  CODE:
+    RETVAL = interned_sv(sv_to_functionentry(self)->file_id());
+  OUTPUT:
+    RETVAL
+
+SV*
+hit(self)
+    SV* self
+  CODE:
+    /* the hit count across all my aliases -- or, in a differential report, the
+     * [count, tla] pair pure Perl keeps in the same slot */
+    FunctionEntry* e = sv_to_functionentry(self);
+    if (e->is_differential()) {
+        AV* av = newAV();
+        av_extend(av, 1);
+        av_push(av, newSViv((IV)e->hit()));
+        av_push(av, interned_or_undef_sv(e->tla_id()));
+        RETVAL = newRV_noinc((SV*)av);
+    } else {
+        RETVAL = newSViv((IV)e->hit());
+    }
+  OUTPUT:
+    RETVAL
+
+void
+set_hit(self, count)
+    SV* self
+    SV* count
+  CODE:
+    sv_to_functionentry(self)->set_hit(sv_to_count(count));
+
+int
+is_differential(self)
+    SV* self
+  CODE:
+    RETVAL = sv_to_functionentry(self)->is_differential() ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+SV*
+tla(self)
+    SV* self
+  CODE:
+    RETVAL = interned_or_undef_sv(sv_to_functionentry(self)->tla_id());
+  OUTPUT:
+    RETVAL
+
+void
+set_tla(self, tla)
+    SV* self
+    SV* tla
+  CODE:
+    FunctionEntry* e = sv_to_functionentry(self);
+    if (!e->is_differential())
+        croak("unexpected set_tla() call with non-differential data");
+    e->set_tla(intern_sv(tla));
+
+void
+setCountDifferential(self, data)
+    SV* self
+    SV* data
+  CODE:
+    if (!(SvROK(data) && SvTYPE(SvRV(data)) == SVt_PVAV &&
+          2 == av_len((AV*)SvRV(data)) + 1))
+        croak("expected array");
+    AV* av = (AV*)SvRV(data);
+    SV** cp = av_fetch(av, 0, 0);
+    SV** tp = av_fetch(av, 1, 0);
+    sv_to_functionentry(self)->set_differential(
+        (cp && *cp) ? sv_to_count(*cp) : 0, (tp && *tp) ? intern_sv(*tp) : 0);
+
+IV
+numAliases(self)
+    SV* self
+  CODE:
+    RETVAL = (IV)sv_to_functionentry(self)->numAliases();
+  OUTPUT:
+    RETVAL
+
+void
+aliasNames(self)
+    SV* self
+  PPCODE:
+    /* Context-aware, like the 'return keys(%h)' body it mirrors:  in scalar
+     * context the COUNT, not the last name -- see MCDC_Data::keylist. */
+    std::vector<uint32_t> names = sv_to_functionentry(self)->aliasNames();
+    if (GIMME_V == G_SCALAR) {
+        XPUSHs(sv_2mortal(newSViv((IV)names.size())));
+        XSRETURN(1);
+    }
+    for (uint32_t n : names)
+        XPUSHs(sv_2mortal(interned_sv(n)));
+
+SV*
+alias(self, name)
+    SV* self
+    SV* name
+  CODE:
+    /* A borrowed view into my alias map, holding a reference to me so that it
+     * cannot outlive the storage it points into. */
+    FunctionEntry* e = sv_to_functionentry(self);
+    FunctionAlias* a = e->alias(intern_sv(name));
+    if (a) {
+        RETVAL = make_functionalias_sv(new FunctionAlias_wrapper(a, self),
+                                       "FunctionAlias");
+    } else {
+        RETVAL = SvREFCNT_inc(&PL_sv_undef);
+    }
+  OUTPUT:
+    RETVAL
+
+int
+_addAliasCount(self, name, count)
+    SV* self
+    SV* name
+    SV* count
+  CODE:
+    /* 'addAlias' in lcovutil.pm normalizes the count and reports a bad one,
+     * then calls this. */
+    RETVAL = sv_to_functionentry(self)->addAliasCount(intern_sv(name),
+                                                      sv_to_count(count)) ?
+        1 : 0;
+  OUTPUT:
+    RETVAL
+
+void
+addAliasDifferential(self, name, data)
+    SV* self
+    SV* name
+    SV* data
+  CODE:
+    if (!(SvROK(data) && SvTYPE(SvRV(data)) == SVt_PVAV &&
+          2 == av_len((AV*)SvRV(data)) + 1))
+        croak("expected array");
+    AV* av = (AV*)SvRV(data);
+    SV** cp = av_fetch(av, 0, 0);
+    SV** tp = av_fetch(av, 1, 0);
+    bool defined_count = cp && *cp && SvOK(*cp);
+    if (!sv_to_functionentry(self)->addAliasDifferential(
+            intern_sv(name), defined_count ? sv_to_count(*cp) : 0,
+            defined_count, (tp && *tp) ? intern_sv(*tp) : 0))
+        croak("alias %s exists", SvPV_nolen(name));
+
+int
+removeAliases(self, ...)
+    SV* self
+  CODE:
+    FunctionEntry* e = sv_to_functionentry(self);
+    std::vector<uint32_t> names;
+    names.reserve(items > 1 ? items - 1 : 0);
+    for (int i = 1; i < items; ++i)
+        names.push_back(intern_sv(ST(i)));
+    uint32_t missing = 0;
+    bool any = e->removeAliases(names, &missing);
+    if (missing)
+        croak("removing non-existent alias %s",
+              lcov::interned(missing).c_str());
+    RETVAL = any ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+int
+has_external_callees(self)
+    SV* self
+  CODE:
+    RETVAL = sv_to_functionentry(self)->has_external_callees() ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+void
+set_external_callees(self)
+    SV* self
+  CODE:
+    sv_to_functionentry(self)->set_external_callees();
+
+IV
+line(self)
+    SV* self
+  CODE:
+    RETVAL = (IV)sv_to_functionentry(self)->line();
+  OUTPUT:
+    RETVAL
+
+IV
+set_line(self, line)
+    SV* self
+    SV* line
+  CODE:
+    FunctionEntry* e = sv_to_functionentry(self);
+    e->set_line((int32_t)SvIV(line));
+    RETVAL = (IV)e->line();
+  OUTPUT:
+    RETVAL
+
+SV*
+end_line(self)
+    SV* self
+  CODE:
+    FunctionEntry* e = sv_to_functionentry(self);
+    RETVAL = e->has_end_line() ? newSViv((IV)e->end_line())
+                               : SvREFCNT_inc(&PL_sv_undef);
+  OUTPUT:
+    RETVAL
+
+void
+_setEndLine(self, line)
+    SV* self
+    SV* line
+  CODE:
+    /* the unchecked mutator:  'set_end_line' in lcovutil.pm does the
+     * end-before-start check and the diagnostic, then calls this */
+    if (SvOK(line))
+        sv_to_functionentry(self)->set_end_line((int32_t)SvIV(line));
+    else
+        sv_to_functionentry(self)->clear_end_line();
+
+int
+_addCallSite(self, line, column, ordinal, count, callee, file, aliases, statement)
+    SV* self
+    SV* line
+    SV* column
+    SV* ordinal
+    SV* count
+    SV* callee
+    SV* file
+    SV* aliases
+    SV* statement
+  CODE:
+    /* 1 if my data changed, 0 if it did not, -1 if a site is already here
+     * calling something else and -2 if the ordinal is past what a site record
+     * holds -- 'addCallSite' in lcovutil.pm raises both of those, so that the
+     * messages live with every other one.
+     * 'file' is the file the call is written in and is undef - which interns to
+     * 0 - for a call written in the function's own file, which is what nearly
+     * every caller passes.
+     * 'statement' is the statement line, or undef;  lcovutil.pm has checked
+     * that it is within MAX_STATEMENT_OFFSET of 'line'. */
+    int32_t at = (int32_t)SvIV(line);
+    RETVAL     = sv_to_functionentry(self)->addCallSite(
+        at, (int32_t)SvIV(column), (int32_t)SvIV(ordinal),
+        sv_to_site_count(count), intern_sv(callee), intern_sv(file),
+        intern_sv(aliases),
+        SvOK(statement) ? (int8_t)((int32_t)SvIV(statement) - at) : 0);
+  OUTPUT:
+    RETVAL
+
+int
+_removeSite(self, key)
+    SV* self
+    SV* key
+  CODE:
+    int32_t line, column, ordinal;
+    uint32_t file;
+    parse_site_key(key, line, column, ordinal, file);
+    RETVAL =
+        sv_to_functionentry(self)->removeCallSite(line, column, ordinal, file) ?
+        1 : 0;
+  OUTPUT:
+    RETVAL
+
+void
+callSiteKeys(self)
+    SV* self
+  PPCODE:
+    const CallSiteList& sites = sv_to_functionentry(self)->callSites();
+    if (GIMME_V == G_SCALAR) {
+        XPUSHs(sv_2mortal(newSViv((IV)sites.size())));
+        XSRETURN(1);
+    }
+    for (const CallSite& s : sites)
+        XPUSHs(sv_2mortal(site_key_sv(s)));
+
+void
+sortedCallSiteKeys(self)
+    SV* self
+  PPCODE:
+    /* free here:  the sites are kept in (line, column, ordinal, file) order,
+     * which is exactly the order pure Perl sorts its hash keys into */
+    const CallSiteList& sites = sv_to_functionentry(self)->callSites();
+    for (const CallSite& s : sites)
+        XPUSHs(sv_2mortal(site_key_sv(s)));
+
+IV
+numCallSites(self)
+    SV* self
+  CODE:
+    RETVAL = (IV)sv_to_functionentry(self)->numCallSites();
+  OUTPUT:
+    RETVAL
+
+IV
+numCallSitesHit(self)
+    SV* self
+  CODE:
+    RETVAL = (IV)sv_to_functionentry(self)->numCallSitesHit();
+  OUTPUT:
+    RETVAL
+
+void
+callSiteData(self, key)
+    SV* self
+    SV* key
+  PPCODE:
+    /* everything there is to know about one of my call sites, in one call;  the
+     * empty list if I have no site with this key.
+     * The file comes last, after the payload, so that a caller which does not
+     * care where the call is written unpacks exactly what it always did. */
+    int32_t line, column, ordinal;
+    uint32_t file;
+    parse_site_key(key, line, column, ordinal, file);
+    const CallSite* s =
+        sv_to_functionentry(self)->findCallSite(line, column, ordinal, file);
+    if (s) {
+        XPUSHs(sv_2mortal(newSViv((IV)s->line)));
+        XPUSHs(sv_2mortal(newSViv((IV)s->column)));
+        XPUSHs(sv_2mortal(newSViv((IV)s->ordinal)));
+        XPUSHs(sv_2mortal(site_count_sv(s->count)));
+        XPUSHs(sv_2mortal(interned_sv(s->callee)));
+        XPUSHs(sv_2mortal(interned_or_undef_sv(s->file)));
+        XPUSHs(sv_2mortal(interned_or_undef_sv(s->aliases)));
+        XPUSHs(s->statement ?
+                   sv_2mortal(newSViv((IV)(s->line + s->statement))) :
+                   &PL_sv_undef);
+    }
+
+int
+_setSiteStatement(self, key, statement)
+    SV* self
+    SV* key
+    SV* statement
+  CODE:
+    /* the primitive of the same name in lcovutil.pm */
+    int32_t line, column, ordinal;
+    uint32_t file;
+    parse_site_key(key, line, column, ordinal, file);
+    CallSite* s =
+        sv_to_functionentry(self)->findCallSite(line, column, ordinal, file);
+    if (s)
+        s->statement =
+            SvOK(statement) ? (int8_t)((int32_t)SvIV(statement) - line) : 0;
+    RETVAL = s ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+int
+_setSiteAliases(self, key, aliases)
+    SV* self
+    SV* key
+    SV* aliases
+  CODE:
+    /* the primitive of the same name in lcovutil.pm:  the policy of what the
+     * set becomes is the caller's */
+    int32_t line, column, ordinal;
+    uint32_t file;
+    parse_site_key(key, line, column, ordinal, file);
+    CallSite* s =
+        sv_to_functionentry(self)->findCallSite(line, column, ordinal, file);
+    if (s)
+        s->aliases = intern_sv(aliases);
+    RETVAL = s ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+void
+_sitesAt(self, line, column, file = &PL_sv_undef)
+    SV* self
+    SV* line
+    SV* column
+    SV* file
+  PPCODE:
+    /* my sites at this exact (file, line, column), as [ordinal, callee] pairs
+     * in ordinal order - the primitive of the same name in lcovutil.pm, which
+     * has no choice but to look at every key.  Here the sites at one location
+     * are one contiguous block, and within it a file's are in ordinal order */
+    uint32_t id = intern_sv(file);
+    auto range = sv_to_functionentry(self)->callSitesAt((int32_t)SvIV(line),
+                                                        (int32_t)SvIV(column));
+    for (const CallSite* s = range.first; s != range.second; ++s) {
+        if (s->file != id)
+            continue;
+        AV* pair = newAV();
+        av_push(pair, newSViv((IV)s->ordinal));
+        av_push(pair, interned_sv(s->callee));
+        XPUSHs(sv_2mortal(newRV_noinc((SV*)pair)));
+    }
+
+IV
+_resolveOrdinal(self, line, column, file, callee)
+    SV* self
+    SV* line
+    SV* column
+    SV* file
+    SV* callee
+  CODE:
+    /* the primitive of the same name in lcovutil.pm, without the list of
+     * [ordinal, callee] pairs it walks - see FunctionEntry::resolveOrdinal */
+    RETVAL = sv_to_functionentry(self)->resolveOrdinal((int32_t)SvIV(line),
+                                                       (int32_t)SvIV(column),
+                                                       intern_sv(file),
+                                                       intern_sv(callee));
+  OUTPUT:
+    RETVAL
+
+SV*
+callSiteTla(self, line, column, ordinal, file = &PL_sv_undef)
+    SV* self
+    SV* line
+    SV* column
+    SV* ordinal
+    SV* file
+  CODE:
+    const CallSite* s =
+        sv_to_functionentry(self)->findCallSite((int32_t)SvIV(line),
+                                                (int32_t)SvIV(column),
+                                                (int32_t)SvIV(ordinal),
+                                                intern_sv(file));
+    RETVAL = s ? category_or_undef_sv(s->tla) : SvREFCNT_inc(&PL_sv_undef);
+  OUTPUT:
+    RETVAL
+
+void
+setCallSiteTla(self, line, column, ordinal, file, tla)
+    SV* self
+    SV* line
+    SV* column
+    SV* ordinal
+    SV* file
+    SV* tla
+  CODE:
+    FunctionEntry* e = sv_to_functionentry(self);
+    int32_t l = (int32_t)SvIV(line);
+    int32_t c = (int32_t)SvIV(column);
+    int32_t o = (int32_t)SvIV(ordinal);
+    CallSite* s = e->findCallSite(l, c, o, intern_sv(file));
+    if (!s)
+        croak("no call site %d:%d:%d%s%s in '%s' of %s", (int)l, (int)c, (int)o,
+              SvOK(file) ? ":" : "", SvOK(file) ? SvPV_nolen(file) : "",
+              e->name().c_str(), e->filename().c_str());
+    s->tla = category_index_sv(tla);
+
+void
+STORABLE_freeze(self, cloning)
+    SV* self
+    SV* cloning
+  PPCODE:
+    XPUSHs(sv_2mortal(
+        functionentry_serialize_binary(*sv_to_functionentry(self))));
+
+void
+STORABLE_thaw(self, cloning, serialized, ...)
+    SV* self
+    SV* cloning
+    SV* serialized
+  CODE:
+    /* An entry handed out by a FunctionMap is the SV the map's identity cache
+     * returns for every later lookup of that entry, so replacing what it points
+     * at would silently change the map's view of the function.  Storable only
+     * ever thaws into a fresh object;  this is a direct call. */
+    if (SvIOK(SvRV(self)) && (SvIV(SvRV(self)) & 1))
+        croak("FunctionEntry: cannot thaw into an entry owned by a FunctionMap");
+    STRLEN len;
+    const uint8_t* data = (const uint8_t*)SvPVbyte(serialized, len);
+    /* Deserialize BEFORE releasing the old entry -- see the MCDC_Data
+     * STORABLE_thaw for why.  A thawed entry is always owned:  the map it may
+     * have been borrowed from is not part of this payload. */
+    FunctionEntry* e = functionentry_deserialize_binary(data, len);
+    SV* inner = SvRV(self);
+    if (SvIOK(inner))
+        delete (FunctionEntry*)(intptr_t)SvIV(inner);   /* owned - see above */
+    sv_setiv(inner, (IV)(intptr_t)e);
+    SvIOK_on(inner);
+
+# ----------------------------------------------------------------------------
+# FunctionMap
+#
+# The functions of one file, by start line and by name.  'define_function',
+# 'union', 'intersect', 'difference' and 'remove' stay in lcovutil.pm over the
+# underscore-prefixed primitives here.
+# ----------------------------------------------------------------------------
+
+MODULE = LcovUtil    PACKAGE = FunctionMap
+
+SV*
+new(klass, filename)
+    char* klass
+    SV* filename
+  CODE:
+    FunctionMap_wrapper* w =
+        new FunctionMap_wrapper(new FunctionMap(intern_sv(filename)));
+    SV* inner = newSViv((IV)(intptr_t)w);
+    SV* rv    = newRV_noinc(inner);
+    sv_bless(rv, gv_stashpv(klass, GV_ADD));
+    RETVAL = rv;
+  OUTPUT:
+    RETVAL
+
+void
+DESTROY(self)
+    SV* self
+  CODE:
+    if (SvROK(self) && SvIOK(SvRV(self))) {
+        delete (FunctionMap_wrapper*)(intptr_t)SvIV(SvRV(self));
+        SvIV_set(SvRV(self), 0);
+    }
+
+SV*
+filename(self)
+    SV* self
+  CODE:
+    RETVAL = interned_sv(sv_to_functionmap(self)->map->file_id());
+  OUTPUT:
+    RETVAL
+
+void
+keylist(self)
+    SV* self
+  PPCODE:
+    /* my start lines -- context-aware, see MCDC_Data::keylist */
+    std::vector<int32_t> keys = sv_to_functionmap(self)->map->keylist();
+    if (GIMME_V == G_SCALAR) {
+        XPUSHs(sv_2mortal(newSViv((IV)keys.size())));
+        XSRETURN(1);
+    }
+    for (int32_t k : keys)
+        XPUSHs(sv_2mortal(newSViv((IV)k)));
+
+void
+valuelist(self)
+    SV* self
+  PPCODE:
+    FunctionMap_wrapper* w = sv_to_functionmap(self);
+    const auto& byLine = w->map->byLine();
+    if (GIMME_V == G_SCALAR) {
+        XPUSHs(sv_2mortal(newSViv((IV)byLine.size())));
+        XSRETURN(1);
+    }
+    /* Collect first:  handing out an entry object caches it, and mutating the
+     * cache while iterating the map it indexes is safe but reads badly. */
+    std::vector<std::shared_ptr<FunctionEntry> > entries;
+    entries.reserve(byLine.size());
+    for (const auto& kv : byLine)
+        entries.push_back(kv.second);
+    for (const auto& e : entries)
+        XPUSHs(sv_2mortal(functionmap_entry_sv(w, e)));
+
+void
+list_functions(self)
+    SV* self
+  PPCODE:
+    /* every name I know about, aliases included -- context-aware */
+    std::vector<uint32_t> names =
+        sv_to_functionmap(self)->map->list_functions();
+    if (GIMME_V == G_SCALAR) {
+        XPUSHs(sv_2mortal(newSViv((IV)names.size())));
+        XSRETURN(1);
+    }
+    for (uint32_t n : names)
+        XPUSHs(sv_2mortal(interned_sv(n)));
+
+SV*
+findKey(self, key)
+    SV* self
+    SV* key
+  CODE:
+    FunctionMap_wrapper* w = sv_to_functionmap(self);
+    RETVAL = functionmap_entry_sv(w, w->map->findKey((int32_t)SvIV(key)));
+  OUTPUT:
+    RETVAL
+
+SV*
+findName(self, name)
+    SV* self
+    SV* name
+  CODE:
+    FunctionMap_wrapper* w = sv_to_functionmap(self);
+    RETVAL = functionmap_entry_sv(w, w->map->findName(intern_sv(name)));
+  OUTPUT:
+    RETVAL
+
+SV*
+_insert(self, name, startLine, endLine)
+    SV* self
+    SV* name
+    SV* startLine
+    SV* endLine
+  CODE:
+    /* 'define_function' in lcovutil.pm has already established that no entry
+     * starts on this line. */
+    FunctionMap_wrapper* w = sv_to_functionmap(self);
+    RETVAL = functionmap_entry_sv(
+        w, w->map->insert(intern_sv(name), (int32_t)SvIV(startLine),
+                          SvOK(endLine) ? (int32_t)SvIV(endLine) : 0,
+                          SvOK(endLine) ? true : false));
+  OUTPUT:
+    RETVAL
+
+void
+_registerName(self, name, entry)
+    SV* self
+    SV* name
+    SV* entry
+  CODE:
+    sv_to_functionmap(self)->map->registerName(intern_sv(name),
+                                               sv_to_functionentry(entry));
+
+int
+_unregisterName(self, name)
+    SV* self
+    SV* name
+  CODE:
+    RETVAL = sv_to_functionmap(self)->map->unregisterName(intern_sv(name)) ?
+        1 : 0;
+  OUTPUT:
+    RETVAL
+
+int
+_removeKey(self, key)
+    SV* self
+    SV* key
+  CODE:
+    RETVAL =
+        sv_to_functionmap(self)->map->removeKey((int32_t)SvIV(key)) ? 1 : 0;
+  OUTPUT:
+    RETVAL
+
+int
+_relocate(self, entry, line)
+    SV* self
+    SV* entry
+    SV* line
+  CODE:
+    /* Moving an entry to a new start line keeps its Perl object:  the identity
+     * cache is keyed by the C++ entry, not by the line. */
+    RETVAL = sv_to_functionmap(self)->map->relocate(sv_to_functionentry(entry),
+                                                    (int32_t)SvIV(line)) ?
+        1 : 0;
+  OUTPUT:
+    RETVAL
+
+IV
+numFunc(self, ...)
+    SV* self
+  CODE:
+    bool merged = items >= 2 && SvOK(ST(1)) && SvTRUE(ST(1));
+    RETVAL = (IV)sv_to_functionmap(self)->map->numFunc(merged);
+  OUTPUT:
+    RETVAL
+
+IV
+numHit(self, ...)
+    SV* self
+  CODE:
+    bool merged = items >= 2 && SvOK(ST(1)) && SvTRUE(ST(1));
+    RETVAL = (IV)sv_to_functionmap(self)->map->numHit(merged);
+  OUTPUT:
+    RETVAL
+
+void
+get_callgraph_found_and_hit(self)
+    SV* self
+  PPCODE:
+    std::pair<int64_t, int64_t> t =
+        sv_to_functionmap(self)->map->callgraph_found_and_hit();
+    XPUSHs(sv_2mortal(newSViv((IV)t.first)));
+    XPUSHs(sv_2mortal(newSViv((IV)t.second)));
+
+void
+STORABLE_freeze(self, cloning)
+    SV* self
+    SV* cloning
+  PPCODE:
+    XPUSHs(sv_2mortal(
+        functionmap_serialize_binary(*sv_to_functionmap(self)->map)));
+
+void
+STORABLE_thaw(self, cloning, serialized, ...)
+    SV* self
+    SV* cloning
+    SV* serialized
+  CODE:
+    STRLEN len;
+    const uint8_t* data = (const uint8_t*)SvPVbyte(serialized, len);
+    /* Deserialize BEFORE releasing the old wrapper -- see the MCDC_Data
+     * STORABLE_thaw for why. */
+    FunctionMap* m = functionmap_deserialize_binary(data, len);
+    FunctionMap_wrapper* w = new FunctionMap_wrapper(m);
+    SV* inner = SvRV(self);
+    if (SvIOK(inner))
+        delete (FunctionMap_wrapper*)(intptr_t)SvIV(inner);
     sv_setiv(inner, (IV)(intptr_t)w);
     SvIOK_on(inner);

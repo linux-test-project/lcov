@@ -22,8 +22,8 @@
 #   lcov/geninfo/genhtml.
 #   It can be called at any level of hierarchy - but is really expected to be
 #   called at the 'file' or 'top' level, in lcov or geninfo.
-#   It simply checks that the 'type' coverage (line, branch, function) exceeds
-#   the threshold.
+#   It simply checks that the 'type' coverage (line, branch, function, MC/DC,
+#   callgraph) exceeds the threshold.
 #
 #   Format of the JSON input is:
 #     {"line":{"found":10,"hit:2,..},"function":{...},"branch":{}"
@@ -63,31 +63,33 @@ sub new
     my $signoff    = 0;
     my $script     = shift;
     my $standalone = $script eq $0;
-    my ($line, $function, $branch, $mcdc);
+    my ($line, $function, $branch, $mcdc, $callgraph);
 
     if (!GetOptionsFromArray(\@_,
-                             ('signoff'    => \$signoff,
-                              'line=s'     => \$line,
-                              'branch=s'   => \$branch,
-                              'mcdc=s'     => \$mcdc,
-                              'function=s' => \$function,)) ||
+                             ('signoff'     => \$signoff,
+                              'line=s'      => \$line,
+                              'branch=s'    => \$branch,
+                              'mcdc=s'      => \$mcdc,
+                              'callgraph=s' => \$callgraph,
+                              'function=s'  => \$function,)) ||
         (!$standalone && @_)
     ) {
         print(STDERR "Error: unexpected option:\n  " .
                 join(' ', @_) .
-                "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold] [--mcdc m_threshold]\n"
+                "\nusage: name type json-string [--signoff] [--line l_threshold] [--branch b_threshold] [--function f_threshold] [--mcdc m_threshold] [--callgraph c_threshold]\n"
         );
         exit(1) if $standalone;
         return undef;
     }
     my %thresh;
-    $thresh{line}     = $line if defined($line);
-    $thresh{branch}   = $branch if defined($branch);
-    $thresh{function} = $function if defined($function);
+    $thresh{line}      = $line if defined($line);
+    $thresh{branch}    = $branch if defined($branch);
+    $thresh{function}  = $function if defined($function);
+    $thresh{callgraph} = $callgraph if defined($callgraph);
     # note the key:  this is the name genhtml uses in the JSON it passes us -
     #   see 'type2str' in bin/genhtml - and not the name of the option
     $thresh{'MC/DC'} = $mcdc if defined($mcdc);
-    die("$script:  must specify at least one of --line, --branch, --function, --mcdc"
+    die("$script:  must specify at least one of --line, --branch, --function, --mcdc, --callgraph"
     ) unless (%thresh);
     foreach my $key (keys %thresh) {
         my $v = $thresh{$key};

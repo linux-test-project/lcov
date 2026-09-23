@@ -73,6 +73,11 @@ source ../../common.tst
 #   were handed to a log, one line per argument, and forked report writers
 #   would interleave those records
 GENHTML_OPTS="--function-coverage $PROFILE"
+# 'version.info' below is line data only - what those cases are about is the
+#   version ID it carries - so the function coverage asked for above is reported
+#   as missing.  Ignored rather than turned off for them, which keeps every run
+#   here reading the data the same way
+VERSION_OPTS="$GENHTML_OPTS --ignore empty"
 
 rm -rf *.info *.log *.argv *.txt *.json *.udiff proj rpt_* \
     sel.pl ann.pl ver.pl seldie.pm verdie.pm verextdie.pm \
@@ -614,7 +619,7 @@ echo "*** 10. compare_version gets three arguments, whole"
 #   one which mattered:  the three arguments used to be single-quoted by hand
 #   and handed to a shell, which made a syntax error of this
 rm -f match.argv
-$COVER $GENHTML_TOOL $GENHTML_OPTS -o rpt_match version.info \
+$COVER $GENHTML_TOOL $VERSION_OPTS -o rpt_match version.info \
     --version-script $HERE/ver.pl,match,$HERE/match.argv >match.log 2>&1
 if [ 0 != $? ] ; then
     cat match.log
@@ -638,7 +643,7 @@ echo "*** 11. a compare_version script which is killed is reported"
 #   apart is a callback which died - and that is a callback error, not a
 #   version mismatch
 rm -f vsignal.argv
-$COVER $GENHTML_TOOL $GENHTML_OPTS -o rpt_vsignal version.info \
+$COVER $GENHTML_TOOL $VERSION_OPTS -o rpt_vsignal version.info \
     --version-script $HERE/ver.pl,signal,$HERE/vsignal.argv >vsignal.log 2>&1
 if [ 0 == $? ] ; then
     fail vsignal "expected a killed compare callback to be an error"
@@ -698,7 +703,7 @@ echo "*** 13. a compare_version callback module which dies is reported, once"
 # the same, for the other callback:  a module whose comparison falls over is
 #   reported by the caller, and the versions are then taken not to match -
 #   which is the safe assumption, and a separate, ignorable, 'version' error
-$COVER $GENHTML_TOOL $GENHTML_OPTS -o rpt_vmodule version.info \
+$COVER $GENHTML_TOOL $VERSION_OPTS -o rpt_vmodule version.info \
     --version-script $HERE/verdie.pm >vmodule.log 2>&1
 if [ 0 == $? ] ; then
     fail vmodule "expected a compare_version module which dies to be an error"
@@ -713,7 +718,7 @@ done
 if grep -E -q 'ERROR: .*(ERROR|WARNING):' vmodule.log ; then
     fail vmodule "the failure was reported twice"
 fi
-$COVER $GENHTML_TOOL $GENHTML_OPTS -o rpt_vmodule version.info \
+$COVER $GENHTML_TOOL $VERSION_OPTS -o rpt_vmodule version.info \
     --version-script $HERE/verdie.pm --ignore-errors callback,version \
     >vmodule_ignore.log 2>&1
 if [ 0 != $? ] ; then
@@ -729,7 +734,7 @@ fi
 echo "*** 14. an extract_version callback which dies is reported, once"
 # ----------------------------------------------------------------------
 # the third of the callers which catches a callback's die and reports it
-$COVER $GENHTML_TOOL $GENHTML_OPTS -o rpt_vextract version.info \
+$COVER $GENHTML_TOOL $VERSION_OPTS -o rpt_vextract version.info \
     --version-script $HERE/verextdie.pm >vextract.log 2>&1
 if [ 0 == $? ] ; then
     fail vextract "expected an extract_version module which dies to be an error"

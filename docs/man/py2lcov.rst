@@ -45,9 +45,9 @@ uses ``coverage`` (expected to be in your PATH). You can use a different
 executable via the ``COVERAGE_COMMAND`` environment variable or the ``--cmd``
 command line option.
 
-``py2lcov`` does not implement the full suite of |ToolName| features (*e.g.*, filtering,
-substitutions, etc.). Generate the translated LCOV format file and then read
-the data back into ``lcov`` to use those features.
+``py2lcov`` does not implement the full suite of |ToolName| features (*e.g.*,
+filtering, substitutions, etc.). Generate the translated LCOV format file and
+then read the data back into ``lcov`` to use those features.
 
 **Branch Coverage Limitations**
 
@@ -107,15 +107,20 @@ OPTIONS
    Ignore errors and continue processing.
 
 ``--cmd`` *executable*
-   Executable used to extract Python coverage data (*e.g.*, ``python3-coverage``).
-   Default: ``coverage`` (or value from ``COVERAGE_COMMAND`` environment variable).
+   Executable used to extract Python coverage data (*e.g.*,
+   ``python3-coverage``). Default: ``coverage`` (or value from
+   ``COVERAGE_COMMAND`` environment variable).
+
+``--rc`` *config_name=value*
+   Pass *config_name* to lcov subcommand - to apply some transform or
+   option - *e.g.* `'--rc merge_continuation_lines=1``
 
 Note that ``py2lcov`` is a stand-alone Python executable - and so does *not*
-directly support the standard |ToolName| command line and RC options - *e.g.*, for filtering, file inclusion and
-exclusion, *etc.* 
-To use these options, you will have to first use ``py2lcov`` to capture
-your coverage DB, and then apply the options you want to use via 
-``lcov -a pycov.info <options> ...``. See :manpage:`lcov(1)` for details.
+directly support the standard |ToolName| command line and RC options - *e.g.*,
+for filtering, file inclusion and exclusion, *etc.* To use these options, you
+will have to first use ``py2lcov`` to capture your coverage DB, and then apply
+the options you want to use via ``lcov -a pycov.info <options> ...``. See
+:manpage:`lcov(1)` for details.
 
 EXAMPLES
 --------

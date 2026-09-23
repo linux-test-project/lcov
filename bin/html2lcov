@@ -318,7 +318,12 @@ sub read_current_sf
     my $nonempty = 0;
     while (<$fh>) {
         $nonempty = 1;
-        push(@sf, $1) if /^SF:(.+)$/;
+        # 'SF:[<index>,]<name>':  drop the optional leading index, the same way
+        #   the reader does - see the 'SF:' arm of 'lcovutil::_read_info'
+        next unless /^SF:(.+)$/;
+        my $name = $1;
+        $name =~ s/^\d+,//;
+        push(@sf, $name);
     }
     close($fh) or die("unable to close $filename: $!\n");
     if (!$nonempty) {
@@ -924,6 +929,7 @@ if (!%udiffs) {
 # ----------------------------------------------------------------------
 # 4a. aggregated .info
 $info->applyFilters();
+$info->checkCallgraphData();    # checks flag setting and data availability
 $info->add_comments(@lcovutil::comments);
 $info->write_info_file($info_out, $lcovutil::verify_checksum);
 

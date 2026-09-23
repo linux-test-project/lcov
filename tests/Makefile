@@ -32,7 +32,8 @@ OMIT_OPTS = \
 	--omit-lines 'ERROR_INTERNAL' \
 	--omit-lines '\bdie\b'        \
 	--omit-lines 'LCOV_TESTED_LINE'
-IGNORE_OPTS = --ignore unsupported,unused,inconsistent
+IGNORE_OPTS = --ignore unsupported,unused,inconsistent,range
+RC_OPTS = --rc merge_continuation_lines=1
 
 # The coverage recipes below are each one long shell command, joined with ';' -
 #  so only the exit status of the last thing they run would reach make, and one
@@ -84,7 +85,7 @@ info:
 	         $(PERL2LCOV_TOOL) $(CAPTURE_OPTS)                   \
 	           -o $(PER_TEST_COVERAGE)/`basename $$db`_cov.info $$db \
                    --version-script $(VERSION_SCRIPT)                \
-		   $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS)          \
+		   $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS) $(RC_OPTS) \
                    --filter region ;                                 \
 	         checkrc "perl2lcov $$db" $$? ;                      \
 	      done ;                                                 \
@@ -102,12 +103,12 @@ info:
 	  $(PERL2LCOV_TOOL) $(CAPTURE_OPTS)                          \
 	       -o perlcov.info $(COVER_DB)                           \
                --version-script $(VERSION_SCRIPT)                    \
-	       $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS)              \
+	       $(EXCL_OPTS) $(OMIT_OPTS) $(IGNORE_OPTS) $(RC_OPTS)   \
                --filter region --include $(ROOT_DIR) ;               \
 	  checkrc 'perl2lcov -o perlcov.info' $$? ;                  \
 	  if [ -f $(PYCOV_DB) ] ; then                               \
 	    $(PY2LCOV_TOOL) $(CAPTURE_OPTS) -o pycov.info $(PYCOV_DB)\
-                 --version-script $(VERSION_SCRIPT) ;                \
+                 --version-script $(VERSION_SCRIPT) $(RC_OPTS) ;     \
 	    checkrc 'py2lcov -o pycov.info' $$? ;                    \
 	  fi ;                                                       \
 	  if [ "x$(PER_TEST_COVERAGE)" != 'x' ] ; then               \
@@ -121,13 +122,18 @@ info:
 	      echo "*** NOTE: capturing XS coverage without MC/DC - '$(MCDC_CXX)'" ; \
 	      echo "***   or the gcov on PATH is older than 14" ;    \
 	    fi ;                                                     \
+	    if [ "x$(ENABLE_CALLGRAPH)" != 'x1' ] ; then             \
+	      echo "*** NOTE: capturing XS coverage without callgraph - '$(MCDC_CXX)'" ; \
+	      echo "***   or the gcov on PATH is older than 10" ;    \
+	    fi ;                                                     \
 	    $(LCOV_TOOL) $(CAPTURE_OPTS) -c -d $(LCOVLIBDIR)         \
-	        -o LcovUtil.info --branch $(MCDC_OPTS)               \
-		--version-script $(VERSION_SCRIPT)                   \
+	        -o LcovUtil.info --branch $(MCDC_OPTS) $(CALLGRAPH_OPTS) \
+		--version-script $(VERSION_SCRIPT) --demangle        \
 		--rc c_file_extensions=xs,h,c,cpp,icc,hpp            \
-		--filter brace,branch,exception,region$(MCDC_FILTER) \
+		--filter line,brace,branch,exception,region$(MCDC_FILTER) \
+		--filter callgraph_region $(RC_OPTS)                 \
 		--exclude 'tests/*' --exclude scheduling             \
-		--omit croak_xs --omit std::runtime_error            \
+		--omit '\bcroak\S*\(' --omit std::runtime_error      \
 		--include $(LCOVLIBDIR)                              \
 	        --ignore inconsistent,empty,unused ;                 \
 	    if [ 0 != $$? ] ; then                                   \
@@ -135,7 +141,7 @@ info:
 	      echo "*** WARNING: skipping XS coverage - cannot read the .gcda in $(LCOVLIBDIR) with:" ; \
 	      gcov --version | head -1 ;                             \
 	      echo "***   the extension's .gcda can only be read by the gcov matching the g++" ; \
-	      echo "***   which compiled it" ;                        \
+	      echo "***   which compiled it" ;                       \
 	    fi ;                                                     \
 	  fi ;                                                       \
 	fi ;                                                         \
@@ -150,12 +156,13 @@ html:
 	  fi ;                                                       \
 	  $(GENHTML_TOOL) --parallel -o $(HTML_RPT) $$INFO           \
               --save --title 'LCOV regression tests'                 \
-              --show-navigation --flat --branch $(MCDC_OPTS)         \
-	      --show-proportion                                      \
+              --show-navigation --flat --branch --show-proportion    \
+              $(MCDC_OPTS) $(CALLGRAPH_OPTS)                         \
               --version-script $(VERSION_SCRIPT)                     \
-	      --annotate-script $(ANNOTATE_SCRIPT)                   \
-	      --filter region $(REPORT_OPTS)                         \
-              --ignore empty,inconsistent --keep-going ;             \
+              --annotate-script $(ANNOTATE_SCRIPT)                   \
+              --filter region $(REPORT_OPTS) --demangle-cpp          \
+              --rc ignore_lambda_consistency=0                       \
+              --ignore empty,inconsistent,unreachable --keep-going ; \
 	  checkrc 'genhtml -o $(HTML_RPT)' $$? ;                     \
 	  if [ -d $(HTML_RPT) ] ; then                               \
 	      cp $$INFO $(HTML_RPT) ;                                \

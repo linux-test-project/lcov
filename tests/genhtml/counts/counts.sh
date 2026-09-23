@@ -122,7 +122,7 @@ PATS=()
 PATS[0]='branch: GNC:13 UNC:13'
 
 if [ "$ENABLE_MCDC" == 1 ] ; then
-    COUNTS[1]='MC/DCs.+11 of 16 MC/DCs'
+    COUNTS[1]='MC/DC\.+: .+11 of 16 conditions'
     PATS[1]='mcdc: GNC:11 UNC:5'
 fi
 

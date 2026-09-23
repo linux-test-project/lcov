@@ -43,6 +43,10 @@ set +x
 #   7. POD is text too, including an '__END__' inside it
 #   8. '<<TAG' in a string is not a heredoc introducer unless the terminator is
 #      really there, so it cannot swallow the rest of the file
+#   9. a module loaded from the command line ('-MFoo', or via PERL5OPT) is a
+#      'use' which perl compiles at line 0 of the script;  that statement is
+#      not in the source, so it is a 'range' error - and is skipped if the
+#      error is ignored
 # ============================================================================
 
 if [[ "x" == ${LCOV_HOME}x ]] ; then
@@ -56,8 +60,10 @@ source ../common.tst
 #   harness runs the two concurrently, so a '*.log' glob here deletes the
 #   'err.log' that test writes and then greps
 rm -rf decl_db declforms.log subst.log nofile.log noread.log \
-    declforms.info subst.info nofile.info noread.info \
-    elsewhere echoversion.cb
+    declforms.info subst.info nofile.info noread.info noread_ign.info \
+    noread_ign.log \
+    elsewhere echoversion.cb \
+    m_db m_opt.info m_opt.log m_opt_ign.log
 
 clean_cover
 
@@ -222,6 +228,21 @@ else
             fail noread "message does not mention: $pattern"
         fi
     done
+    # ..and with the error ignored, the file is written without the extents
+    #   the scan would have found, rather than the run stopping
+    $COVER ${EXEC_COVER} $PERL2LCOV_TOOL -o noread_ign.info --test-name decl \
+        ./decl_db --ignore empty,source \
+        --substitute 's#^declforms.pl#elsewhere/noread.pl#' 2>&1 |
+        tee noread_ign.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        fail noread_ign "expected the unreadable source file to be skipped"
+    fi
+    if ! grep -F -q -e 'WARNING: (source)' noread_ign.log ; then
+        fail noread_ign "expected a 'source' warning"
+    fi
+    if [ ! -s noread_ign.info ] ; then
+        fail noread_ign "no output written"
+    fi
 fi
 chmod 644 elsewhere/noread.pl
 
@@ -283,6 +304,45 @@ echo "'package main' is at line $MAIN_LINE, afterPod ends at $AFTER_POD_END"
 if [ -z "$AFTER_POD_END" ] || [ "$AFTER_POD_END" -ge "$MAIN_LINE" ] ; then
     fail unterminated \
         "afterPod ends at '$AFTER_POD_END', not before line $MAIN_LINE"
+fi
+
+# ----------------------------------------------------------------------
+echo "*** 9. a module loaded from the command line is not a line at 0"
+# ----------------------------------------------------------------------
+# '-MPOSIX' is compiled as 'use POSIX;' at line 0 of 'declforms.pl', and
+#   Devel::Cover records a statement there.  That is not a line in the
+#   source:  it is a 'range' error, as any other line number out of range
+#   would be - and if the error is ignored, the statement is skipped
+perl -MDevel::Cover=-db,m_db,-coverage,statement,branch,condition,subroutine,-silent,1 \
+    -MPOSIX declforms.pl
+if [ 0 != $? ] ; then
+    echo "perl -MPOSIX exec failed"
+    exit 1
+fi
+cover m_db -silent 1
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL -o m_opt.info --test-name decl ./m_db \
+    --ignore empty 2>&1 | tee m_opt.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    fail m_opt "perl2lcov did not complain about a statement at line 0"
+fi
+if ! grep -q "ERROR: (range) \"declforms.pl\": statement at invalid line number '0'" m_opt.log ; then
+    fail m_opt "no 'range' error for the statement at line 0"
+fi
+$COVER ${EXEC_COVER} $PERL2LCOV_TOOL -o m_opt.info --test-name decl ./m_db \
+    --ignore empty,range 2>&1 | tee m_opt_ign.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail m_opt "perl2lcov --ignore range failed:" \
+        `grep -E 'ERROR' m_opt_ign.log`
+fi
+if ! grep -q "WARNING: (range) \"declforms.pl\": statement at invalid line number '0'" m_opt_ign.log ; then
+    fail m_opt "no 'range' warning for the statement at line 0"
+fi
+if grep -q '^DA:0,' m_opt.info ; then
+    fail m_opt "line 0 is reported as a coverpoint"
+fi
+# ..and the real lines are all still there
+if ! diff <(grep '^DA:' declforms.info) <(grep '^DA:' m_opt.info) ; then
+    fail m_opt "the line data differs from the run without '-M'"
 fi
 
 # ----------------------------------------------------------------------

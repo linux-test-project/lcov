@@ -38,7 +38,13 @@ set +x
 
 source ../../common.tst
 
-GENHTML_OPTS="--branch-coverage --function-coverage --filter line $PARALLEL $PROFILE"
+# no '--branch-coverage':  none of these fixtures has branch data - what they are
+#  about is line categories and the recreated baseline text - and asking for a
+#  metric the input does not have is now reported, which several of the cases
+#  below would see as "the run complained".  Ignoring it would not do either:
+#  an ignored message is still counted in the message summary, and case 3a
+#  insists that summary is empty
+GENHTML_OPTS="--function-coverage --filter line $PARALLEL $PROFILE"
 
 rm -rf *.info *.log *.json *.udiff proj other html_* \
     perlcov.info pycov.info __pycache__

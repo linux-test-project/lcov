@@ -4,3 +4,4 @@ TESTS := coverage.sh geninfo.sh
 
 clean:
 	rm -f *.info *.log *.tgz
+	rm -rf fakeproc fakesys

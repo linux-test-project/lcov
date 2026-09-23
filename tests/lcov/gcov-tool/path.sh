@@ -23,7 +23,9 @@ set +x
 source ../../common.tst
 
 rm -f test *.gcno *.gcda helpfail.sh helpfail.log \
-    versionfail.sh versionfail.log quietversion.sh quietversion.log
+    versionfail.sh versionfail.log quietversion.sh quietversion.log \
+    badstdout.sh badstdout.log preserve.log noexec.sh noexec.sh.help \
+    noexec.log *.gcov.json.gz killer.sh killer.log
 rm -rf gcovdir
 
 clean_cover
@@ -98,6 +100,52 @@ done
 exec gcov "$@"
 EOF
 chmod +x versionfail.sh quietversion.sh
+
+# A gcov which can write its JSON to stdout reads that way, so what it writes
+# there is what the capture is made of:  here it is valid JSON but not gcov's.
+cat > badstdout.sh <<'EOF'
+#!/bin/bash
+
+for arg in "$@" ; do
+    if [ "--stdout" == "$arg" ] ; then
+        echo '{"format_version": "2"}'
+        exit 0
+    fi
+done
+exec gcov "$@"
+EOF
+# ..and one which answers all three questions and then cannot be run at all,
+# for the data file:  its second '--help' is the capability query, the last
+# one before the data.  The failure is in starting the pipe, not in gcov.
+cat > noexec.sh <<'EOF'
+#!/bin/bash
+
+for arg in "$@" ; do
+    if [ "--help" == "$arg" ] ; then
+        if [ -e "$0.help" ] ; then
+            chmod -x "$0"
+        fi
+        touch "$0.help"
+    fi
+done
+exec gcov "$@"
+EOF
+chmod +x badstdout.sh
+
+# ..and one which kills whoever ran it for the data file:  that is geninfo,
+# which then writes nothing - so 'lcov --capture' must not say it succeeded
+cat > killer.sh <<'EOF'
+#!/bin/bash
+
+for arg in "$@" ; do
+    if [ "--help" == "$arg" ] || [ "--version" == "$arg" ] ; then
+        exec gcov "$@"
+    fi
+done
+kill -TERM $PPID
+exit 1
+EOF
+chmod +x killer.sh
 
 echo "Build test program"
 "$CC" test.c -o test --coverage
@@ -274,6 +322,102 @@ for TOOL in "$LCOV_TOOL --capture -d" "$GENINFO_TOOL" ; do
     if grep -F -q -e 'uninitialized value' quietversion.log ; then
         cat quietversion.log
         echo "the absent version string reached the version match"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    fi
+
+    : "-----------------------------"
+    : "geninfo killed by a signal"
+    : "-----------------------------"
+    rm -f test.info
+    $COVER $TOOL . -o test.info --verbose --gcov-tool "$PWD/killer.sh" \
+        > killer.log 2>&1
+    if [ 0 == $? ] ; then
+        cat killer.log
+        echo "should have failed when geninfo was killed"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    elif [ "$TOOL" != "$GENINFO_TOOL" ] &&
+         ! grep -F -q -e "geninfo died from signal 15" killer.log ; then
+        cat killer.log
+        echo "expected lcov to report the signal which killed geninfo"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    fi
+
+    # the rest is about reading gcov's JSON from its stdout, which gcov 8 and
+    # older cannot write
+    if ! gcov --help | grep -q -e '--stdout' ||
+       ! gcov --help | grep -q -e '--json-format' ; then
+        continue
+    fi
+
+    : "-----------------------------"
+    : "gcov-tool whose stdout is not gcov's JSON"
+    : "-----------------------------"
+    $COVER $TOOL . -o test.info --verbose --gcov-tool "$PWD/badstdout.sh" \
+        > badstdout.log 2>&1
+    if [ 0 == $? ] ; then
+        echo "should have failed for a gcov tool whose stdout is not gcov's"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    elif ! grep -F -q -e "Unrecognized JSON output format in gcov's standard output" \
+            badstdout.log ; then
+        cat badstdout.log
+        echo "expected the message to say the JSON on stdout was not gcov's"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    fi
+
+    : "-----------------------------"
+    : "--preserve reads the JSON file"
+    : "-----------------------------"
+    # '--preserve' is asking for the '.gcov.json.gz' - so gcov writes it, and
+    # stdout is not looked at:  the stdout this tool writes would fail
+    rm -f *.gcov.json.gz
+    $COVER $TOOL . -o test.info --verbose --gcov-tool "$PWD/badstdout.sh" \
+        --preserve > preserve.log 2>&1
+    if [ 0 != $? ] ; then
+        cat preserve.log
+        echo "--preserve should not have read gcov's stdout"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    elif ! ls *.gcov.json.gz > /dev/null 2>&1 ; then
+        echo "--preserve did not keep the .gcov.json.gz file"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    fi
+
+    : "-----------------------------"
+    : "gcov-tool which cannot be run for the data file"
+    : "-----------------------------"
+    rm -f noexec.sh.help
+    chmod +x noexec.sh
+    $COVER $TOOL . -o test.info --verbose --gcov-tool "$PWD/noexec.sh" \
+        > noexec.log 2>&1
+    if [ 0 == $? ] ; then
+        echo "should have failed for a gcov tool which cannot be run"
+        status=1
+        if [ $KEEP_GOING == 0 ] ; then
+            exit $status
+        fi
+    elif ! grep -F -q -e "GCOV failed for" noexec.log ; then
+        cat noexec.log
+        echo "expected the gcov failure to be reported"
         status=1
         if [ $KEEP_GOING == 0 ] ; then
             exit $status

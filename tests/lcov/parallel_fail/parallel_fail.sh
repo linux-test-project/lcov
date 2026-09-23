@@ -277,6 +277,7 @@ LCOV_FORCE_CHILD_KILL=2 $COVER $LCOV_TOOL -a many.info $FILTER $IGN \
 expect_status filt_ck $? 0
 expect_msg filt_ck filt_ck.log \
     'filter segment [0-9]+: killed by OS - possibly due to out-of-memory'
+expect_msg filt_ck filt_ck.log 'filter: a child was killed for want of memory'
 expect_same filt_ck filt_base.info filt_ck.info
 
 echo "*** site 1: two filter children leave no serialized data"
@@ -286,7 +287,19 @@ expect_status filt_nd $? 0
 expect_msg filt_nd filt_nd.log \
     'filter segment [0-9]+: serialized data .*dumper_[0-9]+ not found'
 reject_msg filt_nd filt_nd.log 'killed by OS'
+# a child which left nothing behind did not run out of memory
+reject_msg filt_nd filt_nd.log 'for want of memory'
 expect_same filt_nd filt_base.info filt_nd.info
+
+echo "*** site 1: fork() fails twice"
+LCOV_FORCE_FORK_FAIL=2 $COVER $LCOV_TOOL -a many.info $FILTER $IGN \
+    -o filt_ff.info > filt_ff.log 2>&1
+expect_status filt_ff $? 0
+expect_msg filt_ff filt_ff.log \
+    '\(fork\) fork\(\) syscall failed while trying to process filter chunk'
+# a unit which never ran is not a sign of too little memory
+reject_msg filt_ff filt_ff.log 'for want of memory'
+expect_same filt_ff filt_base.info filt_ff.info
 
 echo "*** site 1: a process the parent never forked"
 LCOV_FORCE_ORPHAN=1 $COVER $LCOV_TOOL -a many.info $FILTER $ORPHAN \
@@ -399,6 +412,11 @@ expect_msg cap_ck cap_ck.log \
 #   only the chunks which succeeded leaves it waiting for a child which is
 #   already gone
 reject_msg cap_ck cap_ck.log 'found unknown process'
+# ..and a child the OS killed means we were running too many:  the retry, and
+#   everything after it, runs with at most half as many as were running when it
+#   was killed - how many that was is up to the scheduler
+expect_msg cap_ck cap_ck.log \
+    'geninfo: a child was killed for want of memory:  running at most [12] at once \(was 4\)'
 expect_same cap_ck cap_base.info cap_ck.info
 
 echo "*** site 4: a compute child which says it ran out of memory"
@@ -410,6 +428,7 @@ LCOV_FORCE_OOM_MSG=1 $COVER $GENINFO_TOOL . $CAPTURE $IGN \
     -o cap_oom.info > cap_oom.log 2>&1
 expect_status cap_oom $? 0
 expect_msg cap_oom cap_oom.log 'std::bad_alloc'
+expect_msg cap_oom cap_oom.log 'geninfo: a child was killed for want of memory'
 expect_msg cap_oom cap_oom.log \
     'compute job [0-9]+: killed by OS - possibly due to out-of-memory'
 expect_same cap_oom cap_base.info cap_oom.info
@@ -551,6 +570,13 @@ for sig in 11:SIGSEGV 6:SIGABRT ; do
     reject_msg status_$signum status_$signum.log "signal $(($signum | 0x80))"
     reject_msg status_$signum status_$signum.log '\(SIG\)'
     reject_msg status_$signum status_$signum.log 'uninitialized value'
+done
+
+# Every requeue says why:  a client which asks - geninfo reuses the id of a
+#   chunk it never managed to fork - used to be handed nothing, and perl said
+#   so in every log whose run retried anything.
+for log in *.log ; do
+    reject_msg ${log%.log} $log 'Use of uninitialized value'
 done
 
 echo "*** done"

@@ -59,6 +59,7 @@ jobs:
             # Perl runtime dependencies as documented in README
             libcapture-tiny-perl       # CPAN Capture::Tiny
             libdatetime-perl           # CPAN DateTime
+            libdatetime-format-w3cdtf-perl # CPAN DateTime::Format::W3CDTF
             libdevel-cover-perl        # CPAN Devel::Cover
             libdigest-md5-file-perl    # CPAN Digest::MD5
             libfile-spec-native-perl   # CPAN File::Spec

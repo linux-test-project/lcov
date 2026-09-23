@@ -151,7 +151,11 @@ sub check_criteria
 1;
 EOF
 
-CRITERIA_OPTS="--criteria `pwd`/filecriteria.pm --rc criteria_callback_levels=top,file"
+# 'empty,empty':  these fixtures carry only the metric under test, and the
+#  tests/lcovrc in use here asks for function and branch coverage as well - so
+#  the read complains about what is missing.  Doubled, because the criteria
+#  messages this test greps for are on stderr and nothing else should be.
+CRITERIA_OPTS="--criteria `pwd`/filecriteria.pm --rc criteria_callback_levels=top,file --ignore empty,empty"
 
 # the criteria section of a genhtml log:  the header and the indented entries
 criteria_section()
@@ -282,6 +286,8 @@ EOF
     echo 'MCDC:5,2,f,0,0,0'
     echo 'MCDC:5,2,t,1,1,1'
     echo 'MCDC:5,2,f,0,1,1'
+    echo 'MCF:8'
+    echo 'MCH:6'
     echo 'end_of_record'
 } > mcdc.info
 
@@ -289,7 +295,7 @@ EOF
 # 4. threshold.pm, on the MC/DC coverage it was given a threshold for
 # --------------------------------------------------------------------------
 echo genhtml mcdc.info -o rpt_mcdc_fail --criteria-script threshold.pm,--mcdc,100
-$COVER $GENHTML_TOOL mcdc.info -o rpt_mcdc_fail --mcdc-coverage \
+$COVER $GENHTML_TOOL mcdc.info -o rpt_mcdc_fail --mcdc-coverage --ignore empty,empty \
     --criteria-script ${SCRIPT_DIR}/threshold.pm,--mcdc,100 \
     > mcdc_fail.log 2>&1
 if [ 0 == $? ] ; then
@@ -306,7 +312,7 @@ fi
 # ..and the same threshold met:  quiet, and exit status 0.  This is the run
 #   which tells a threshold that fires from one that is simply never checked
 echo genhtml mcdc.info -o rpt_mcdc_pass --criteria-script threshold.pm,--mcdc,75
-$COVER $GENHTML_TOOL mcdc.info -o rpt_mcdc_pass --mcdc-coverage \
+$COVER $GENHTML_TOOL mcdc.info -o rpt_mcdc_pass --mcdc-coverage --ignore empty,empty \
     --criteria-script ${SCRIPT_DIR}/threshold.pm,--mcdc,75 \
     > mcdc_pass.log 2>&1
 if [ 0 != $? ] ; then
@@ -405,7 +411,7 @@ EOF
 
 rm -f criteria_dump.txt
 echo genhtml mcdc.info -o rpt_bins --rc criteria_callback_data=date --date-bins 1,7
-$COVER $GENHTML_TOOL mcdc.info -o rpt_bins --mcdc-coverage \
+$COVER $GENHTML_TOOL mcdc.info -o rpt_bins --mcdc-coverage --ignore empty,empty \
     --criteria-script `pwd`/dumpcrit.pm \
     --rc criteria_callback_data=date --rc criteria_callback_levels=top \
     --date-bins 1,7 --annotate-script `pwd`/annstub.pm > bins.log 2>&1
@@ -438,7 +444,7 @@ fi
 # --------------------------------------------------------------------------
 rm -f criteria_dump.txt
 echo genhtml mcdc.info -o rpt_owners --rc criteria_callback_data=owner
-$COVER $GENHTML_TOOL mcdc.info -o rpt_owners --mcdc-coverage \
+$COVER $GENHTML_TOOL mcdc.info -o rpt_owners --mcdc-coverage --ignore empty,empty \
     --criteria-script `pwd`/dumpcrit.pm \
     --rc criteria_callback_data=owner --rc criteria_callback_levels=top \
     --annotate-script `pwd`/annstub.pm > owners.log 2>&1

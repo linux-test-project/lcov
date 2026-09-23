@@ -81,8 +81,8 @@ make_two_commit_repo() {
     local d
     d=$(mktemp -d)
     git -C "$d" init --quiet
-    git -C "$d" config user.email "alice@example.com"
-    git -C "$d" config user.name  "Alice"
+    git -C "$d" config user.email "bertie.wooster@jeeves.co.uk"
+    git -C "$d" config user.name  "Bertie Wooster"
 
     # Commit 1 (base): two files
     mkdir -p "$d/src"
@@ -381,8 +381,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO16=$(mktemp -d)
 git -C "$REPO16" init --quiet
-git -C "$REPO16" config user.email "alice@example.com"
-git -C "$REPO16" config user.name  "Alice"
+git -C "$REPO16" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO16" config user.name  "Bertie Wooster"
 # Commit 1: file with some content
 printf 'int x = 1;\n' > "$REPO16/ws.c"
 git -C "$REPO16" add ws.c
@@ -460,8 +460,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO19=$(mktemp -d)
 git -C "$REPO19" init --quiet
-git -C "$REPO19" config user.email "alice@example.com"
-git -C "$REPO19" config user.name  "Alice"
+git -C "$REPO19" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO19" config user.name  "Bertie Wooster"
 printf 'existing\n' > "$REPO19/old.c"
 git -C "$REPO19" add old.c
 GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
@@ -493,8 +493,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO20=$(mktemp -d)
 git -C "$REPO20" init --quiet
-git -C "$REPO20" config user.email "alice@example.com"
-git -C "$REPO20" config user.name  "Alice"
+git -C "$REPO20" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO20" config user.name  "Bertie Wooster"
 printf 'keep\n'   > "$REPO20/keep.c"
 printf 'remove\n' > "$REPO20/gone.c"
 git -C "$REPO20" add .
@@ -529,8 +529,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO21=$(mktemp -d)
 git -C "$REPO21" init --quiet
-git -C "$REPO21" config user.email "alice@example.com"
-git -C "$REPO21" config user.name  "Alice"
+git -C "$REPO21" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO21" config user.name  "Bertie Wooster"
 printf 'content\n' > "$REPO21/before.c"
 git -C "$REPO21" add before.c
 GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" \
@@ -583,8 +583,8 @@ fi
 REPO23="$(mktemp -d)/has space"
 mkdir -p "$REPO23"
 git -C "$REPO23" init --quiet
-git -C "$REPO23" config user.email "alice@example.com"
-git -C "$REPO23" config user.name  "Alice"
+git -C "$REPO23" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO23" config user.name  "Bertie Wooster"
 printf 'int foo(void) { return 1; }\n' > "$REPO23/foo.c"
 printf 'int bar(void) { return 2; }\n' > "$REPO23/bar.c"
 git -C "$REPO23" add .
@@ -620,8 +620,8 @@ fi
 # ---------------------------------------------------------------------------
 REPO24=$(mktemp -d)
 git -C "$REPO24" init --quiet
-git -C "$REPO24" config user.email "alice@example.com"
-git -C "$REPO24" config user.name  "Alice"
+git -C "$REPO24" config user.email "bertie.wooster@jeeves.co.uk"
+git -C "$REPO24" config user.name  "Bertie Wooster"
 printf 'int foo(void) { return 1; }\n' > "$REPO24/foo.c"
 printf 'int odd(void) { return 2; }\n' > "$REPO24/od%dd.c"
 git -C "$REPO24" add .
@@ -665,6 +665,36 @@ elif ! echo "$OUTPUT" | grep -qF 'git diff exited with error' ; then
     fail "Test 25 failing git diff: the exit status was not reported; output: $OUTPUT"
 else
     pass "Test 25: a failing 'git diff' is reported by its exit status"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 26: a 'git ls-tree' which exits non-zero says so
+#   The same 'close' check as Test 25, for the second pipe:  the 'git diff'
+#   succeeds, so only a 'git' which fails for 'ls-tree' alone reaches it.  A
+#   wrapper ahead of the real one on PATH does that.
+# ---------------------------------------------------------------------------
+read REPO26 SHA1_26 SHA2_26 <<< "$(make_two_commit_repo)"
+FAKEGIT26=$(mktemp -d)
+REALGIT=$(command -v git)
+cat > "$FAKEGIT26/git" <<EOF
+#!/bin/sh
+# '-C <repo> ls-tree ...'
+if [ "\$3" = ls-tree ] ; then
+    exit 3
+fi
+exec "$REALGIT" "\$@"
+EOF
+chmod +x "$FAKEGIT26/git"
+OUTPUT=$(PATH="$FAKEGIT26:$PATH" $GITDIFF --repo "$REPO26" "$SHA1_26" \
+    "$SHA2_26" 2>&1)
+RC=$?
+rm -rf "$REPO26" "$FAKEGIT26"
+if [ $RC -eq 0 ] ; then
+    fail "Test 26 failing git ls-tree: expected a non-zero exit; output: $OUTPUT"
+elif ! echo "$OUTPUT" | grep -qF 'git ls-tree exited with error 3' ; then
+    fail "Test 26 failing git ls-tree: the exit status was not reported; output: $OUTPUT"
+else
+    pass "Test 26: a failing 'git ls-tree' is reported by its exit status"
 fi
 
 # ===========================================================================

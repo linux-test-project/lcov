@@ -15,10 +15,16 @@ if [ "${VER[0]}" -lt 5 ] ; then
 fi
 
 rm -rf *.gcda *.gcno a.out out.info out2.info *.txt* *.json dumper* testRC *.gcov *.gcov.* *.log \
+    count_records.info count_records_out.info \
     before_sf.info ver_before_sf.info after_eor.info double_eor.info \
     tn_inside.info nested_sf.info no_eor.info comments*.info \
     junk_in_section.info no_tag.info bad_payload.info ignored.info crlf.info \
-    skip_brda.info skip_mcdc.info skip_fn.info skip_place.info \
+    skip_brda.info skip_mcdc.info skip_fn.info skip_place.info skip_note.info \
+    skip_note_lines.info skip_note_html skip_note_counted.info \
+    skip_note_uncounted.info skip_note_filtered.info skip_note_filtered.c \
+    skip_note_counted2.info \
+    skip_note_branch.info skip_note_nofunc.info skip_note_counted_html \
+    skip_note_counted_rt_html \
     canon.info sat.info notacount.info \
     tn.info chk.info chksrc.c \
     *_out.info
@@ -530,6 +536,8 @@ TN:test_a
 SF:test.c
 DA:2,7
 DA:3,4
+LF:2
+LH:2
 LFOO:9
 MCH
 end_of_record:trailing
@@ -570,7 +578,7 @@ done
 # line has any trailing space, so running the substitution over every line is
 # most of its cost):  the guard has to fire on exactly the lines which need it.
 #
-printf 'TN:test_a\r\nSF:test.c\r\nDA:2,7   \r\nDA:3,4\t\r\nBRDA:3,0,0,1 \r\nBRDA:3,0,1,0\r\nend_of_record \r\n' > crlf.info
+printf 'TN:test_a\r\nSF:test.c\r\nDA:2,7   \r\nDA:3,4\t\r\nBRDA:3,0,0,1 \r\nBRDA:3,0,1,0\r\nBRF:2\r\nBRH:1\r\nLF:2\r\nLH:2\r\nend_of_record \r\n' > crlf.info
 
 $COVER $LCOV_TOOL $LCOV_OPTS -o crlf_out.info -a crlf.info \
     --ignore empty,empty 2>&1 | tee crlf.log
@@ -635,6 +643,10 @@ SF:test.c
 DA:2,7
 BRDA:x,0,0,1
 DA:3,4
+BRF:1
+BRH:1
+LF:2
+LH:2
 end_of_record
 EOF
 
@@ -645,6 +657,10 @@ SF:test.c
 DA:2,7
 MCDC:x,3,t,1,0,a>0
 DA:3,4
+MCF:1
+MCH:1
+LF:2
+LH:2
 end_of_record
 EOF
 
@@ -655,6 +671,10 @@ SF:test.c
 DA:2,7
 FN:x,myFunc
 DA:3,4
+FNF:1
+FNH:0
+LF:2
+LH:2
 end_of_record
 EOF
 
@@ -726,6 +746,8 @@ BRDA:2,0,0,1
 TN:test_a
 SF:test.c
 DA:2,7
+LF:1
+LH:1
 end_of_record
 EOF
 
@@ -743,6 +765,450 @@ if [ 0 != $? ] ; then
     echo "Error:  wrong or missing message for an out-of-section 'BRDA:' record; expected:"
     echo "  $MSG"
     cat skip_place.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+#
+# A note about data which the input carries and the command line throws away.
+#
+# The reader remembers which coverpoint types it saw, whether or not the type is
+#  enabled - a record of a disabled type is dropped unparsed, but its tag is
+#  still recognized, and that is all this needs - so that the point where the
+#  report is finished can say which types went in and came out again.  Nearly
+#  always the '--<type>-coverage' option is simply missing from the command line
+#  rather than the user having meant to discard the data.
+#
+
+# one section carrying every coverpoint type there is
+cat > skip_note.info <<'EOF'
+TN:test_a
+SF:test.c
+FNL:0c,2,3
+FNA:0,7,myFunc
+FNC:0,2,10,0,1,callee
+DA:2,7
+BRDA:2,0,0,1
+BRDA:2,0,1,0
+MCDC:2,3,t,1,0,a>0
+DA:3,4
+FNF:1
+FNH:1
+FNCF:1
+FNCH:1
+BRF:2
+BRH:1
+MCF:1
+MCH:1
+LF:2
+LH:2
+end_of_record
+EOF
+
+# 'function' is the only one which is on by default, so turn it off too: with
+#  nothing but line coverage enabled, all four types should be mentioned
+$COVER $LCOV_TOOL $BASE_OPTS --no-function-coverage -o skip_note_out.info \
+    -a skip_note.info 2>&1 | tee skip_note.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error from lcov -a for skip_note"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# each entry, '|' separated:  the type as the note names it, and the option the
+#  note has to suggest
+for CASE in 'function|--function-coverage' 'branch|--branch-coverage' \
+            'MC/DC|--mcdc-coverage' 'callgraph|--callgraph-coverage' ; do
+    TYPE=${CASE%%|*}
+    OPT=${CASE#*|}
+    for EXPECT in \
+        "Note: $TYPE records were found in the input data, but $TYPE coverage is not enabled" \
+        "- '$OPT' may be missing from the command line." ; do
+        grep -qF -- "$EXPECT" skip_note.log
+        if [ 0 != $? ] ; then
+            echo "Error:  skip_note is missing '$EXPECT':"
+            cat skip_note.log
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+    done
+done
+
+# ...and with every type enabled, there is nothing to say
+$COVER $LCOV_TOOL $BASE_OPTS --branch-coverage --mcdc-coverage \
+    --callgraph-coverage -o skip_note_all_out.info -a skip_note.info $IGNORE \
+    2>&1 | tee skip_note_all.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error from lcov -a for skip_note, all types enabled"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+COUNT=`grep -c 'records were found in the input data' skip_note_all.log`
+if [ "$COUNT" != 0 ] ; then
+    echo "Error:  nothing is being thrown away, but got $COUNT notes"
+    cat skip_note_all.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# ...and exactly once, not once per type per place we ask:  '-a' reads the input
+#  and then writes the result, and both of those are points where the question
+#  gets asked
+COUNT=`grep -c 'records were found in the input data' skip_note.log`
+if [ "$COUNT" != 4 ] ; then
+    echo "Error:  expected 4 notes (one per type), got $COUNT"
+    cat skip_note.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+#
+# The same question, asked by the operations which read '.info' files and never
+#  write one.  The check belongs wherever a set of inputs has been read and
+#  filtered - before the tool acts on it - and not only where a tracefile is
+#  written, or 'lcov --summary', 'lcov --list' and genhtml would silently drop
+#  the data and say nothing about it.
+#
+for CASE in "summary|$LCOV_TOOL $BASE_OPTS --summary skip_note.info" \
+            "list|$LCOV_TOOL $BASE_OPTS --list skip_note.info" \
+            "genhtml|$GENHTML_TOOL $BASE_OPTS -o skip_note_html skip_note.info --synthesize-missing --ignore source" ; do
+    NAME=${CASE%%|*}
+    CMD=${CASE#*|}
+    rm -rf skip_note_html
+    # 'function' is on by default:  turn it off so that this input, which
+    #  carries every type there is, has all four to complain about
+    $COVER $CMD --no-function-coverage 2>&1 | tee skip_note_$NAME.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "Error:  unexpected error from $NAME for skip_note"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    COUNT=`grep -c 'records were found in the input data' skip_note_$NAME.log`
+    if [ "$COUNT" != 4 ] ; then
+        echo "Error:  expected 4 notes from $NAME, got $COUNT"
+        cat skip_note_$NAME.log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# The other half of the same check:  a type which IS enabled and which the input
+#  has no coverpoints for at all.  That is an 'empty' error, and it too used to
+#  be reachable only on a write path.
+cat > skip_note_lines.info <<'EOF'
+TN:test_a
+SF:test.c
+DA:2,7
+DA:3,4
+LF:2
+LH:2
+end_of_record
+EOF
+
+for CASE in "summary|$LCOV_TOOL $BASE_OPTS --summary skip_note_lines.info" \
+            "list|$LCOV_TOOL $BASE_OPTS --list skip_note_lines.info" \
+            "genhtml|$GENHTML_TOOL $BASE_OPTS -o skip_note_html skip_note_lines.info --synthesize-missing --ignore source" ; do
+    NAME=${CASE%%|*}
+    CMD=${CASE#*|}
+    rm -rf skip_note_html
+    $COVER $CMD --branch-coverage --mcdc-coverage 2>&1 | \
+        tee skip_note_empty_$NAME.log
+    if [ 0 == ${PIPESTATUS[0]} ] ; then
+        echo "Error:  expected an 'empty' error from $NAME but didn't see it"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    grep -qF "ERROR: (empty)" skip_note_empty_$NAME.log
+    if [ 0 != $? ] ; then
+        echo "Error:  no 'empty' error from $NAME for a lines-only input:"
+        cat skip_note_empty_$NAME.log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# ...and '--extract'/'--remove', which is the one read that does not go through
+#  the shared merge:  the patterns are applied as the file is read, so the answer
+#  is final where that read finishes and nowhere earlier.  Both halves, because
+#  this is a different call site and not a different question
+$COVER $LCOV_TOOL $BASE_OPTS --extract skip_note.info '*test.c' \
+    -o skip_note_extract_out.info --no-function-coverage 2>&1 |
+    tee skip_note_extract.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error from lcov --extract for skip_note"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+COUNT=`grep -c 'records were found in the input data' skip_note_extract.log`
+if [ "$COUNT" != 4 ] ; then
+    echo "Error:  expected 4 notes from --extract, got $COUNT"
+    cat skip_note_extract.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+$COVER $LCOV_TOOL $BASE_OPTS --remove skip_note_lines.info '*nosuch.c' \
+    -o skip_note_remove_out.info --branch-coverage --mcdc-coverage \
+    --ignore unused 2>&1 | tee skip_note_remove.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected an 'empty' error from lcov --remove but didn't see it"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qF "ERROR: (empty)" skip_note_remove.log
+if [ 0 != $? ] ; then
+    echo "Error:  no 'empty' error from --remove for a lines-only input:"
+    cat skip_note_remove.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+#
+# ...and the case which is not an error at all:  code which the producer did
+#  measure for a type and which has none of it.  A Java application with no
+#  branch in it is the example which found this - jacoco2lcov writes 'BRF:0' for
+#  such a file - but plain C has the same shape as soon as a report is narrowed
+#  to one straight-line file.  'no data found' is the summary's answer to that,
+#  not an error's.
+#
+# What tells the cases apart is the count records, summed over the inputs:
+#  'BRF:0' says the branches of this file were counted and there were none, a
+#  total which is not zero says they were counted and this run lost them, and no
+#  'BRF:' at all says nothing either way.  Only the first of the three is excused
+#  - see '@lcovutil::coverTypeInputTotal'.
+#
+# 'function' deliberately has no such record:  'FNF:0' is what an ordinary
+#  header of macros says about itself, and lcov writes it for every section, so
+#  it cannot carry this meaning.
+#
+cat > skip_note_counted.info <<'EOF'
+TN:test_a
+SF:test.c
+FNL:0,2,3
+FNA:0,7,myFunc
+DA:2,7
+DA:3,4
+LF:2
+LH:2
+FNF:1
+FNH:1
+BRF:0
+BRH:0
+MCF:0
+MCH:0
+FNCF:0
+FNCH:0
+end_of_record
+EOF
+
+# every type enabled, and every one of them counted and empty:  no message at
+#  all.  '--callgraph-coverage' needs function coverage, so that one stays on -
+#  and this input has a function for it
+ALL_TYPES="--branch-coverage --mcdc-coverage --callgraph-coverage"
+for CASE in "aggregate|$LCOV_TOOL $BASE_OPTS -a skip_note_counted.info -o skip_note_counted_out.info" \
+            "summary|$LCOV_TOOL $BASE_OPTS --summary skip_note_counted.info" \
+            "list|$LCOV_TOOL $BASE_OPTS --list skip_note_counted.info" \
+            "extract|$LCOV_TOOL $BASE_OPTS --extract skip_note_counted.info '*test.c' -o skip_note_counted_extract.info" \
+            "genhtml|$GENHTML_TOOL $BASE_OPTS -o skip_note_counted_html skip_note_counted.info --synthesize-missing --ignore source" ; do
+    NAME=${CASE%%|*}
+    CMD=${CASE#*|}
+    rm -rf skip_note_counted_html
+    eval $COVER $CMD $ALL_TYPES 2>&1 | tee skip_note_counted_$NAME.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "Error:  unexpected error from $NAME for a counted-empty input"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    grep -qF "(empty)" skip_note_counted_$NAME.log
+    if [ 0 == $? ] ; then
+        echo "Error:  $NAME reported 'empty' for a type the input counted:"
+        cat skip_note_counted_$NAME.log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+# the assertion has to survive being written back out, or the next tool in the
+#  pipeline sees the file the error was written for.  (lcov used to drop a zero
+#  'BRF:'/'MCF:' pair on the floor - the count is recomputed from the
+#  coverpoints, so the pair looked like pure redundancy)
+for TAG in BRF BRH MCF MCH FNCF FNCH ; do
+    grep -qE "^$TAG:0\$" skip_note_counted_out.info
+    if [ 0 != $? ] ; then
+        echo "Error:  'lcov -a' dropped the '$TAG:0' assertion:"
+        cat skip_note_counted_out.info
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+$COVER $GENHTML_TOOL $BASE_OPTS -o skip_note_counted_rt_html \
+    skip_note_counted_out.info $ALL_TYPES --synthesize-missing --ignore source \
+    2>&1 | tee skip_note_counted_rt.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  genhtml of the round-tripped counted-empty input failed"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# ...and the counts have to cross the fork boundary too, or a parallel read
+#  loses them and the error comes back for exactly the input which said it
+#  should not.  Two inputs and '--parallel 2', so that at least one of them is
+#  counted by a child and handed back
+sed -e 's/SF:test.c/SF:test2.c/' skip_note_counted.info > skip_note_counted2.info
+$COVER $LCOV_TOOL $BASE_OPTS -a skip_note_counted.info \
+    -a skip_note_counted2.info --parallel 2 -o skip_note_counted_par.info \
+    $ALL_TYPES 2>&1 | tee skip_note_counted_par.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error from a parallel read of a counted-empty input"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qF "(empty)" skip_note_counted_par.log
+if [ 0 == $? ] ; then
+    echo "Error:  the counts did not survive the fork:"
+    cat skip_note_counted_par.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# ...and we pass on only the assertions we were given:  with no count record in
+#  the input, a report with no coverpoints still gets written without one
+$COVER $LCOV_TOOL $BASE_OPTS -a skip_note_lines.info \
+    -o skip_note_uncounted_out.info --branch-coverage --mcdc-coverage \
+    --ignore-errors empty 2>&1 | tee skip_note_uncounted.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error from lcov -a for skip_note_uncounted"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qE '^(BRF|MCF):' skip_note_uncounted_out.info
+if [ 0 == $? ] ; then
+    echo "Error:  wrote a zero count record for a type nothing counted:"
+    cat skip_note_uncounted_out.info
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# one type at a time, to show the excuse is per type and not a blanket one:
+#  strip the MC/DC and callgraph pairs and those two are reported while 'branch'
+#  is not.  '--ignore-errors empty' so that all of them get as far as being said
+grep -vE '^(MCF|MCH|FNCF|FNCH):' skip_note_counted.info > skip_note_branch.info
+$COVER $LCOV_TOOL $BASE_OPTS --summary skip_note_branch.info $ALL_TYPES \
+    --ignore-errors empty 2>&1 | tee skip_note_branch.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    echo "Error:  unexpected error from lcov --summary for skip_note_branch"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+for EXPECT in 'MC/DC coverage enabled but no corresponding coverpoints found' \
+              'no call-site data was found in any input file' ; do
+    grep -qF -- "$EXPECT" skip_note_branch.log
+    if [ 0 != $? ] ; then
+        echo "Error:  skip_note_branch is missing '$EXPECT':"
+        cat skip_note_branch.log
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+grep -qF 'branch coverage enabled but no corresponding coverpoints found' \
+    skip_note_branch.log
+if [ 0 == $? ] ; then
+    echo "Error:  'branch' was counted empty but still reported:"
+    cat skip_note_branch.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# ...and the case the count is there to keep reporting:  coverpoints which the
+#  input counted and which this run's filters then removed.  'BRF:2' says the
+#  branches were there, the report has none, and the difference is the filter -
+#  which is the thing a report with no branches in it ought to be saying.
+cat > skip_note_filtered.c <<'EOF'
+int f(int x) {
+  return x;
+}
+EOF
+cat > skip_note_filtered.info <<'EOF'
+TN:test_a
+SF:skip_note_filtered.c
+FNL:0,1,3
+FNA:0,7,f
+DA:2,7
+BRDA:2,0,0,1
+BRDA:2,0,1,0
+LF:1
+LH:1
+FNF:1
+FNH:1
+BRF:2
+BRH:1
+end_of_record
+EOF
+$COVER $LCOV_TOOL $BASE_OPTS -a skip_note_filtered.info \
+    -o skip_note_filtered_out.info --branch-coverage --filter branch 2>&1 | \
+    tee skip_note_filtered.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected an 'empty' error for filtered-away branches"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qF "ERROR: (empty) branch coverage enabled" skip_note_filtered.log
+if [ 0 != $? ] ; then
+    echo "Error:  no 'empty' error when the filter removed every branch:"
+    cat skip_note_filtered.log
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+# ...and 'function' is not excusable:  'FNF:0' is not one of these assertions
+cat > skip_note_nofunc.info <<'EOF'
+TN:test_a
+SF:test.c
+DA:2,7
+DA:3,4
+LF:2
+LH:2
+FNF:0
+FNH:0
+end_of_record
+EOF
+$COVER $LCOV_TOOL $BASE_OPTS --summary skip_note_nofunc.info 2>&1 | \
+    tee skip_note_nofunc.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected an 'empty' error for 'FNF:0' but didn't see it"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+grep -qF "ERROR: (empty) function coverage enabled" skip_note_nofunc.log
+if [ 0 != $? ] ; then
+    echo "Error:  wrong or missing 'empty' error for 'FNF:0':"
+    cat skip_note_nofunc.log
     if [ $KEEP_GOING == 0 ] ; then
         exit 1
     fi
@@ -839,6 +1305,12 @@ BRDA:2,0,1,9223372036854775808
 BRDA:2,0,2,-0
 MCDC:3,2,t,99999999999999999999999,0,a
 MCDC:3,2,f,1,1,b
+BRF:3
+BRH:2
+MCF:2
+MCH:2
+LF:3
+LH:2
 end_of_record
 EOF
 
@@ -887,6 +1359,12 @@ BRDA:2,0,0,9223372036854775807
 BRDA:2,0,1,9223372036854775807
 MCDC:3,2,t,9223372036854775807,0,a
 MCDC:3,2,f,9223372036854775807,1,b
+BRF:2
+BRH:2
+MCF:2
+MCH:2
+LF:2
+LH:2
 end_of_record
 EOF
 
@@ -922,6 +1400,10 @@ DA:2,nan
 DA:3,inf
 BRDA:2,0,0,nan
 BRDA:2,0,1,inf
+BRF:2
+BRH:1
+LF:2
+LH:1
 end_of_record
 EOF
 
@@ -1101,6 +1583,109 @@ for EXPECT in 'TN:bad_name' 'TN:goodname' ; do
     if [ 0 != $? ] ; then
         echo "Error:  tn.info output is missing '$EXPECT':"
         cat tn_out.info
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
+
+#
+# A section which carries a coverpoint of some type has to carry that type's
+#  pair of count records too - only their presence is checked, not their value.
+#  One section per type, each missing some of its pair; the last section is
+#  complete, and its 'FNCF:'/'FNCH:' pair with no 'FNC:' beside it is a
+#  measurement of none, which is legal.  'branch' is turned off for the second
+#  run:  the pair is a property of the file, so it is still required.
+cat > count_records.info <<'EOF'
+TN:
+SF:noLine.c
+DA:1,1
+LH:1
+end_of_record
+SF:noFunction.c
+FN:1,2,blandings
+FNDA:1,blandings
+DA:1,1
+LF:1
+LH:1
+end_of_record
+SF:noBranch.c
+DA:1,1
+LF:1
+LH:1
+BRDA:1,0,0,1
+BRDA:1,0,1,0
+end_of_record
+SF:noMcdc.c
+DA:1,1
+LF:1
+LH:1
+MCDC:1,2,t,1,0,a
+MCDC:1,2,f,0,0,a
+MCF:2
+end_of_record
+SF:noCalls.c
+FNL:0,1,2
+FNA:0,1,emsworth
+FNF:1
+FNH:1
+FNC:0,1,5,0,1,callee
+FNCH:1
+DA:1,1
+LF:1
+LH:1
+end_of_record
+SF:complete.c
+FNL:0,1,2
+FNA:0,1,callee
+FNF:1
+FNH:1
+FNCF:0
+FNCH:0
+DA:1,1
+LF:1
+LH:1
+end_of_record
+EOF
+
+$COVER $LCOV_TOOL $BASE_OPTS -a count_records.info -o count_records_out.info \
+    --branch-coverage --mcdc-coverage --callgraph-coverage 2>&1 | \
+    tee count_records.log
+if [ 0 == ${PIPESTATUS[0]} ] ; then
+    echo "Error:  expected a 'format' error for missing count records"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+
+for BRANCH in --branch-coverage --no-branch-coverage ; do
+    $COVER $LCOV_TOOL $BASE_OPTS -a count_records.info \
+        -o count_records_out.info $BRANCH --mcdc-coverage \
+        --callgraph-coverage --ignore format 2>&1 | \
+        tee count_records$BRANCH.log
+    if [ 0 != ${PIPESTATUS[0]} ] ; then
+        echo "Error:  unexpected error for missing count records $BRANCH"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+    for EXPECT in \
+        "\"count_records.info\":5: missing 'LF:' count record for the line coverpoints in the section for 'noLine.c' beginning at line 2" \
+        "\"count_records.info\":12: missing 'FNF:' and 'FNH:' count records for the function coverpoints in the section for 'noFunction.c' beginning at line 6" \
+        "\"count_records.info\":19: missing 'BRF:' and 'BRH:' count records for the branch coverpoints in the section for 'noBranch.c' beginning at line 13" \
+        "\"count_records.info\":27: missing 'MCH:' count record for the MC/DC coverpoints in the section for 'noMcdc.c' beginning at line 20" \
+        "\"count_records.info\":38: missing 'FNCF:' count record for the call site coverpoints in the section for 'noCalls.c' beginning at line 28" ; do
+        grep -qF "$EXPECT" count_records$BRANCH.log
+        if [ 0 != $? ] ; then
+            echo "Error:  missing message $BRANCH: $EXPECT"
+            if [ $KEEP_GOING == 0 ] ; then
+                exit 1
+            fi
+        fi
+    done
+    COUNT=`grep -c 'count record' count_records$BRANCH.log`
+    if [ "$COUNT" != 5 ] ; then
+        echo "Error:  expected 5 count record messages $BRANCH, got $COUNT"
         if [ $KEEP_GOING == 0 ] ; then
             exit 1
         fi

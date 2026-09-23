@@ -91,6 +91,14 @@ cd "$SRCDIR/$WORKDIR" || exit 1
 
 # ---- helper to run a perl fragment under both pure-perl and XS ----------------
 
+# Devel::Cover announces things of its own on stderr - "Deleting old coverage for
+# changed file ..." the first time it sees a source file which has been edited
+# since the database was written.  Under --coverage that lands in the captured
+# output of whichever fragment happens to run first, which makes the two
+# backends disagree about something neither of them said.  It is not part of a
+# fragment's output, so it does not reach the comparison.
+strip_cover_noise() { echo "$1" | grep -v '^Devel::Cover: ' ; }
+
 run_test()
 {
     local testname="$1"
@@ -103,9 +111,11 @@ run_test()
     # exercise show up in this testcase's report.
     xs_out=$(perl $PERL_COVER_ARGS -I"$LCOV_HOME_PARENT/lib" -e "$perl_code" 2>&1)
     xs_rc=$?
+    xs_out=$(strip_cover_noise "$xs_out")
 
     pure_out=$(LCOV_PURE_PERL=1 perl $PERL_COVER_ARGS -I"$LCOV_HOME_PARENT/lib" -e "$perl_code" 2>&1)
     pure_rc=$?
+    pure_out=$(strip_cover_noise "$pure_out")
 
     if [ $xs_rc -ne 0 ] ; then
         echo "FAIL [$testname] XS exit=$xs_rc: $xs_out"
@@ -144,6 +154,7 @@ run_xs_only_test()
     local out rc
     out=$(perl $PERL_COVER_ARGS -I"$LCOV_HOME_PARENT/lib" -e "$perl_code" 2>&1)
     rc=$?
+    out=$(strip_cover_noise "$out")
     if [ $rc -ne 0 ] ; then
         echo "FAIL [$testname] XS exit=$rc: $out"
         return 1
@@ -172,9 +183,11 @@ run_error_test()
     # exercise show up in this testcase's report.
     xs_out=$(perl $PERL_COVER_ARGS -I"$LCOV_HOME_PARENT/lib" -e "$perl_code" 2>&1)
     xs_rc=$?
+    xs_out=$(strip_cover_noise "$xs_out")
 
     pure_out=$(LCOV_PURE_PERL=1 perl $PERL_COVER_ARGS -I"$LCOV_HOME_PARENT/lib" -e "$perl_code" 2>&1)
     pure_rc=$?
+    pure_out=$(strip_cover_noise "$pure_out")
 
     if [ $xs_rc -eq 0 ] ; then
         echo "FAIL [$testname] XS: expected non-zero exit, got 0"

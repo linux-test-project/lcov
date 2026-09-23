@@ -171,11 +171,11 @@ for EXPECT in 'BRDA:3,0,0,1' 'BRDA:3,0,1,0' 'BRDA:4,0,0,0' 'BRDA:4,0,1,7' \
     fi
 done
 # ...and the summary, which is what the aggregate map feeds, agrees
-for EXPECT in '  lines.......: 100.0% (4 of 4 lines)' \
-              '  functions...: 100.0% (1 of 1 function)' \
-              '  branches....: 50.0% (2 of 4 branches)' \
-              '  conditions..: 50.0% (2 of 4 conditions)' ; do
-    grep -qF "$EXPECT" repeat.log
+for EXPECT in '  lines\.+: 100\.0% \(4 of 4 lines\)' \
+              '  functions\.+: 100\.0% \(1 of 1 function\)' \
+              '  branches\.+: 50\.0% \(2 of 4 branches\)' \
+              '  MC/DC\.+: 50\.0% \(2 of 4 conditions\)' ; do
+    grep -qE "$EXPECT" repeat.log
     if [ 0 != $? ] ; then
         echo "unexpected aggregate summary rate for the repeated testname:"
         echo "  expected '$EXPECT'"
@@ -278,7 +278,7 @@ for EXPECT in 'BRDA:3,0,0,5' 'BRDA:3,0,1,0' 'BRF:2' 'BRH:1' \
         fi
     fi
 done
-grep -q '  branches....: 50.0% (1 of 2 branches)' aliasm.log
+grep -qE '  branches\.+: 50\.0% \(1 of 2 branches\)' aliasm.log
 if [ 0 != $? ] ; then
     echo "unexpected branch count for the aliased-summary merge"
     cat aliasm.log
@@ -447,7 +447,7 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
-grep -q '  conditions..: no data found' aliasmf.log
+grep -qE '  MC/DC\.+: no data found' aliasmf.log
 if [ 0 != $? ] ; then
     echo "the aliased MC/DC summary still reports conditions after filtering"
     cat aliasmf.log
@@ -535,7 +535,7 @@ for EXPECT in 'MCDC:3,1,t,1,0,a' 'MCDC:3,1,f,0,0,a' \
         fi
     fi
 done
-grep -q '  conditions..: 50.0% (2 of 4 conditions)' mcdconly.log
+grep -qE '  MC/DC\.+: 50\.0% \(2 of 4 conditions\)' mcdconly.log
 if [ 0 != $? ] ; then
     echo "unexpected aggregate condition count for the MC/DC-only repeat"
     cat mcdconly.log
@@ -604,7 +604,7 @@ if [ 0 == $? ] ; then
         exit 1
     fi
 fi
-grep -q '  conditions..: no data found' shared1.log
+grep -qE '  MC/DC\.+: no data found' shared1.log
 if [ 0 != $? ] ; then
     echo "aliased: summary still reports conditions after filtering"
     cat shared1.log
@@ -642,7 +642,7 @@ if [ 0 == $? ] ; then
 fi
 # the summary is what this asserts:  if only the per-testcase maps were filtered
 #  the summary would still hold the MC/DC and report 2 conditions
-grep -q '  conditions..: no data found' shared2.log
+grep -qE '  MC/DC\.+: no data found' shared2.log
 if [ 0 != $? ] ; then
     echo "not aliased: summary still reports conditions after filtering"
     cat shared2.log
@@ -714,7 +714,7 @@ for pair in 'sharedb1.info 1' 'sharedb2.info 2' ; do
     done
     # The summary is the assertion that matters:  it must agree with the
     #  per-testcase data, not still carry line 6.
-    grep -q '  branches....: 50.0% (1 of 2 branches)' ${INF%.info}_br.log
+    grep -qE '  branches\.+: 50\.0% \(1 of 2 branches\)' ${INF%.info}_br.log
     if [ 0 != $? ] ; then
         echo "$INF: summary branch count disagrees with the filtered data"
         cat ${INF%.info}_br.log
@@ -1006,7 +1006,7 @@ fi
 # and the reported summaries agree with the filtered data, for both types:  the
 #  branch summary would still say '3 of 4' had the non-aliased summary been
 #  skipped as though it were aliased
-grep -q '  branches....: 50.0% (1 of 2 branches)' diverge.log
+grep -qE '  branches\.+: 50\.0% \(1 of 2 branches\)' diverge.log
 if [ 0 != $? ] ; then
     echo "divergent: branch summary disagrees with the filtered data"
     cat diverge.log
@@ -1014,7 +1014,7 @@ if [ 0 != $? ] ; then
         exit 1
     fi
 fi
-grep -q '  conditions..: no data found' diverge.log
+grep -qE '  MC/DC\.+: no data found' diverge.log
 if [ 0 != $? ] ; then
     echo "divergent: MC/DC summary still reports conditions after filtering"
     cat diverge.log
@@ -1150,7 +1150,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
         exit 1
     fi
 fi
-grep -q '  lines.......: 100.0% (4 of 4 lines)' alialine_reread.log
+grep -qE '  lines\.+: 100\.0% \(4 of 4 lines\)' alialine_reread.log
 if [ 0 != $? ] ; then
     echo "unexpected line count after filtering an aliased summary"
     cat alialine_reread.log
@@ -1188,7 +1188,7 @@ for EXPECT in foo excluded ; do
         fi
     fi
 done
-grep -q '  functions...: 100.0% (2 of 2 functions)' aliasfn.log
+grep -qE '  functions\.+: 100\.0% \(2 of 2 functions\)' aliasfn.log
 if [ 0 != $? ] ; then
     echo "unexpected function count after filtering an aliased summary"
     cat aliasfn.log
@@ -1317,7 +1317,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fi
 fi
 # the input has two 'DA:' records, so a third line means line 3 was fabricated
-grep -q '  lines.......: 100.0% (3 of 3 lines)' orphanmcdc.log
+grep -qE '  lines\.+: 100\.0% \(3 of 3 lines\)' orphanmcdc.log
 if [ 0 != $? ] ; then
     echo "the orphan MC/DC line coverpoint was not fabricated at all"
     cat orphanmcdc.log

@@ -27,7 +27,9 @@ if ! type ${CXX} >/dev/null 2>&1 ; then
         exit 2
 fi
 
-$COVER $GENHTML_TOOL $LCOV_OPTS -o relative relative.info --ignore source,source --synthesize --missed
+# 'empty' because this fixture is line data only, and both function coverage
+#  (the tests/lcovrc default) and '--branch' above ask for more than it has
+$COVER $GENHTML_TOOL $LCOV_OPTS -o relative relative.info --ignore source,source,empty,empty --synthesize --missed
 if [ 0 != $? ] ; then
     echo "Error:  unexpected error code from genhtml"
     if [ $KEEP_GOING == 0 ] ; then
@@ -62,6 +64,23 @@ for f in lib lib/other_class.dart.gcov.html lib/src lib/src/sample_class.dart.gc
     fi
 done
 
+# ..and a table is sorted only by the columns it has:  this data has neither
+#   function nor branch coverage, so no page has those columns, and a table
+#   sorted by one of them would be a page nothing leads to
+if [ ! -e relative/index-sort-l.html ] ; then
+    echo "Error: no table sorted by line coverage"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+for sort in f b ; do
+    if [ -n "`find relative -name index-sort-$sort.html`" ] ; then
+        echo "Error: a table sorted by a column it does not have: index-sort-$sort.html"
+        if [ $KEEP_GOING == 0 ] ; then
+            exit 1
+        fi
+    fi
+done
 
 echo "Tests passed"
 
