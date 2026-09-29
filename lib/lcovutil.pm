@@ -1542,7 +1542,7 @@ sub do_mangle_check
     }
     # Extra flag necessary on OS X so that symbols listed by gcov get demangled
     # properly.
-    push(@lcovutil::cpp_demangle, '--no-strip-underscores')
+    push(@lcovutil::cpp_demangle, '--no-strip-underscore')
         if ($^O eq "darwin");
 
     $lcovutil::demangle_cpp_cmd = '';
