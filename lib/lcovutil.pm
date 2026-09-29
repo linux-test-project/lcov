@@ -1065,6 +1065,12 @@ sub warn_handler($$)
 
 sub die_handler($)
 {
+    # this is both '$SIG{__DIE__}' and called directly - e.g., by
+    #   'ignorable_error'.  Perl before 5.42 did not call the hook for a die
+    #   from within the hook sub however that sub was entered; from 5.42 only
+    #   an actual hook call is protected, so a direct call would come back
+    #   here from its own 'die' and prefix (and log) the message twice
+    local $SIG{__DIE__};
     die(_msg_handler(@_, 2));
 }
 
@@ -1398,8 +1404,17 @@ sub save_profile($@)
         #   the same fields, in the same order, that 'uname -a' prints, and its
         #   nodename is what 'hostname' says.
         my @uname = POSIX::uname();
+        # not strftime's '%a %b':  perl sets the locale from the environment,
+        #   so those would be the day and month names of LC_TIME and a reader
+        #   of the profile would have to know the locale of the writer
+        my @now = localtime();
         $lcovutil::profileData{config}{date} =
-            POSIX::strftime('%a %b %d %H:%M:%S %Y', localtime());
+            sprintf(
+                 '%s %s %02d %02d:%02d:%02d %04d',
+                 (qw(Sun Mon Tue Wed Thu Fri Sat))[$now[6]],
+                 (qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec))[$now[4]],
+                 @now[3, 2, 1, 0],
+                 $now[5] + 1900);
         $lcovutil::profileData{config}{uname}    = join(' ', @uname);
         $lcovutil::profileData{config}{hostname} = $uname[1];
         my $save = $maxParallelism;
@@ -1533,17 +1548,18 @@ sub set_extensions
 sub do_mangle_check
 {
     return unless @lcovutil::cpp_demangle;
+    if (1 == scalar(@lcovutil::cpp_demangle) &&
+        '' eq $lcovutil::cpp_demangle[0]) {
+        # no demangler specified - use c++filt by default
+        $lcovutil::cpp_demangle[0] = 'c++filt';
 
-    if (1 == scalar(@lcovutil::cpp_demangle)) {
-        if ('' eq $lcovutil::cpp_demangle[0]) {
-            # no demangler specified - use c++filt by default
-            $lcovutil::cpp_demangle[0] = 'c++filt';
-        }
+        # Extra flag necessary on OS X so that symbols listed by gcov
+        # get demangled properly.
+        # Only append the flag if the user didn't use custom flags.
+        # If they did:  then user is responsible.
+        push(@lcovutil::cpp_demangle, '--no-strip-underscore')
+            if ($^O eq "darwin");
     }
-    # Extra flag necessary on OS X so that symbols listed by gcov get demangled
-    # properly.
-    push(@lcovutil::cpp_demangle, '--no-strip-underscore')
-        if ($^O eq "darwin");
 
     $lcovutil::demangle_cpp_cmd = '';
     foreach my $e (@lcovutil::cpp_demangle) {
