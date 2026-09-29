@@ -111,8 +111,17 @@ else:
 
 # whatever this build provides.  An empty LCOV_PURE_PERL is false to lcovutil,
 # so this leaves the choice to the build.
+# The profile is written with a non-English LC_TIME where the machine has one,
+#   so that the date check below sees whether the day and month names depend
+#   on the locale - they must not
+FOREIGN_LC_TIME=`locale -a 2>/dev/null | grep -i -m 1 -E '^(de_DE|fr_FR)'`
 PURE_PERL=
+if [ -n "$FOREIGN_LC_TIME" ] ; then
+        export LC_TIME=$FOREIGN_LC_TIME
+        unset LC_ALL
+fi
 check_xs "$EXPECT" prof_default.json
+unset LC_TIME
 
 # LCOV_PURE_PERL=1 forces the pure-Perl implementation, so the entry must read 0
 # regardless of whether the extension is available.
@@ -140,8 +149,9 @@ if c["uname"] != sys.argv[2]:
     print("uname is %r, expected %r" % (c["uname"], sys.argv[2]))
 elif c["hostname"] != sys.argv[3]:
     print("hostname is %r, expected %r" % (c["hostname"], sys.argv[3]))
-elif not re.match(r"^[A-Za-z]{3} [A-Za-z]{3} \d\d \d\d:\d\d:\d\d \d{4}$",
-                  c["date"]):
+elif not re.match(r"^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) "
+                  r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) "
+                  r"\d\d \d\d:\d\d:\d\d \d{4}$", c["date"]):
     print("date %r is not in the fixed format" % (c["date"],))
 else:
     print("ok")
