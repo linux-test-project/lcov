@@ -639,7 +639,7 @@ In general, (almost) all ``geninfo`` options can also be specified in your perso
 
     Use this option is you see errors related to memory allocation from gcov.
 
-    This feature is exactly as if you had moved the matching GCDA files to another location and processed them serially, then processed remaining GDCA files in parallel and merged the results.
+    This feature is exactly as if you had moved the matching GCDA files to another location and processed them serially, then processed remaining GCDA files in parallel and merged the results.
 
     Note that this is a memory-safety control, distinct from the latency-oriented *geninfo_dedicate_segment_size*: a *--large-file* match runs serially in the parent process, whereas a file that only exceeds *geninfo_dedicate_segment_size* is still forked (in its own dedicated child) and processed in parallel. A file matched by *--large-file* is never also given a dedicated child.
 
