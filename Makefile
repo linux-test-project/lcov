@@ -149,6 +149,7 @@ ifdef LCOV_NO_XS
 xs_lib:
 else
 XSDIR = $(CURDIR)/lib/LcovUtil
+XS_DLEXT = $(shell perl -MConfig -e 'print $$Config{dlext}')
 
 # Toolchain for the XS extension.  The C++ sources need a C++20-capable
 # compiler, but the default g++ on PATH is frequently older than that - notably
@@ -240,8 +241,8 @@ ifndef LCOV_NO_XS
 	$(INSTALL) -m 644 lib/LcovUtil/blib/lib/LcovUtil.pm \
 		$(LIB_INST_DIR)/LcovUtil/blib/lib/LcovUtil.pm
 	$(INSTALL) -d -m 755 $(LIB_INST_DIR)/LcovUtil/blib/arch/auto/LcovUtil
-	$(INSTALL) -m 755 lib/LcovUtil/blib/arch/auto/LcovUtil/LcovUtil.so \
-		$(LIB_INST_DIR)/LcovUtil/blib/arch/auto/LcovUtil/LcovUtil.so
+	$(INSTALL) -m 755 lib/LcovUtil/blib/arch/auto/LcovUtil/LcovUtil.$(XS_DLEXT) \
+		$(LIB_INST_DIR)/LcovUtil/blib/arch/auto/LcovUtil/LcovUtil.$(XS_DLEXT)
 endif
 
 
