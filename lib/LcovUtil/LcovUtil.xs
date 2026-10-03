@@ -32,16 +32,7 @@
  * read and reports ERROR_FORMAT.
  */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "EXTERN.h"
-#include "perl.h"
-#include "XSUB.h"
-#ifdef __cplusplus
-}
-#endif
-
+/* Include C++ headers before Perl defines macros such as do_open/do_close. */
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -54,6 +45,16 @@ extern "C" {
 #include "BranchData.hpp"
 #include "MCDCData.hpp"
 #include "BinarySerializer.hpp"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#ifdef __cplusplus
+}
+#endif
 
 /* -------------------------------------------------------------------------
  * MapData
