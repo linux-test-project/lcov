@@ -123,7 +123,7 @@ that at least one line contained within the function *is* executed:  an
 inconsistency.
 The JaCoCo data may or may not be correct - you will need to verify.
 If the error is bogus, then you can either suppress the message (via
- ``--ignore-errors inconsistent``) or exclude the line or method.
+``--ignore-errors inconsistent``) or exclude the line or method.
 Note that an uncalled lambda will not generate this error:
 |ToolName| knows that the first line
 of a lambda belongs to its enclosing method as well.
