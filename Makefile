@@ -66,7 +66,7 @@ SCRIPT_INST_DIR := $(SHARE_INST_DIR)/support-scripts
 TMP_DIR := $(shell mktemp -d)
 FILES   := README.rst Makefile lcovrc \
 	   $(wildcard bin/*) $(wildcard example/*) $(wildcard lib/*) \
-	   $(wildcard docs/man/*) $(wildcard docs/*.rst) docs/conf.py \
+	   doc $(wildcard docs/man/*) $(wildcard docs/*.rst) docs/conf.py \
 	   $(wildcard rpm/*) $(wildcard scripts/*)
 DIST_CONTENT := CONTRIBUTING COPYING README.rst Makefile lcovrc \
 	bin example lib docs rpm scripts tests
@@ -295,6 +295,7 @@ lcov-$(VERSION).tar.gz: $(FILES)
 	       $(patsubst %,lib/%,$(LIBS))               \
 	       README.rst rpm/lcov.spec
 	./bin/get_changes.sh > $(TMP_DIR)/lcov-$(VERSION)/CHANGES || true
+	touch $(TMP_DIR)/lcov-$(VERSION)/doc
 	cd $(TMP_DIR) ; \
 	tar cfz $(TMP_DIR)/lcov-$(VERSION).tar.gz lcov-$(VERSION) \
 	    --owner root --group root
