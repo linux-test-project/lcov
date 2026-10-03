@@ -99,12 +99,13 @@ else
 .SILENT:
 endif
 
-.PHONY: all info clean install uninstall rpms test
+.PHONY: all info clean install uninstall rpms test build
 
 all: info
 
 info:
 	@echo "Available make targets:"
+	@echo "  build     : build all artifacts needed for installation"
 	@echo "  install   : install binaries and man pages in DESTDIR (default /)"
 	@echo "  uninstall : delete binaries and man pages from DESTDIR (default /)"
 	@echo "  dist      : create packages (RPM, tarball) ready for distribution"
@@ -170,7 +171,9 @@ xs_lib: $(XSDIR)/*.hpp $(XSDIR)/*.cpp $(XSDIR)/LcovUtil.xs $(XSDIR)/Makefile.PL
 	touch $@
 endif
 
-install: doc xs_lib
+build: doc xs_lib
+
+install: build
 	$(INSTALL) -d -m 755 $(BIN_INST_DIR)
 	for b in $(EXES) ; do                                    \
 		$(call echocmd,"  INSTALL $(BIN_INST_DIR)/$$b")  \
