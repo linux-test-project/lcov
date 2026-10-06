@@ -761,7 +761,7 @@ fi
 
 # test filename containing spaces
 rm -rf ./mytest
-mkdir -pv ./mytest
+mkdir -p ./mytest
 echo "int main(){}" > './mytest/main space.cpp'
 ( cd ./mytest ; ${CXX} -c  'main space.cpp' --coverage )
 
