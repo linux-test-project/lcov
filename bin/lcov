@@ -136,6 +136,7 @@ sub setup_gkv();
 sub lcov_geninfo(@);
 sub create_package($$$;$);
 sub summary();
+sub count_data_cb($$$);
 
 # Global variables & initialization
 
@@ -1040,6 +1041,22 @@ sub read_file($)
 }
 
 #
+# count_data_cb(dir, relative_name, count_ref)
+#
+# Count the data files found while searching an unpacked package.  Returns
+# undefined:  a defined value would stop 'lcov_find' at the first match.
+#
+
+sub count_data_cb($$$)
+{
+    my ($dir, $rel, $count_ref) = @_;
+
+    $$count_ref++;
+
+    return;
+}
+
+#
 # get_package(package_file)
 #
 # Unpack unprocessed coverage data files from package_file to a temporary
@@ -1060,16 +1077,16 @@ sub get_package($)
     info("Reading package $file:\n");
     $file = abs_path($file);
     chdir($dir);
-    open(HANDLE, "-|", "tar xvfz " . quotemeta($file) . " 2>$lcovutil::devnull")
+    # Extract quietly:  the format of the verbose listing depends on which
+    #   tar implementation is installed (GNU tar prints just the path, while
+    #   bsdtar appends the file size to each line), so the data files are
+    #   counted in the expanded directory rather than from the tar listing.
+    open(HANDLE, "-|", "tar xfz " . quotemeta($file) . " 2>$lcovutil::devnull")
         or
         die("could not process package $file: $!\n");
-    $count = 0;
-    while (<HANDLE>) {
-        if (/\.da$/ || /\.gcda$/) {
-            $count++;
-        }
-    }
     close(HANDLE);
+    $count = 0;
+    lcov_find($dir, \&count_data_cb, \$count, '\.gcda$', '\.da$');
     if ($count == 0) {
         die("no data file found in package $file\n");
     }
@@ -1126,7 +1143,8 @@ sub count_package_data($)
 
     open(HANDLE, "-|", "tar tfz " . quotemeta($filename)) or return undef;
     while (<HANDLE>) {
-        if (/\.da$/ || /\.gcda$/) {
+        # tolerate 'bsdtar', which appends the file size to each listing line
+        if (/\.(?:gcda|da)(?:\s|\z)/) {
             $count++;
         }
     }

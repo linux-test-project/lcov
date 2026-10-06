@@ -184,6 +184,7 @@ These perl packages include:
 - Devel::StackTrace
 - Digest::MD5
 - File::Spec
+- GD
 - at least one flavor of JSON module. In order of performance/preference:
 
   - JSON::XS
@@ -213,13 +214,23 @@ To execute ``make install ...`` or ``make doc``, you will need:
 Some of the applications provided with the lcov module are written
 in Python - and may require additional Python packages.
 In particular, 'xlsxwriter' is required in order to generate any
-of the spreadsheet reports, and 'xml' and 'zipfile' are required in
+of the spreadsheet reports, and Python packages 'xml' and 'zipfile' are
+required in
 order to be able to run regression tests.
 
 To measure Python code coverage, users will need Python packages:
 
 - Coverage.py
-  
+
+Certain tests use additional tools:
+
+- ``jq`` - the command-line json parser - is required by some tests.
+  ``make check`` fail if it is not found.
+- ``py2lcov`` tests use Coverage.py; these tests will be skipped if
+  the tool is not found in your environment.
+- some LLVM-related tests (*e.g.*, the ``llvm2lcov`` tests) require
+  ``clang`` and/or ``clang++``.  If these are not present in your
+  environment, then the LLVM-related tests are skipped.
 
 In addition, contributors will need:
 

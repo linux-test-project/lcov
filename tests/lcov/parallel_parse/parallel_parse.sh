@@ -372,7 +372,7 @@ fi
 # 9. truncated final section:  the same format error as a serial read, with
 #    the same line numbers
 #-----------------------------------------------------------------------
-head -n -1 multi.info > trunc.info
+sed '$ d' multi.info > trunc.info
 run_pair trunc trunc.info --ignore-errors corrupt,format
 for f in trunc_serial.log trunc_split.log ; do
     if ! grep -E "unexpected end of file: missing 'end_of_record'" $f \

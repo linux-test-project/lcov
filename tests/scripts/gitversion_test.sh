@@ -352,7 +352,8 @@ rm -f "$TF15"
 #   Branch: MD5 set, old !~ /^SHA/, !P4, old =~ / md5:/, new =~ / md5:/ -> compare md5s
 # ---------------------------------------------------------------------------
 TF16=$(mktemp) ; echo "x" > "$TF16"
-MD5_16=$(md5sum "$TF16" | awk '{print $1}')
+
+MD5_16=$(compute_md5_hex "$TF16" | awk '{print $1}')
 $GITVERSION --md5 --compare \
     "2024-01-01T00:00:00+00:00 md5:${MD5_16}" \
     "2024-01-01T00:00:00+00:00 md5:${MD5_16}" \
@@ -366,7 +367,7 @@ rm -f "$TF16"
 # Test 17: --compare --md5, both versions carry different md5 -> exit 1
 # ---------------------------------------------------------------------------
 TF17=$(mktemp) ; echo "x" > "$TF17"
-MD5_17=$(md5sum "$TF17" | awk '{print $1}')
+MD5_17=$(compute_md5_hex "$TF17" | awk '{print $1}')
 $GITVERSION --md5 --compare \
     "2024-01-01T00:00:00+00:00 md5:${MD5_17}" \
     "2024-01-01T00:00:00+00:00 md5:DIFFERENTHASH" \
@@ -381,7 +382,7 @@ rm -f "$TF17"
 #   exact string match -> exit 1 (strings differ)
 # ---------------------------------------------------------------------------
 TF18=$(mktemp) ; echo "x" > "$TF18"
-MD5_18=$(md5sum "$TF18" | awk '{print $1}')
+MD5_18=$(compute_md5_hex "$TF18" | awk '{print $1}')
 $GITVERSION --md5 --compare \
     "2024-01-01T00:00:00+00:00 md5:${MD5_18}" \
     "2024-01-01T00:00:00+00:00" \
@@ -397,7 +398,7 @@ rm -f "$TF18"
 #   -> overall (old !~ /^CL/) part causes the whole MD5 block to be skipped.
 # ---------------------------------------------------------------------------
 TF19=$(mktemp) ; echo "x" > "$TF19"
-MD5_19=$(md5sum "$TF19" | awk '{print $1}')
+MD5_19=$(compute_md5_hex "$TF19" | awk '{print $1}')
 # Same CL number -> exact match -> exit 0
 $GITVERSION --md5 --p4 --compare \
     "CL 12345 md5:${MD5_19}" \

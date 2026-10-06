@@ -181,7 +181,13 @@ if [ 0 != $? ] ; then
 fi
 
 # exclude some un-covered standard includes
-EXCLUDE='--exclude */include/c++/* --exclude */include/g++-v* --ignore unused'
+# Depending on platform, the compiler's private headers live under
+# '/usr/include/c++/N' (Linux), '/usr/include/g++/bits' or
+# '/usr/pkg/include/gcc/N' - exclude every spelling, tolerating the unused
+# ones.
+EXCLUDE='--exclude */include/c++/* --exclude */include/g++-v*
+        --exclude */include/g++/* --exclude */include/gcc/*
+        --exclude */include/gcc[0-9]*/* --ignore unused'
 
 # callback tests
 echo $COVER $CAPTURE . $LCOV_OPTS -o callback.info $FILTER $IGNORE --criteria $SCRIPT_DIR/threshold.pm,--line,90,--branch,65,--function,100 $EXCLUDE

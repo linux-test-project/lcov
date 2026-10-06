@@ -183,7 +183,7 @@ elif [ -s genpng2.log ] ; then
 else
     dump hand.png > hand.dump
     # nine source lines, and no row for either of the two metadata lines
-    ROWS=`wc -l < hand.dump`
+    ROWS=`count_lines hand.dump`
     if [ "$ROWS" != 9 ] ; then
         fail "Test 2 layout: expected 9 rows, got $ROWS: `cat hand.dump`"
     else
@@ -230,7 +230,7 @@ if [ 0 != ${PIPESTATUS[0]} ] ; then
     fail "Test 3 plain text: genpng failed"
 else
     dump plain.png > plain.dump
-    if [ "`wc -l < plain.dump`" != 3 ] ; then
+    if [ "`count_lines plain.dump`" != 3 ] ; then
         fail "Test 3 plain text: expected 3 rows: `cat plain.dump`"
     elif [ "`grep -c \" $PLAIN \" plain.dump`" != 3 ] ; then
         fail "Test 3 plain text: not every row is plain: `cat plain.dump`"

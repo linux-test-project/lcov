@@ -33,6 +33,8 @@ if [[ "x" == "${LCOV_HOME}x" ]] ; then
 fi
 source ../common.tst
 
+rm -f p4annotate_*.c p4annotate_*.pl
+
 if [ -z "$SCRIPT_DIR" ] ; then
     echo "SCRIPT_DIR not set" >&2
     exit 1
@@ -119,8 +121,16 @@ export PATH="$MOCKDIR:$PATH"
 
 # Create a temp source file; printf-style content string is the first argument
 mk_target() {
-    local f
-    f=$(mktemp --suffix=.c)
+    local i=1 f
+    # This function is always called via $(mk_target ...), so an index
+    # variable incremented here would die with the subshell and every
+    # caller would keep getting the same name (which let Devel::Cover's
+    # changed-file check fire on the reused name).  Pick the first free
+    # name by scanning what is already on disk instead.
+    while [ -e "p4annotate_${i}.c" ] ; do
+        i=$(( i + 1 ))
+    done
+    f="p4annotate_${i}.c"
     printf "${1:-line one\nline two\nline three\n}" > "$f"
     echo "$f"
 }
@@ -133,6 +143,8 @@ mk_diff()     { local f ; f=$(mktemp) ; cat > "$f" ; echo "$f" ; }
 run_p4annotate() {
     OUTPUT=$($P4ANNOTATE "$@" 2>&1)
     RC=$?
+    # Strip possible Devel::Cover status lines (not all are gated by -silent).
+    OUTPUT=$(sed '/^Devel::Cover:/d' <<<"$OUTPUT")
 }
 
 # ---------------------------------------------------------------------------
@@ -401,7 +413,7 @@ fi
 # ---------------------------------------------------------------------------
 # Test 15: Path normalisation logic from annotate_callback resolves symlink
 # ---------------------------------------------------------------------------
-NORM_SCRIPT=$(mktemp --suffix=.pl)
+NORM_SCRIPT="p4annotate_15.pl"
 cat > "$NORM_SCRIPT" << 'NORMPL'
 use File::Spec;
 use File::Basename qw(dirname);
@@ -433,7 +445,7 @@ fi
 # ---------------------------------------------------------------------------
 # Test 16: Path normalisation handles .. components in symlink target
 # ---------------------------------------------------------------------------
-NORM_SCRIPT=$(mktemp --suffix=.pl)
+NORM_SCRIPT="p4annotate_16.pl"
 cat > "$NORM_SCRIPT" << 'NORMPL'
 use File::Spec;
 use File::Basename qw(dirname);
@@ -487,7 +499,8 @@ SYMLINK_TESTDIR=""
 # ===========================================================================
 # Tests 18-34: End-to-end annotation output  (from annotate_check.sh)
 # ===========================================================================
-
+# mk_target() numbers its files by scanning the directory, starting again
+# at p4annotate_1.c since the startup cleanup removed any leftovers.
 # ---------------------------------------------------------------------------
 # Test 18: File not in p4 -> not_in_repo fallback -> NONE annotation
 # ---------------------------------------------------------------------------
@@ -1100,7 +1113,7 @@ fi
 # Test 35: normalize_path returns original for non-existent path (no symlink
 #          resolution attempted when -e is false)
 # ---------------------------------------------------------------------------
-NORM_SCRIPT=$(mktemp --suffix=.pl)
+NORM_SCRIPT="p4annotate_35.pl"
 cat > "$NORM_SCRIPT" << 'NORMPL'
 use File::Spec;
 use File::Basename qw(dirname);

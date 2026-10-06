@@ -70,6 +70,16 @@ if [[ "x" == "${LCOV_HOME}x" ]] ; then
 fi
 source ../common.tst
 
+# Remove any helper scripts a killed or failing run left behind.  The
+# p4v_test_*.pl files are written into this directory; a run which dies
+# (fail(), a timeout, Ctrl-C) exits before its 'rm -f "$PL"', and a stale
+# copy under a name the Devel::Cover database still knows re-hashes to a
+# different digest, which makes Devel::Cover print
+#   'Devel::Cover: Deleting old coverage for changed file ...'
+# on stderr - not suppressed by -silent, and it would pollute the captured
+# output of the exact-match tests.
+rm -f p4v_test_*.sh p4v_test_*.pl
+
 if [ -z "$SCRIPT_DIR" ] ; then
     echo "SCRIPT_DIR not set" >&2
     exit 1
@@ -100,7 +110,7 @@ fail() { echo "FAIL: $1" ; ((FAIL++)) ; if [ "$KEEP_GOING" != 1 ] ; then exit 1 
 # ---------------------------------------------------------------------------
 MOCKDIR=$(mktemp -d)
 WORKSPACE=$(mktemp -d)
-trap 'rm -rf "$MOCKDIR" "$WORKSPACE"' EXIT
+trap 'rm -rf "$MOCKDIR" "$WORKSPACE"; rm -f p4v_test_*.pl' EXIT
 
 # The fake p4 script handles both getp4version and P4version.pm invocations.
 # For getp4version: uses P4V_NO_SUCH, P4V_HAVE_OUT, P4V_OPENED_OUT
@@ -153,16 +163,20 @@ TF1="$WORKSPACE/foo.c"
 TF2="$WORKSPACE/bar.c"
 echo "int main(){}" > "$TF1"
 echo "// bar" > "$TF2"
-MD5_TF1=$(md5sum "$TF1" | awk '{print $1}')
+MD5_TF1=$(compute_md5_hex "$TF1" | awk '{print $1}')
 
 export P4V_WORKSPACE="$WORKSPACE"
 
 # ---------------------------------------------------------------------------
 # Helper: run getp4version, capture OUTPUT and RC
 # ---------------------------------------------------------------------------
+# Devel::Cover status lines can leak into the captured output even with
+# -silent (its 'Deleting old coverage for changed file' message is printed
+# unconditionally), so they must not reach the exact-match comparisons.
 run_getp4version() {
     OUTPUT=$($GETP4VERSION "$@" 2>&1)
     RC=$?
+    OUTPUT=$(sed '/^Devel::Cover:/d' <<<"$OUTPUT")
 }
 
 # ---------------------------------------------------------------------------
@@ -172,6 +186,7 @@ run_p4version_pl() {
     local pl_file="$1"; shift
     OUTPUT=$($PERL -I"$SCRIPT_DIR" -I"$LCOV_LIB" "$pl_file" "$@" 2>&1)
     RC=$?
+    OUTPUT=$(sed '/^Devel::Cover:/d' <<<"$OUTPUT")
 }
 
 # ===========================================================================
@@ -391,7 +406,8 @@ fi
 # ---------------------------------------------------------------------------
 # Test 20: new() bad option -> undef (script ne $0 so returns undef not exit)
 # ---------------------------------------------------------------------------
-PL=$(mktemp --suffix=.pl)
+TESTIDX=20
+PL="p4v_test_${TESTIDX}.pl"
 cat > "$PL" << 'PLEOF'
 use P4version;
 # Pass a fake script name different from $0 so new() returns undef instead of exiting
@@ -409,7 +425,7 @@ rm -f "$PL"
 # ---------------------------------------------------------------------------
 # Test 21: new() --help -> undef
 # ---------------------------------------------------------------------------
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << 'PLEOF'
 use P4version;
 my $obj = P4version->new('/fake/caller', '--help');
@@ -426,7 +442,7 @@ rm -f "$PL"
 # ---------------------------------------------------------------------------
 # Test 22: new() depot arg not a directory -> dies
 # ---------------------------------------------------------------------------
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << 'PLEOF'
 use P4version;
 eval { P4version->new('/fake/caller', '/nonexistent/depot/path'); };
@@ -447,7 +463,7 @@ unset P4V_HAVE_LINES P4V_WHERE_LINE P4V_OPENED_LINES P4V_NO_SUCH
 export P4V_HAVE_LINES=""   # empty -> no filehash entries
 export P4V_SUBCOMMAND_EXIT=0
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my \$file = \$ARGV[0];
@@ -473,7 +489,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES=""
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -497,7 +513,7 @@ export P4V_HAVE_LINES="//depot/bar.c#5 - $TF2"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES=""
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -523,7 +539,7 @@ export P4V_HAVE_LINES="//depot/bar.c#5 - $TF2"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES=""
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file, \$md5) = @ARGV;
@@ -549,7 +565,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/foo.c#3 - edit default change (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot) = @ARGV;
@@ -571,7 +587,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/foo.c#3 - edit default change (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -597,7 +613,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/foo.c#3 - integrate change 42 (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -624,7 +640,7 @@ export P4V_HAVE_LINES="//depot/bar.c#5 - $TF2"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/foo.c#1 - add default change (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -652,7 +668,7 @@ export P4V_HAVE_LINES="//depot/bar.c#5 - $TF2"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/gone.c#3 - delete default change (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -678,7 +694,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/foo.c#3 - edit default change (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file, \$md5) = @ARGV;
@@ -704,7 +720,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES=""
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$missing) = @ARGV;
@@ -726,7 +742,7 @@ rm -f "$PL"
 # ---------------------------------------------------------------------------
 # Test 34: extract_version without --allow-missing, missing file -> dies
 # ---------------------------------------------------------------------------
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$missing) = @ARGV;
@@ -752,7 +768,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES=""
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$prefix) = @ARGV;
@@ -773,7 +789,7 @@ rm -f "$PL"
 # ---------------------------------------------------------------------------
 # Test 36: compare_version same strings -> 0 (false)
 # ---------------------------------------------------------------------------
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -795,7 +811,7 @@ rm -f "$PL"
 # ---------------------------------------------------------------------------
 # Test 37: compare_version different strings -> 1 (true)
 # ---------------------------------------------------------------------------
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -818,7 +834,7 @@ export P4V_SUBCOMMAND_EXIT=1   # make all p4 sub-commands exit 1 (have fails)
 unset P4V_HAVE_LINES
 export P4V_HAVE_LINES=""       # empty output + bad exit -> close fails, empty hash
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use lcovutil;
 lcovutil::parse_ignore_errors("usage");
@@ -860,7 +876,7 @@ export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES="//depot/foo.c#3 - delete default change (text)"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use P4version;
 my (\$depot, \$file) = @ARGV;
@@ -885,6 +901,7 @@ rm -f "$PL"
 #   reached p4 as two arguments;  p4 answered 'no such file' and the file was
 #   reported by modification time as if it were not in perforce at all.
 # ===========================================================================
+TESTIDX=$(( TESTIDX + 1 ))
 TF40="$WORKSPACE/has space.c"
 echo "int spaced(){}" > "$TF40"
 unset P4V_NO_SUCH P4V_OPENED_OUT P4V_SUBCOMMAND_EXIT
@@ -909,7 +926,7 @@ export P4V_HAVE_LINES="//depot/foo.c - no revision here"
 export P4V_WHERE_LINE="//depot/... //ws/... $WORKSPACE/..."
 export P4V_OPENED_LINES=""
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << 'PLEOF'
 use P4version;
 my ($depot) = @ARGV;
@@ -930,7 +947,7 @@ rm -f "$PL"
 export P4V_HAVE_LINES="//depot/foo.c#3 - $TF1"
 export P4V_OPENED_LINES="//depot/foo.c - opened somehow"
 
-PL=$(mktemp --suffix=.pl)
+PL="p4v_test_$(( ++TESTIDX )).pl"
 cat > "$PL" << 'PLEOF'
 use P4version;
 my ($depot) = @ARGV;
