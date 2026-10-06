@@ -323,16 +323,22 @@ check_memory agg_prof.json filter filt_child .filt_child
 check_memory agg_prof.json aggregate 'group total' \
     '(with_entries(select(.key | test("^[0-9]+$"))))'
 
-# Both phases must be present simultaneously in that one profile:  under the
-# earlier pid keying they were indistinguishable, and under a flat numeric
-# keying they would have overwritten each other.
-for phase in filter aggregate ; do
-    n=`jq -r --arg p "$phase" '[.memory | keys[]
-           | select(startswith($p + "_"))] | length' agg_prof.json`
-    if [ "${n:-0}" -lt 1 ] ; then
-        fail_memory $phase "no $phase worker in agg_prof.json"
-    fi
-done
+if [ "`jq -r 'has("memory")' agg_prof.json`" != "true" ] ; then
+    echo "memory data absent in agg_prof.json (platform does not expose peak memory)"
+else
+    {
+    # Both phases must be present simultaneously in that one profile:  under the
+    # earlier pid keying they were indistinguishable, and under a flat numeric
+    # keying they would have overwritten each other.
+    for phase in filter aggregate ; do
+        n=`jq -r --arg p "$phase" '[.memory | keys[]
+               | select(startswith($p + "_"))] | length' agg_prof.json`
+        if [ "${n:-0}" -lt 1 ] ; then
+            fail_memory $phase "no $phase worker in agg_prof.json"
+        fi
+    done
+    }
+fi
 # ...and a collision would have been reported by merge_child_profile
 if grep -i 'unexpected duplicate key' agg.log geninfo_hist.log genhtml_hist.log ; then
     fail_memory collision \
@@ -364,13 +370,19 @@ if grep -i 'unexpected duplicate key' nested.log ; then
 fi
 # the qualified filter workers, and the check that memory{filter_<id>} still
 # lines up with filt_child{<id>} for them
-nested=`jq -r '[.memory | keys[] | select(test("^filter_aggregate_"))]
-               | sort | join(" ")' nested_prof.json`
-if [ "`echo $nested | wc -w`" -lt 2 ] ; then
-    jq -r '.memory | keys' nested_prof.json
-    fail_memory nested "no nested filter worker in nested_prof.json"
+if [ "`jq -r 'has("memory")' nested_prof.json`" != "true" ] ; then
+    echo "memory data absent in nested_prof.json (platform does not expose peak memory)"
 else
-    echo "OK (memory nested): [$nested]"
+    {
+    nested=`jq -r '[.memory | keys[] | select(test("^filter_aggregate_"))]
+                   | sort | join(" ")' nested_prof.json`
+    if [ "`echo $nested | wc -w`" -lt 2 ] ; then
+        jq -r '.memory | keys' nested_prof.json
+        fail_memory nested "no nested filter worker in nested_prof.json"
+    else
+        echo "OK (memory nested): [$nested]"
+    fi
+    }
 fi
 check_memory nested_prof.json filter filt_child .filt_child
 

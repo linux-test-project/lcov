@@ -8,6 +8,46 @@ PROFILE="--profile"
 LOCAL_COVERAGE=1
 KEEP_GOING=0
 
+# ---------------------------------------------------------------------------
+# Portable helpers
+# ---------------------------------------------------------------------------
+
+# BSD 'wc -l' left-pads its output, so a literal string comparison against an
+# expected count fails even when the counts are numerically equal.  Always
+# compare '$(count_lines FILE)' - awk prints a clean number everywhere.
+# BSD/macOS has 'md5' (stdout) but not the GNU 'md5sum' that was forked in
+# legacy scripts; compute the identical lowercase hex digest in-process using
+# perl Digest::MD5 so tests agree with the tools on every platform.
+compute_md5_hex()
+{
+    perl -MDigest::MD5 -e '
+        $SIG{PIPE} = q{IGNORE};
+        my $name = @ARGV && $ARGV[0] ne q{-} ? $ARGV[0] : q{-};
+        binmode STDIN;
+        my $self = Digest::MD5->new;
+        $self->add(do { local $/; my $fh = $name eq q{-} ? *STDIN : do { open my $h, q{<}, $name or die qq{md5: $name: $!}; $h }; <$fh> });
+        print $self->hexdigest, chr(10);
+    ' "$@"
+}
+
+count_lines()
+{
+    awk 'END { print NR }' "$@"
+}
+
+# Prints the best way to invoke the python Coverage.py module - empty when
+# the package isn't installed (callers should then SKIP, not fail).
+find_python_coverage()
+{
+    if command -v coverage >/dev/null 2> /dev/null ; then
+        echo "coverage"
+    elif command -v python3-coverage >/dev/null 2> /dev/null ; then
+        echo "python3-coverage"
+    elif python3 -m coverage --version >/dev/null 2> /dev/null ; then
+        echo "python3 -m coverage"
+    fi
+}
+
 #echo "CMD:  $0 $@"
 
 while [ $# -gt 0 ] ; do
@@ -68,14 +108,20 @@ while [ $# -gt 0 ] ; do
                     CMD='python3-coverage' # ubuntu?
                 fi
             fi
-            which $CMD
-            if [ 0 != $? ] ; then
-                echo "cannot find 'coverage' or 'python3-coverage'"
-                echo "unable to run py2lcov - please install python Coverage.py package"
-                exit 1
+            if ! command -v "$CMD" > /dev/null 2> /dev/null ; then
+                if [ "python3 -m coverage" != "$CMD" ] &&
+                   ! python3 -m coverage --version >/dev/null 2> /dev/null ; then
+                    # Not a bug in the tools - run without coverage
+                    #   instrumentation (see runtests.py: a missing Coverage.py
+                    #   also counts as a platform skip there).
+                    echo "python Coverage.py package not installed - running without runtime instrumentation"
+                    CMD=''
+                fi
             fi
 
-            PYCOVER="COVERAGE_FILE=$PYCOV_DB $CMD run --branch --append"
+            if [ '' != "$CMD" ] ; then
+                PYCOVER="COVERAGE_FILE=$PYCOV_DB $CMD run --branch --append"
+            fi
             ;;
 
         --home | -home )
@@ -266,7 +312,7 @@ function check_tla_css()
     local rc=0
     local class
     for class in `find $dir -name '*.html' -print0 |
-                  xargs -0 --no-run-if-empty grep -h -o -E 'class="[^"]+"' |
+                  xargs -0 -r grep -h -o -E 'class="[^"]+"' |
                   sed -e 's/class="//' -e 's/"$//' | tr ' ' '\n' |
                   grep -E '^tla(Bg)?[A-Z]' | sort -u` ; do
         if ! grep -E -q "(^|[[:space:]])(td|span|a)\.$class([^A-Za-z0-9]|\$)" \

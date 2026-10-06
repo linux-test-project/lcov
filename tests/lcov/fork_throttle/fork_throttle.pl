@@ -28,6 +28,22 @@ use lcovutil;
 
 lcovutil::parseOptions({}, {});
 
+# The throttle's whole subject is a memory governor:  it learns a byte-per-
+#   unit rate from a child's peak RSS, which is only measurable where the OS
+#   reports one - the same fact which makes lcovutil emit no per-job
+#   'memory' profile data at all on platforms which don't expose it (their
+#   read_proc_peak_memory returns zeroes).  Without that signal every check
+#   below is moot - and worse, the 'learnedBytes / learnedWeight' rate
+#   divides by a never-learned weight, which is the crash this guard exists
+#   to prevent - so skip rather than fail.
+{
+    my ($rss, $vsize) = lcovutil::read_proc_peak_memory();
+    if (!$rss && !$vsize) {
+        print("skipped: platform does not report peak memory\n");
+        exit(0);
+    }
+}
+
 my $tempdir = 'fork_throttle.tmp';
 rmtree($tempdir) if -d $tempdir;
 mkdir($tempdir) or die("cannot create $tempdir: $!");

@@ -430,8 +430,8 @@ for mode in plain nav ; do
     done
     # the source text has no brackets in it, so every '[' in the page opened a
     #   coverpoint group and every ']' closed one
-    OPEN=`grep -o '\[' $PAGE | wc -l`
-    CLOSE=`grep -o '\]' $PAGE | wc -l`
+    OPEN=`grep -o '\[' $PAGE | grep -c ''`
+    CLOSE=`grep -o '\]' $PAGE | grep -c ''`
     if [ "$OPEN" != "$CLOSE" ] ; then
         fail unreach_$mode "$OPEN '[' but $CLOSE ']' in the source page"
     fi
@@ -448,7 +448,7 @@ for mode in plain nav ; do
     #   matches and not lines - and the page is found first, because backticks
     #   inside backticks do not nest
     PAGE=`find html_$mode -name 't.c.gcov.html'`
-    COUNT=`grep -o -F -e 'tlaEUC' $PAGE | wc -l`
+    COUNT=`grep -o -F -e 'tlaEUC' $PAGE | grep -c ''`
     eval "COUNT_$mode=$COUNT"
 done
 if [ "$COUNT_plain" != "$COUNT_nav" ] ; then
@@ -817,7 +817,7 @@ for mode in nfb nfb_off nfb_noann nfb_olderbase ; do
     # the MC/DC coverpoints are on the page at all:  four markers on line 5,
     #   which are dropped entirely if the categorizer walks only the baseline.
     #   All four are on one line, so this counts matches and not lines
-    COUNT=`grep -o -F -e 'class="mcdcTla"' $PAGE | wc -l`
+    COUNT=`grep -o -F -e 'class="mcdcTla"' $PAGE | grep -c ''`
     if [ 4 != "$COUNT" ] ; then
         fail $mode "expected 4 MC/DC markers in the $mode page, found $COUNT"
     fi

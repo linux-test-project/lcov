@@ -42,6 +42,9 @@ if [[ "x" == "${LCOV_HOME}x" ]] ; then
 fi
 source ../common.tst
 
+# cleanup: fixed-name inputs from previous runs
+rm -f gitblame_*.c gitblame_*.pl
+
 if [ -z "$SCRIPT_DIR" ] ; then
     echo "SCRIPT_DIR not set" >&2
     exit 1
@@ -517,7 +520,7 @@ rm -rf "$REPO17"
 #      with annotation data which differs in a token instead.  Three lines, two
 #      of which differ only in whitespace and must stay silent, so the count is
 #      asserted and not just the presence of the message.
-TMP19=$(mktemp --suffix=.c)
+TMP19="gitblame_19.c"
 printf 'int  main( )  {\n\treturn 0;   \n}\n' > "$TMP19"
 OUTPUT=$($PERL -I"$LCOV_LIB" -I"$SCRIPT_DIR" -e \
     'use lcovutil; use annotateutil;
@@ -679,7 +682,7 @@ fi
 #   file is not in a git repo at all - so it is annotated from the filesystem,
 #   and the pattern would never have been reached.
 # -----------------------------------------------------------------------
-TMP23=$(mktemp --suffix=.c)
+TMP23="gitblame_23.c"
 printf 'no repo here\n' > "$TMP23"
 OUTPUT=$($GITBLAME --abbrev 's/[/' "$TMP23" 2>&1)
 RC=$?

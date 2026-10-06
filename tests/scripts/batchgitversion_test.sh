@@ -55,6 +55,8 @@ if [[ "x" == "${LCOV_HOME}x" ]] ; then
 fi
 source ../common.tst
 
+rm -f batch_git_*.pl
+
 if [ -z "$SCRIPT_DIR" ] ; then
     echo "SCRIPT_DIR not set" >&2
     exit 1
@@ -107,6 +109,10 @@ run_pl() {
     local pl_file="$1"; shift
     OUTPUT=$($PERL -I"$SCRIPT_DIR" "$pl_file" "$@" 2>&1)
     RC=$?
+    # Devel::Cover status lines can leak into the captured output even with
+    # -silent (its 'Deleting old coverage for changed file' message is
+    # printed unconditionally), so they must not reach the comparisons.
+    OUTPUT=$(sed '/^Devel::Cover:/d' <<<"$OUTPUT")
 }
 
 # ---------------------------------------------------------------------------
@@ -136,7 +142,7 @@ ENDSCRIPT
 # ===========================================================================
 read -r REPODIR FOO_SHA <<< "$(make_repo)"
 MD5_FOO=$(md5sum "$REPODIR/foo.c" | awk '{print $1}')
-trap 'rm -rf "$REPODIR"' EXIT
+trap 'rm -rf "$REPODIR"; rm -f batch_git_*.pl' EXIT
 
 # ===========================================================================
 # Tests 1-2: standalone invocation via call_get_version
@@ -179,7 +185,8 @@ fi
 # ===========================================================================
 
 # Test 4: bad option to new() returns undef
-PL=$(mktemp --suffix=.pl)
+TESTIDX=4
+PL="batch_git_${TESTIDX}.pl"
 cat > "$PL" << 'PLEOF'
 use batchGitVersion;
 my $obj = batchGitVersion->new('/fake/script', '--bad-option');
@@ -194,7 +201,7 @@ fi
 rm -f "$PL"
 
 # Test 5: --help to new() returns undef
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << 'PLEOF'
 use batchGitVersion;
 my $obj = batchGitVersion->new('/fake/script', '--help');
@@ -213,7 +220,7 @@ rm -f "$PL"
 # ===========================================================================
 
 # Test 6: file found via prefix stripping -> "BLOB <sha>"
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$sha) = @ARGV;
@@ -232,7 +239,7 @@ fi
 rm -f "$PL"
 
 # Test 7: file found directly in DB (no prefix needed) -> "BLOB <sha>"
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$sha) = @ARGV;
@@ -251,7 +258,7 @@ fi
 rm -f "$PL"
 
 # Test 8: file not in DB, exists on disk -> mtime (ISO8601)
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -273,7 +280,7 @@ fi
 rm -f "$PL"
 
 # Test 9: file not in DB, exists on disk, --md5 -> mtime + " md5:<hash>"
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -295,7 +302,7 @@ fi
 rm -f "$PL"
 
 # Test 10: file not in DB, not on disk, --allow-missing -> empty string
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -314,7 +321,7 @@ fi
 rm -f "$PL"
 
 # Test 11: file not in DB, not on disk, no --allow-missing -> dies
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -337,7 +344,7 @@ rm -f "$PL"
 # ===========================================================================
 
 # Test 12: --prepend path prepends to all DB keys; lookup via prepend/file
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$sha) = @ARGV;
@@ -360,7 +367,7 @@ rm -f "$PL"
 # ===========================================================================
 
 # Test 13: --token SHA uses SHA instead of BLOB as the token prefix
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$sha) = @ARGV;
@@ -383,7 +390,7 @@ rm -f "$PL"
 # ===========================================================================
 
 # Test 14: without --repo, new() falls back to getcwd(); chdir to repo first
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 use Cwd qw(chdir);
@@ -408,7 +415,7 @@ rm -f "$PL"
 # ===========================================================================
 
 # Test 15: compare_version same BLOB strings -> 0 (false)
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -425,7 +432,7 @@ fi
 rm -f "$PL"
 
 # Test 16: compare_version different BLOB strings -> 1 (true)
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -442,7 +449,7 @@ fi
 rm -f "$PL"
 
 # Test 17: compare_version --md5, old has md5 (no BLOB prefix), both same -> 0
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$md5) = @ARGV;
@@ -460,7 +467,7 @@ fi
 rm -f "$PL"
 
 # Test 18: compare_version --md5, old has md5, new has md5, differ -> 1
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$md5) = @ARGV;
@@ -479,7 +486,7 @@ fi
 rm -f "$PL"
 
 # Test 19: compare_version --md5, old starts BLOB -> bypass md5 branch, exact match
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -497,7 +504,7 @@ fi
 rm -f "$PL"
 
 # Test 20: compare_version --md5, old has md5 but new has none -> fall through, 1
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$md5) = @ARGV;
@@ -520,7 +527,7 @@ rm -f "$PL"
 # ===========================================================================
 
 # Test 21: -v prints extract_version trace (prefix check / match / found)
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my (\$repo, \$sha) = @ARGV;
@@ -561,7 +568,7 @@ chmod +x "$MOCKDIR/git"
 FAKEREPO=$(mktemp -d)
 export PATH="$MOCKDIR:$PATH"
 
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -600,7 +607,7 @@ chmod +x "$MOCKDIR/git"
 FAKEREPO=$(mktemp -d)
 export PATH="$MOCKDIR:$PATH"
 
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -642,7 +649,7 @@ chmod +x "$MOCKDIR/git"
 FAKEREPO=$(mktemp -d)
 export PATH="$MOCKDIR:$PATH"
 
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -679,7 +686,7 @@ chmod +x "$MOCKDIR/git"
 FAKEREPO=$(mktemp -d)
 export PATH="$MOCKDIR:$PATH"
 
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];
@@ -721,7 +728,7 @@ chmod +x "$MOCKDIR/git"
 FAKEREPO=$(mktemp -d)
 export PATH="$MOCKDIR:$PATH"
 
-PL=$(mktemp --suffix=.pl)
+PL="batch_git_$(( ++TESTIDX )).pl"
 cat > "$PL" << PLEOF
 use batchGitVersion;
 my \$repo = \$ARGV[0];

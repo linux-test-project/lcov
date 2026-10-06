@@ -51,17 +51,14 @@ LCOV_OPTS="--branch-coverage $PARALLEL $PROFILE"
 if [ '' != "${COVERAGE_COMMAND}" ] ; then
     CMD=${COVERAGE_COMMAND}
 else
-    CMD='coverage'
-    which $CMD
-    if [ 0 != $? ] ; then
-        CMD='python3-coverage' # ubuntu?
-    fi
+    CMD=$(find_python_coverage)
 fi
-which $CMD
-if [ 0 != $? ] ; then
-    echo "cannot find 'coverage' or 'python3-coverage'"
-    echo "unable to run py2lcov - please install python Coverage.py package"
-    exit 1
+if [ '' == "$CMD" ] ; then
+    # The python Coverage.py package is not installed on this platform:
+    #   py2lcov itself is not implicated - skip instead of failing
+    #   (same treatment as other platform-constraint skips in this suite).
+    echo "python Coverage.py package not installed - skipping py2lcov test"
+    exit 0
 fi
 
 # some corner cases:
