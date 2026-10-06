@@ -184,6 +184,7 @@ These perl packages include:
 - Devel::StackTrace
 - Digest::MD5
 - File::Spec
+- GD
 - at least one flavor of JSON module. In order of performance/preference:
 
   - JSON::XS
@@ -219,11 +220,14 @@ order to be able to run regression tests.
 To measure Python code coverage, users will need Python packages:
 
 - Coverage.py
-  
 
 In addition, contributors will need:
 
 - perltidy
+
+For testing, you will need:
+
+- jq
 
 Your platform may support other mechanisms to install and/or update
 required packages.
