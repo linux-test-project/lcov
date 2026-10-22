@@ -1,6 +1,6 @@
 Summary: A graphical code coverage front-end
 Name: lcov
-Version: 3.0
+Version: 2.7
 Release: 1
 License: GPLv2+
 Group: Development/Tools
@@ -25,13 +25,16 @@ Prefix: /etc
 
 %description
 LCOV is a set of command line tools that can be used to collect, process, and
-visualize code coverage data in an easy-to-use way. It aims to be suitable for
-projects of a wide range of sizes, with particular focus on deployment in
-automated CI/CD systems and large projects implemented using multiple languages.
+visualize code coverage data in an easy-to-use way. 
+LCOV aims to be suitable for projects of a wide range of sizes, with
+particular focus on deployment in automated CI/CD systems and large projects
+implemented using multiple languages.
 
 LCOV works with existing environment-specific profiling mechanisms including,
 but not limited to, the gcov tool that is part of the GNU Compiler Collection
-(GCC).
+(GCC), the llvm-profdata and llvm-cov tools which are part of LLVM,
+JaCoCo, Devel::Cover, and Coverage.py.
+It currently supports line, function, branch, MC/DC and callgraph metrics.
 
 %prep
 %setup -q -n %{name}-%{version}
