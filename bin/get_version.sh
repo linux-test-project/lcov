@@ -25,7 +25,7 @@ else
 fi
 
 # Fallback
-[ -z "$VERSION" ] && VERSION="2.5.0"
+[ -z "$VERSION" ] && VERSION="2.7"
 [ -z "$RELEASE" ] && RELEASE="beta"
 [ -z "$FULL" ]    && FULL="$VERSION-$RELEASE"
 
