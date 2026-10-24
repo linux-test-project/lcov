@@ -2893,6 +2893,67 @@ checkLine srt_foreign html/proj/c.cpp.callees-c.html \
     'href="../proj/lib.cpp.callers-c.html#func_Circle::area"'
 
 # ----------------------------------------------------------------------
+echo "*** 18. a call on an unchanged line of an edited statement"
+# ----------------------------------------------------------------------
+# The call at 5:9 is on the second line of the statement which starts on
+#   line 4, and is counted on line 4 - see the '^<statement line>' of the
+#   'FNC:' record.  The diff rewrites line 4 and leaves line 5 alone, and the
+#   current version no longer makes the call - only the one on line 6.  So the
+#   site is only in the baseline, on an unchanged line, and is counted on a
+#   deleted one which has no line coverpoint of its own:  it is a deleted site
+#   (DCB), and so is that line.  A category of the current version there, such
+#   as ECB, is one for a line which is not in the current source, and genhtml
+#   fails as it looks that line up
+mkdir stmt
+cat >stmt/s.c <<'EOF2'
+int foo(int a) { return a; }
+int main()
+{
+    int y =
+        foo(1);
+    return y + foo(y);
+}
+EOF2
+cat >stmt.udiff <<'EOF2'
+--- stmt/s.c
++++ stmt/s.c
+@@ -3,5 +3,5 @@
+ {
+-    int x =
++    int y =
+         foo(1);
+     return y + foo(y);
+ }
+EOF2
+cat >stmt_base.info <<'EOF2'
+TN:
+SF:stmt/s.c
+FNL:0,1,1
+FNA:0,1,foo
+FNL:1,2,7
+FNA:1,1,main
+FNC:1^4,5,9,0,1,foo
+FNC:1,6,16,0,1,foo
+FNF:2
+FNH:2
+FNCF:2
+FNCH:2
+DA:1,1
+DA:2,1
+DA:6,1
+LF:3
+LH:3
+end_of_record
+EOF2
+sed -e '/^FNC:1^4/d' -e 's/^FNC\(.\):2/FNC\1:1/' stmt_base.info \
+    >stmt_curr.info
+runGenhtml stmt --callgraph -o html_stmt --baseline-file stmt_base.info \
+    --diff-file stmt.udiff stmt_curr.info
+checkLine stmt stmt.log '  line: CBC:3 DCB:1'
+checkLine stmt stmt.log '  callgraph: CBC:1 DCB:1'
+checkNoLine stmt stmt.log 'ECB'
+
+# ----------------------------------------------------------------------
 if [ 0 == $STATUS ] ; then
     echo "Tests passed"
 else

@@ -4789,10 +4789,19 @@ sub categorizeCallSites
                     $changed->{$site->line()} &&
                     exists($changedStatementTla{$tla}));
         } else {
-            $tla =
+            # ..a deleted category if the line the site is attached to was
+            #   deleted, too:  that is a deleted record (see '_findLineData'),
+            #   whose category is not one of the current version.  The site's
+            #   own line need not be deleted with it - a call on an unchanged
+            #   later line of a statement whose first line was edited, or one
+            #   in an '#include'd fragment called from a deleted function
+            my $deleted =
                 $diffMap->type($in, $diffMap->OLD, $site->base_line()) ==
-                DiffMap::DELETE ? ($base ? 'DCB' : 'DUB') :
-                ($base ? 'ECB' : 'EUB');
+                DiffMap::DELETE;
+            $deleted ||=
+                $diffMap->type($filename, $diffMap->OLD, $site->home_line()) ==
+                DiffMap::DELETE;
+            $tla = $deleted ? ($base ? 'DCB' : 'DUB') : ($base ? 'ECB' : 'EUB');
         }
         # 'set_tla' also stores the category on the real 'current' FunctionEntry -
         #   see the header comment.  A baseline-only site has no current record to
