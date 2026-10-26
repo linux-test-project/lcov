@@ -1602,6 +1602,11 @@ for details.
    summary table at the top of each HTML page. If the ``--show-zero-columns``
    option is used, then those columns will be shown.
 
+   Similarly, the date and owner bin tables of a directory do not show a
+   category - or a whole coverage type - which is in none of their bins.
+   Deleted coverpoints (*e.g.*, DUB and DCB) have no date or owner, so they
+   appear in the file table but never in a bin table.
+
    When columns are retained, then all the tables have the same width/contain
    the same number of columns - which may be a benefit in some situations.
 
@@ -2389,6 +2394,14 @@ for details.
    a wide table.  The other metrics follow in the order which the configuration
    file option *genhtml_metric_column_order* sets.  The function table of each
    source file is ordered the same way.
+
+   A link from the row of one metric in the summary table at the top of a
+   page - a date or owner bin, or the bin details of the file table - leads to
+   the view sorted by that metric if the corresponding page exists.
+   Similarly, the links at the top of a sorted directory view which lead to
+   its parent directories go to the view of each parent sorted the same way.
+   A directory whose table has only one entry is not written sorted, so the
+   link to it goes to its page in name order.
 
    This option can also be configured permanently using the configuration file
    option *genhtml_sort*.
