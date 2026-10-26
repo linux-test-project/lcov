@@ -79,6 +79,7 @@ use warnings;
 
 use File::Basename;
 use File::Copy;
+use File::Find;
 use File::Path;
 use File::Spec;
 use File::Temp;
@@ -10243,6 +10244,57 @@ END_OF_HTML
     close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
 }
 
+sub unsortParentLinks
+{
+    # The sorted pages of the directories below '$rel_dir' link to its view in
+    #   the same order - see 'write_header' - but it writes those views only if
+    #   its table has more than one entry - which we know only in the parent,
+    #   after the child pages were written.  Thus: if the directory table has
+    #   only one entry, we regexp the child page link so they link to the
+    #   parent page (sorted by name)
+    my $rel_dir = shift;
+    return if $main::no_html;
+    my $top   = File::Spec->catdir($main::output_directory, $rel_dir);
+    my @sorts = grep({ $_ ne '' } @main::fileview_sortname);
+    my $sorts = join('|', map({ quotemeta($_) } @sorts));
+    my @pages;
+    my $wanted = sub {
+        push(@pages, $File::Find::name)
+            if $File::Find::dir ne $top &&
+            /^index.*(?:$sorts)\.\Q$html_ext\E$/;
+    };
+    File::Find::find($wanted, $top);
+    foreach my $page (@pages) {
+        my $rel    = File::Spec->abs2rel(File::Basename::dirname($page), $top);
+        my $up     = '../' x scalar(File::Spec->splitdir($rel));
+        my $quoted = lcovutil::shell_quote($page);
+        my ($in, $out, $html);
+        if ($main::html_gzip) {
+            open($in, '-|', "gzip -dc $quoted") or
+                die("unable to read $page: $!\n");
+        } else {
+            open($in, '<', $page) or die("unable to read $page: $!\n");
+        }
+        {
+            local $/;
+            $html = <$in>;
+        }
+        close($in) or die("unable to close $page: $!\n");
+        my $fixed = $html;
+        $fixed =~ s{href="\Q$up\E(index[^"/]*?)(?:$sorts)\.\Q$html_ext\E"}
+             {href="$up$1.$html_ext"}g;
+        next if $fixed eq $html;
+        if ($main::html_gzip) {
+            open($out, '|-', "gzip -c > $quoted") or
+                die("unable to write $page: $!\n");
+        } else {
+            open($out, '>', $page) or die("unable to write $page: $!\n");
+        }
+        print($out $fixed);
+        close($out) or die("unable to close $page: $!\n");
+    }
+}
+
 sub write_summary_pages($$$$$$$$)
 {
     my ($name, $summaryType, $summary, $show_details,
@@ -10374,6 +10426,8 @@ sub write_summary_pages($$$$$$$$)
         last    # only write 'index.html' - not the sorted versions
             if ($summary->is_empty());
     }
+    unsortParentLinks($rel_dir)
+        if $singleSource || $summary->is_empty();
     my $end = Time::HiRes::gettimeofday();
     $lcovutil::profileData{html}{$name} = $end - $start;
 }
@@ -15226,11 +15280,34 @@ sub max($$)
     return $b;
 }
 
+sub sortedByCovType
+{
+    # the version of the directory page '$page' - 'index-date.html', say -
+    #   which is sorted by '$covType', and so has that type's columns
+    #   leftmost, should be the target of the 'covtype' summary table link -
+    #   as long as that page exists (i.e., was not suppressed because it
+    #   is empty - see - see 'write_dir_page' - and '$page' itself if not
+    my ($page, $summary, $covType) = @_;
+    my %sortType = (SummaryInfo::LINE_DATA, $SORT_LINE,
+                    SummaryInfo::FUNCTION_DATA, $SORT_FUNC,
+                    SummaryInfo::BRANCH_DATA, $SORT_BRANCH,
+                    SummaryInfo::MCDC_DATA, $SORT_MCDC,
+                    SummaryInfo::CALLGRAPH_DATA, $SORT_CALLGRAPH);
+    my $sort = $sortType{$covType};
+    return $page
+        unless 1 < scalar($summary->sources()) &&
+        grep({ $_ == $sort } @main::fileview_sortlist);
+    $page =~ s/\.\Q$html_ext\E$/$main::fileview_sortname[$sort].$html_ext/;
+    return $page;
+}
+
 sub buildDateSummaryTable($$$$$$$$$)
 {
     my ($summary, $covType, $covCountCallback,
         $fileDetail, $nextLocationCallback, $title,
         $detailLink, $numRows, $activeTlaList) = @_;
+    $detailLink = sortedByCovType($detailLink, $summary, $covType)
+        if defined($detailLink);
 
     $title =
         "<a href=\"$detailLink\" title=\"Click to include date bin details in file table below\">$title</a>"
@@ -15340,6 +15417,8 @@ sub buildOwnerSummaryTable($$$$$$$$$$)
         $covType, $fileDetail, $nextLocationCallback,
         $title, $detailLink, $numRows,
         $activeTlaList) = @_;
+    $detailLink = sortedByCovType($detailLink, $summary, $covType)
+        if defined($detailLink);
 
     $title .= " (containing " .
         ($main::show_ownerBins ? "" : "un-exercised ") . "code)";
@@ -15502,9 +15581,10 @@ sub buildHeaderSummaryTableRow
 # build an HTML string for the directory or file pathname, such
 #  that each element is clickable - and takes you to the 'index' file
 #  in the corresponding (transitive) parent directory
-sub build_html_path($$$$$)
+sub build_html_path($$$$$;$)
 {
-    my ($path, $key, $bin_type, $isFile, $isAbsolute) = @_;
+    # '$sort' is the sort suffix of the parent views to link to
+    my ($path, $key, $bin_type, $isFile, $isAbsolute, $sort) = @_;
 
     $path =~ s|^/||;
     my @path      = File::Spec->splitdir($path);
@@ -15518,13 +15598,14 @@ sub build_html_path($$$$$)
         #  index file we are looking for is in the current directory (i.e.,
         #  not '../index.html'
         my $len = scalar(@path) - $isFile;
+        $sort //= '';
         foreach my $elem (@path) {
             my $base = "../" x $len;
             $elem       = $lcovutil::dirseparator . $elem if $isAbsolute;
             $isAbsolute = 0;
             my $e = escape_html($elem);
             $html_path .=
-                "$sep<a href=\"${base}index$key$bin_type.$html_ext\" title=\"Click to go to directory $e\">$e</a>";
+                "$sep<a href=\"${base}index$key$bin_type$sort.$html_ext\" title=\"Click to go to directory $e\">$e</a>";
             $sep = $lcovutil::dirseparator;
             --$len;
         }
@@ -15614,10 +15695,17 @@ sub write_header(*$$$$$$$;$)
                      $summary->is_directory(1) || ($summary->type() eq 'file' &&
                                             $summary->parent()->is_directory(1))
     );
+    # A directory page leads up to the view of each parent which is in the same
+    #   order.  The parents are written later and might find that their table
+    #   has just a single entry (so page is suppressed).  In that case, we go
+    #   back and munge the child page links.  See 'unsortParentLinks'
+    my $parentSort = '';
+    $parentSort = $main::fileview_sortname[$sort_type] // ''
+        if $type == $HDR_FILE && defined($sort_type);
     my $html_path =
         build_html_path($trunc_name, $key, $bin_type,
                         $summary->type() eq 'file',
-                        $isAbsolutePath);
+                        $isAbsolutePath, $parentSort);
 
     # Prepare text for "current view" field
     if ($type == $HDR_DIR) {
@@ -15664,7 +15752,7 @@ sub write_header(*$$$$$$$;$)
         }
         $view =
             "<a href=\"$base_dir" .
-            "index$key$bin_type.$html_ext\" title=\"Click to go to top-level\">"
+            "index$key$bin_type$parentSort.$html_ext\" title=\"Click to go to top-level\">"
             . "$overview_title</a> - $self_link";
     } elsif ($type == $HDR_SOURCE ||
              $type == $HDR_FUNC ||
@@ -16571,6 +16659,144 @@ sub write_file_table(*$$$$$$)
     my $hasCallgraphData =
         $lcovutil::callgraph_coverage && 0 != $dirSummary->callgraph_found();
 
+    my @tableRows;
+    if ($primary_key eq 'name') {
+        # sorted list of all the file or directory names
+        foreach my $name ($dirSummary->get_sorted_keys($sort_type, 1)) {
+            my $entrySummary = $dirSummary->get_source($name);
+
+            if ($entrySummary->type() eq 'directory') {
+                if ('directory' eq $dirSummary->type()) {
+                    $name = File::Basename::basename($name);
+                } elsif ($entrySummary->is_directory(1)) {
+                    $name = $lcovutil::dirseparator . $name;
+                }
+            } else {
+                die("unexpected summary type")
+                    unless 'file' eq $entrySummary->type();
+                $name = File::Basename::basename($name);
+            }
+            push(@tableRows,
+                 FileOrDirectoryCallback->new($name, $entrySummary));
+        }
+
+    } elsif ($primary_key eq 'owner') {
+        # retrieve sorted list of owner names - alphabetically, by name
+        #   or by number of missed lines or missed branches
+        my $all = defined($main::show_ownerBins) && $main::show_ownerBins;
+
+        # {owner => {covType => [found, hit]}}:  keyed by coverage type rather
+        #   than by a hand-assigned index, so that adding a metric here is one
+        #   line rather than a renumbering.  Function coverage is not in this
+        #   list - an owner has no function count;  see 'owner_tlaCount'
+        my @ownerTypes = ([1, SummaryInfo::LINE_DATA, $SORT_LINE],
+                          [$lcovutil::mcdc_coverage, SummaryInfo::MCDC_DATA,
+                           $SORT_MCDC
+                          ],
+                          [$lcovutil::br_coverage, SummaryInfo::BRANCH_DATA,
+                           $SORT_BRANCH
+                          ],
+                          [$lcovutil::callgraph_coverage,
+                           SummaryInfo::CALLGRAPH_DATA,
+                           $SORT_CALLGRAPH
+                          ]);
+        my %owners;
+        foreach my $d (@ownerTypes) {
+            my ($enable, $dataType) = @$d;
+            next unless $enable;
+
+            foreach my $owner ($dirSummary->owners($all, $dataType)) {
+                $owners{$owner} = {map({ $_->[1] => [0, 0] } @ownerTypes)}
+                    unless exists($owners{$owner});
+
+                $owners{$owner}->{$dataType} = [
+                        $dirSummary->owner_tlaCount($owner, 'found', $dataType),
+                        $dirSummary->owner_tlaCount($owner, 'hit', $dataType)
+                ];
+            }
+        }
+        my @sorted = sort(keys(%owners));    # default sort order
+                                             # now, sort the owner list...
+        foreach my $d (@ownerTypes) {
+            my (undef, $dataType, $s) = @$d;
+            if ($sort_type eq $s) {
+                # sort by number of missed coverpoints of that type
+                @sorted = sort({
+                                   my $la = $owners{$a}->{$dataType};
+                                   my $lb = $owners{$b}->{$dataType};
+                                   ($lb->[0] - $lb->[1])
+                                       <=> ($la->[0] - $la->[1]) ||
+                                       $a cmp $b    # then by name
+                } keys(%owners));
+                last;
+            }
+        }
+
+        # don't truncate the 'owner detail table'
+        #  if user asked to see the page, then they want to be able to navigate
+        #  to all users
+        #if (defined($ownerTableElements) &&
+        #    $ownerTableElements < scalar(@sorted)) &&
+        #    (0 == scalar(@truncateOwnerTableLevels) ||
+        #     grep(/$callback_type/, @truncateOwnerTableLevels)))) {
+        #    # truncate owner list in header table
+        #    splice(@sorted, $ownerTableElements);
+        #}
+
+        foreach my $owner (@sorted) {
+            push(@tableRows,
+                 FileOrDirectoryOwnerCallback->new($owner, $dirSummary));
+        }
+
+    } elsif ($primary_key eq 'date') {
+        for (my $bin = 0; $bin <= $#SummaryInfo::ageGroupHeader; ++$bin) {
+            my $ageval = $dirSummary->age_sample($bin);
+            # ..any enabled metric with something in this bin puts a row in the
+            #   table
+            next
+                unless grep({
+                                my $covCount = SummaryInfo::covCountMethod($_);
+                                SummaryInfo::metricEnabled($_)
+                                    &&
+                                    0 != $dirSummary->$covCount('found', 'age',
+                                                                $ageval);
+                } @SummaryInfo::covTypes);
+            push(@tableRows,
+                 FileOrDirectoryDateCallback->new($bin, $dirSummary));
+        }
+    } else {
+        die("unsupported primary key '$primary_key'");
+    }
+
+    # A table keyed by date or owner has the categories its bins have - which
+    #   may be fewer than the directory's:  a deleted coverpoint has no current
+    #   line, so it has neither a date nor an owner, and an owner whose code is
+    #   all exercised is not listed unless 'all' argument.  A category - or a
+    #   whole coverage type - which is in none of the rows has no column
+    if ($primary_key ne 'name' && !$main::show_zeroTlaColumns) {
+        my @types = ([\$hasMcdcData, SummaryInfo::MCDC_DATA],
+                     [\$hasBranchData, SummaryInfo::BRANCH_DATA],
+                     [\$includeFunctionColumns, SummaryInfo::FUNCTION_DATA],
+                     [\$hasCallgraphData, SummaryInfo::CALLGRAPH_DATA]);
+        my %binned;
+        foreach my $covtype (SummaryInfo::LINE_DATA, map({ $_->[1] } @types)) {
+            next
+                unless $covtype == SummaryInfo::LINE_DATA ||
+                grep({ $_->[1] == $covtype && ${$_->[0]} } @types);
+            my @cbs = map({ $_->totalCallback($covtype) } @tableRows);
+            next unless grep({ 0 != ($_->get('found') // 0) } @cbs);
+            my @tlas;
+            foreach my $tla (@{$activeTlaCols->{$covtype} // []}) {
+                push(@tlas, $tla)
+                    if grep({ 0 != ($_->get($tla) // 0) } @cbs);
+            }
+            $binned{$covtype} = \@tlas;
+        }
+        ${$_->[0]} &&= exists($binned{$_->[1]}) foreach (@types);
+        $binned{SummaryInfo::LINE_DATA} //= [];
+        $activeTlaCols = \%binned;
+    }
+
     # Determine HTML code for column headings
     my $hide = $HEAD_NO_DETAIL;
     my $show = $HEAD_NO_DETAIL;
@@ -16706,115 +16932,6 @@ sub write_file_table(*$$$$$$)
                                defined($showBinDetail) ? $showBinDetail : undef,
                                $primary_key,
                                @head_columns);
-
-    my @tableRows;
-    if ($primary_key eq 'name') {
-        # sorted list of all the file or directory names
-        foreach my $name ($dirSummary->get_sorted_keys($sort_type, 1)) {
-            my $entrySummary = $dirSummary->get_source($name);
-
-            if ($entrySummary->type() eq 'directory') {
-                if ('directory' eq $dirSummary->type()) {
-                    $name = File::Basename::basename($name);
-                } elsif ($entrySummary->is_directory(1)) {
-                    $name = $lcovutil::dirseparator . $name;
-                }
-            } else {
-                die("unexpected summary type")
-                    unless 'file' eq $entrySummary->type();
-                $name = File::Basename::basename($name);
-            }
-            push(@tableRows,
-                 FileOrDirectoryCallback->new($name, $entrySummary));
-        }
-
-    } elsif ($primary_key eq 'owner') {
-        # retrieve sorted list of owner names - alphabetically, by name
-        #   or by number of missed lines or missed branches
-        my $all = defined($main::show_ownerBins) && $main::show_ownerBins;
-
-        # {owner => {covType => [found, hit]}}:  keyed by coverage type rather
-        #   than by a hand-assigned index, so that adding a metric here is one
-        #   line rather than a renumbering.  Function coverage is not in this
-        #   list - an owner has no function count;  see 'owner_tlaCount'
-        my @ownerTypes = ([1, SummaryInfo::LINE_DATA, $SORT_LINE],
-                          [$lcovutil::mcdc_coverage, SummaryInfo::MCDC_DATA,
-                           $SORT_MCDC
-                          ],
-                          [$lcovutil::br_coverage, SummaryInfo::BRANCH_DATA,
-                           $SORT_BRANCH
-                          ],
-                          [$lcovutil::callgraph_coverage,
-                           SummaryInfo::CALLGRAPH_DATA,
-                           $SORT_CALLGRAPH
-                          ]);
-        my %owners;
-        foreach my $d (@ownerTypes) {
-            my ($enable, $dataType) = @$d;
-            next unless $enable;
-
-            foreach my $owner ($dirSummary->owners($all, $dataType)) {
-                $owners{$owner} = {map({ $_->[1] => [0, 0] } @ownerTypes)}
-                    unless exists($owners{$owner});
-
-                $owners{$owner}->{$dataType} = [
-                        $dirSummary->owner_tlaCount($owner, 'found', $dataType),
-                        $dirSummary->owner_tlaCount($owner, 'hit', $dataType)
-                ];
-            }
-        }
-        my @sorted = sort(keys(%owners));    # default sort order
-                                             # now, sort the owner list...
-        foreach my $d (@ownerTypes) {
-            my (undef, $dataType, $s) = @$d;
-            if ($sort_type eq $s) {
-                # sort by number of missed coverpoints of that type
-                @sorted = sort({
-                                   my $la = $owners{$a}->{$dataType};
-                                   my $lb = $owners{$b}->{$dataType};
-                                   ($lb->[0] - $lb->[1])
-                                       <=> ($la->[0] - $la->[1]) ||
-                                       $a cmp $b    # then by name
-                } keys(%owners));
-                last;
-            }
-        }
-
-        # don't truncate the 'owner detail table'
-        #  if user asked to see the page, then they want to be able to navigate
-        #  to all users
-        #if (defined($ownerTableElements) &&
-        #    $ownerTableElements < scalar(@sorted)) &&
-        #    (0 == scalar(@truncateOwnerTableLevels) ||
-        #     grep(/$callback_type/, @truncateOwnerTableLevels)))) {
-        #    # truncate owner list in header table
-        #    splice(@sorted, $ownerTableElements);
-        #}
-
-        foreach my $owner (@sorted) {
-            push(@tableRows,
-                 FileOrDirectoryOwnerCallback->new($owner, $dirSummary));
-        }
-
-    } elsif ($primary_key eq 'date') {
-        for (my $bin = 0; $bin <= $#SummaryInfo::ageGroupHeader; ++$bin) {
-            my $ageval = $dirSummary->age_sample($bin);
-            # ..any enabled metric with something in this bin puts a row in the
-            #   table
-            next
-                unless grep({
-                                my $covCount = SummaryInfo::covCountMethod($_);
-                                SummaryInfo::metricEnabled($_)
-                                    &&
-                                    0 != $dirSummary->$covCount('found', 'age',
-                                                                $ageval);
-                } @SummaryInfo::covTypes);
-            push(@tableRows,
-                 FileOrDirectoryDateCallback->new($bin, $dirSummary));
-        }
-    } else {
-        die("unsupported primary key '$primary_key'");
-    }
 
     my $all = defined($main::show_ownerBins) && $main::show_ownerBins eq 'all';
     # show only the 'Total' row if all row entries are suppressed

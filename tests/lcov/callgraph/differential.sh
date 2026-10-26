@@ -1223,6 +1223,46 @@ checkLine dates html_dates/proj/c.cpp.callers.html \
 checkLine dates html_dates/proj/c.cpp.gcov.html \
     "<span title=\"Callgraph edge destinations in this file$FROM_TAIL\">Callgraph coverage date bins:</span>"
 
+# The tables keyed by date and by owner have no column for a category which is
+#   in no bin:  'DUB' and 'DCB' are in the directory's file table, and in none
+#   of the bin tables
+DELETED='<td class="tableHead" title="Deleted'
+checkLine dates html_dates/proj/index.html "$DELETED"
+checkLine owners html_owners/proj/index-owner.html "$DELETED"
+for page in index-bin_date index-bin_date-sort-c index-bin_date-sort-l ; do
+    checkNoLine dates html_dates/proj/$page.html "$DELETED"
+done
+for page in index-bin_owner index-bin_owner-sort-c index-bin_owner-sort-l ; do
+    checkNoLine owners html_owners/proj/$page.html "$DELETED"
+done
+# ..and a link from the row of one coverage type in the summary table leads to
+#   the page sorted by that type - which has the type's columns leftmost:  the
+#   bin itself, and the bin details of the file table
+for t in c f l ; do
+    checkLine dates html_dates/proj/index.html \
+        "href=\"index-bin_date-sort-$t.html#B1\""
+    checkLine dates html_dates/proj/index.html \
+        "href=\"index-date-sort-$t.html\""
+done
+for t in c l ; do
+    checkLine owners html_owners/proj/index.html \
+        "href=\"index-bin_owner-sort-$t.html#Nbertie\""
+    checkLine owners html_owners/proj/index.html \
+        "href=\"index-owner-sort-$t.html\""
+done
+checkNoLine dates html_dates/proj/index.html 'href="index-bin_date.html#B'
+checkNoLine dates html_dates/proj/index.html 'href="index-date.html"'
+checkNoLine owners html_owners/proj/index.html 'href="index-bin_owner.html#N'
+checkNoLine owners html_owners/proj/index.html 'href="index-owner.html"'
+# 'proj' is the only entry of the top level, which is not written sorted - so
+#   the way up from a sorted view of 'proj' leads to the top level in name
+#   order
+for page in index-sort-c index-bin_date-sort-c index-date-sort-l ; do
+    base=`echo $page | sed -e 's/-sort-.$//'`
+    checkLine dates html_dates/proj/$page.html \
+        "href=\"../$base.html\" title=\"Click to go to top-level\""
+done
+
 # ----------------------------------------------------------------------
 echo "*** 6. a filtered report"
 # ----------------------------------------------------------------------
@@ -2952,6 +2992,147 @@ runGenhtml stmt --callgraph -o html_stmt --baseline-file stmt_base.info \
 checkLine stmt stmt.log '  line: CBC:3 DCB:1'
 checkLine stmt stmt.log '  callgraph: CBC:1 DCB:1'
 checkNoLine stmt stmt.log 'ECB'
+
+# ----------------------------------------------------------------------
+echo "*** 19. an owner table with no call site of the owners it lists"
+# ----------------------------------------------------------------------
+# Without '--show-owners all', the owner table lists the owners of un-exercised
+#   code:  here only 'bob', who wrote 'h' and none of the calls.  So the table
+#   has no 'Callgraph Coverage' columns - though the directory has call sites,
+#   and its file table has them.
+# A directory of one file is not written sorted, so its links lead to the page
+#   in name order
+mkdir solo
+cat >solo/x.c <<'EOF2'
+int f(int a) { return a; }
+int g(int a)
+{
+    return f(a);
+}
+int h(int a)
+{
+    return a;
+}
+EOF2
+cat >solo.info <<'EOF2'
+TN:
+SF:solo/x.c
+FNL:0,1,1
+FNA:0,1,f
+FNL:1,2,5
+FNA:1,1,g
+FNC:1,4,12,0,1,f
+FNL:2,6,9
+FNA:2,0,h
+FNF:3
+FNH:2
+FNCF:1
+FNCH:1
+DA:1,1
+DA:2,1
+DA:4,1
+DA:6,0
+DA:8,0
+LF:5
+LH:3
+end_of_record
+EOF2
+cat >solo.pm <<'EOF2'
+package solo;
+
+# 'alice' wrote 'f' and 'g' - and so the call - and 'bob' wrote 'h'
+
+use strict;
+
+sub new
+{
+    my $class = shift;
+    return bless [], $class;
+}
+
+sub annotate
+{
+    my ($self, $file) = @_;
+    open(my $fh, '<', $file) or return (1, []);
+    my @lines;
+    my $n = 0;
+    while (my $line = <$fh>) {
+        chomp($line);
+        ++$n;
+        my $who = $n < 6 ? 'alice' : 'bob';
+        push(@lines,
+             [$line, $who, "$who\@example.org", '2020-01-01T00:00:00-00:00',
+              "CL$n"]);
+    }
+    close($fh);
+    return (0, \@lines);
+}
+
+1;
+EOF2
+printf -- '--- solo/x.c\n+++ solo/x.c\n' >solo.udiff
+runGenhtml solo --callgraph -o html_solo --baseline-file solo.info \
+    --diff-file solo.udiff solo.info --annotate-script `pwd`/solo.pm \
+    --show-owners
+checkLine solo html_solo/solo/index.html 'Callgraph Coverage'
+checkLine solo html_solo/solo/index-bin_owner.html 'Line Coverage'
+checkNoLine solo html_solo/solo/index-bin_owner.html 'Callgraph Coverage'
+checkLine solo html_solo/solo/index.html 'href="index-bin_owner.html#Nbob"'
+checkLine solo html_solo/solo/index.html 'href="index-owner.html"'
+
+# ----------------------------------------------------------------------
+echo "*** 20. the way up from a sorted directory page"
+# ----------------------------------------------------------------------
+# The link from a directory page to each of its parents leads to the parent's
+#   view in the same order:  the reader who sorted by call site coverage, say,
+#   finds the parent sorted that way too.  A directory of one entry is not
+#   written sorted, so the link to it leads to its page in name order.  Here
+#   the top level has two entries, 'a' and 'd', and 'd' has one, 'e' - which
+#   is a directory of its own in a hierarchical report.  Scenario 5 has the
+#   flat case:  a top level whose only entry is 'proj'
+mkdir -p back/a back/d/e
+for f in back/a/x.c back/a/y.c back/d/e/p.c back/d/e/q.c ; do
+    cp solo/x.c $f
+    sed -e "s|^SF:.*|SF:$f|" solo.info
+done >back.info
+printf -- '--- back/a/x.c\n+++ back/a/x.c\n' >back.udiff
+for layout in hier flat ; do
+    flag=
+    if [ $layout == hier ] ; then
+        flag=--hierarchical
+    fi
+    runGenhtml back_$layout --callgraph -o html_back_$layout $flag \
+        --baseline-file back.info --diff-file back.udiff back.info \
+        --annotate-script `pwd`/solo.pm --show-owners all --date-bins 1,7
+done
+TOP='title="Click to go to top-level"'
+H=html_back_hier
+F=html_back_flat
+for page in index-sort-c index-sort-l index-date-sort-c index-owner-sort-l \
+    index-bin_date-sort-c index-bin_owner-sort-l ; do
+    checkLine up $H/a/$page.html "href=\"../$page.html\" $TOP"
+    checkLine up $F/a/$page.html "href=\"../$page.html\" $TOP"
+    checkLine up $F/d/e/$page.html "href=\"../../$page.html\" $TOP"
+    checkLine up $H/d/e/$page.html "href=\"../../$page.html\" $TOP"
+    # ..'d' has one entry
+    base=`echo $page | sed -e 's/-sort-.$//'`
+    checkLine up $H/d/e/$page.html \
+        "href=\"../$base.html\" title=\"Click to go to directory d\""
+done
+if [ -f $H/d/index-sort-c.html ] ; then
+    fail up "$H/d/index-sort-c.html should not be written"
+fi
+# ..and a page in name order leads to its parents in name order
+checkLine up $H/d/e/index.html "href=\"../../index.html\" $TOP"
+checkLine up $H/d/e/index-bin_date.html \
+    "href=\"../../index-bin_date.html\" $TOP"
+# ..also when the pages are compressed
+runGenhtml back_gz --callgraph -o html_back_gz --hierarchical --html-gzip \
+    back.info
+UP_D='href="../index.html" title="Click to go to directory d"'
+if ! gzip -dc html_back_gz/d/e/index-sort-c.html | grep -q -F "$UP_D" ; then
+    fail up "html_back_gz/d/e/index-sort-c.html should lead to d/index.html"
+fi
 
 # ----------------------------------------------------------------------
 if [ 0 == $STATUS ] ; then
