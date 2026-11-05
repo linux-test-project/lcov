@@ -243,6 +243,12 @@ our $SORT_XREF  = 11;    # by the proportion of the other direction
 our $SORT_OWNER = 12;    # by who last changed the function
 our $SORT_AGE   = 13;    # by how long ago that was
 
+# the id of the coverage table of a page - the file, function or call site
+#   table:  target of the covtype sort widget - go to table, not top of
+#   page (the summary tables may be very long, especially if the author table
+#   is included and the project is large.
+our $TABLE_ANCHOR = 'coverageTable';
+
 # The two call site pages of a file, in the order the page header names them:
 #   one direction of the callgraph each, indexed by CALLGRAPH_VIEW_ and carrying
 #   the header type of that page, the name it is written under, what its first
@@ -494,7 +500,7 @@ sub write_header_prolog(*$);
 sub write_header_line(*@);
 sub write_header_epilog(*$);
 
-sub write_file_table(*$$$$$$);
+sub write_file_table(*$$$$$$$);
 sub write_file_table_prolog(*$$$@);
 sub write_file_table_entry(*$$@);
 sub write_file_table_detail_entry(*$$$$@);
@@ -1081,6 +1087,10 @@ sub get_sorted_keys
                      $da->type() cmp $db->type() or
                          $db->get_missed($covtype)
                          <=> $da->get_missed($covtype) or
+                         # sort record to bottom if there are no elements
+                         #   of this type ('-')
+                         (0 == $da->get('found', $covtype))
+                         <=> (0 == $db->get('found', $covtype)) or
                          # sort alphabetically in case of tie
                          $da->name() cmp $db->name()
             } @l);
@@ -1145,8 +1155,8 @@ sub get_rate
     my $hit   = $hash->{hit};
 
     if ($found == 0) {
-        #return 100;
-        return 1000;
+        # no coverpoints of this type ('-'):  sort to after the 100% entries
+        return 10002;
     }
     #return (100.0 * $hit) / $found;
     return int($hit * 1000 / $found) * 10 + 2 - (1 / $found);
@@ -10226,9 +10236,10 @@ sub write_dir_page
         write_header(*HTML_HANDLE, $callback_type, $ctrls, $trunc_dir,
                      $rel_dir, $summary, undef, undef);
     if (0 != $summary->sources()) {
-        write_file_table(*HTML_HANDLE, $callback_type, $base_dir,
-                         $perTestcaseResult,
-                         $summary, $ctrls, $activeTlaColsForType);
+        write_file_table(*HTML_HANDLE, $callback_type,
+                         $base_dir, $perTestcaseResult,
+                         $summary, $ctrls,
+                         $activeTlaColsForType, $rel_dir);
     } else {
         my $msg =
             "Coverage data table is empty - no coverpoints exist in the selected subset.";
@@ -10242,6 +10253,24 @@ END_OF_HTML
     }
     write_html_epilog(*HTML_HANDLE, $base_dir);
     close(*HTML_HANDLE) or die("unable to close HTML handle: $!\n");
+}
+
+# sortedChildPage(rel_dir, link, sort_type)
+#   The version of child directory page 'link' - relative to the page in
+#   'rel_dir' which links to it, without its '#' anchor - in the order
+#   'sort_type', so that a reader going down the tree stays in the order they
+#   chose.  That version is written only if the child has a column of that
+#   type and more than one entry - see 'write_summary_pages' - so, if it was
+#   not, 'link' itself.  The child pages are written before their parent's
+#   (see 'unsortParentLinks'), so we can just look
+sub sortedChildPage
+{
+    my ($rel_dir, $link, $sort_type) = @_;
+    my $sort = $main::fileview_sortname[$sort_type];
+    return $link if $sort eq '';
+    (my $sorted = $link) =~ s/\.\Q$html_ext\E$/$sort.$html_ext/;
+    my $page = File::Spec->catfile($output_directory, $rel_dir, $sorted);
+    return -e $page ? $sorted : $link;
 }
 
 sub unsortParentLinks
@@ -10684,7 +10713,7 @@ sub write_callgraph_page($$$$$$$$$$$)
     }
     write_html(*HTML_HANDLE, <<END_OF_HTML);
           <center>
-          <table cellpadding=1 cellspacing=1 border=0>
+          <table id="$TABLE_ANCHOR" cellpadding=1 cellspacing=1 border=0>
             <tr><td><br></td></tr>
 $suppressed            <tr>
 $columns            </tr>
@@ -13322,7 +13351,7 @@ sub write_file_table_prolog(*$$$@)
     # Table definition
     write_html($handle, <<END_OF_HTML);
           <center>
-          <table width="80%" cellpadding=1 cellspacing=1 border=0>
+          <table id="$TABLE_ANCHOR" width="80%" cellpadding=1 cellspacing=1 border=0>
 
             <tr>
               <td width="$file_width%"><br></td>
@@ -13444,7 +13473,7 @@ sub escape_id($)
 #                          activeTlaCols,
 #                          rowspan, primary_key, is_secondary, fileview,
 #                          page_type, page_link, dirSummary, showDetailCol,
-#                          asterisk ],
+#                          asterisk, childPage ],
 #                        ([ found, hit, med_limit, hi_limit, graph ], ..)
 #
 # Write an entry of the file table.
@@ -13457,7 +13486,8 @@ sub write_file_table_entry(*$$@)
     my ($name, $callbackData, $activeTlaCols,
         $rowspan, $primary_key, $is_secondary,
         $fileview, $page_type, $page_link,
-        $dirSummary, $showBinDetailColumn, $asterisk) = @$data;
+        $dirSummary, $showBinDetailColumn, $asterisk,
+        $childPage) = @$data;
     my ($filename, $fileSummary, $fileDetails, $file_link, $cbData) =
         @$callbackData;
     die("unexpected callback arg types: write_file_table_entry(" .
@@ -13634,24 +13664,29 @@ sub write_file_table_entry(*$$@)
             $namecode = "<a href=\"";
 
             my $bin = "";
+            my $dir = '';
             if ($fileview == 0 &&
                 $primary_key ne 'name') {
-                $namecode .= $filename . $lcovutil::dirseparator;
+                $dir = $filename . $lcovutil::dirseparator;
                 $bin = $cbData if defined($cbData);
             }
-            $namecode .= "index";
+            # the child directory's table, in the same order as this one
+            my $table = sub {
+                my $page = $dir . 'index-bin_' . shift() . ".$html_ext";
+                return $dir eq '' ? $page : $childPage->($page);
+            };
             my $help;
             if ($page_type eq 'owner') {
                 # the anchor is made from the name itself - see the summary
                 #   table - so the link is too, not from its HTML spelling
                 $bin = $name
                     if ($primary_key eq 'name');
-                $namecode .= "-bin_owner." . $html_ext . "#N" . escape_id($bin);
+                $namecode .= $table->('owner') . "#N" . escape_id($bin);
                 $help = "owner " . escape_html($bin);
             } elsif ($page_type eq 'date') {
                 $bin = $SummaryInfo::ageHeaderToBin{$name}
                     if ($primary_key eq 'name');
-                $namecode .= "-bin_date." . $html_ext . "#B$bin";
+                $namecode .= $table->('date') . "#B$bin";
                 $help =
                     "the period '" . $SummaryInfo::ageGroupHeader[$bin] . "'";
             } else {
@@ -16434,7 +16469,7 @@ sub get_sort_code($$$)
         $link_end   = "";
     } else {
         $png        = "updown.png";
-        $link_start = '<a href="' . $link . '">';
+        $link_start = '<a href="' . $link . '#' . $TABLE_ANCHOR . '">';
         $link_end   = "</a>";
     }
     my $help = " title=\"Click to sort table by $alt\"";
@@ -16608,7 +16643,7 @@ sub get_mcdc_code($$$$$$)
 # otherwise.
 #
 
-sub write_file_table(*$$$$$$)
+sub write_file_table(*$$$$$$$)
 {
     local *HTML_HANDLE = $_[0];
     my $callback_type = $_[1];
@@ -16618,6 +16653,8 @@ sub write_file_table(*$$$$$$)
     my $dirSummary = $_[4];    # SummaryInfo object
     my ($fileview, $primary_key, $sort_type, $bin_type) = @{$_[5]};
     my $activeTlaCols = $_[6];
+    my $rel_dir       = $_[7];
+    # $rel_dir is the directory of the page being written
     # $fileview == 0 if listing directories, 1 if listing files
     # $primary_key in ("name", "owner", "date"). If $primary_key is:
     #   - 'name': leftmost column is file/directory name -
@@ -16658,6 +16695,21 @@ sub write_file_table(*$$$$$$)
     #   'CovTypeSummaryCallback::owner'
     my $hasCallgraphData =
         $lcovutil::callgraph_coverage && 0 != $dirSummary->callgraph_found();
+
+    # The link to a child directory page.  A bit of a hack: if this is the
+    #   'owner bin detail' (or the 'date bin detail') view, then link to the
+    #   same 'bin detail' view of the directory page.
+    # This enables the user who is tracking down code written by a
+    #   particular user (or on a particular date) to go link-to-link without
+    #   having to select the 'bin' link in the destination header.
+    # ..and to the view in the same order as this page, so that the reader who
+    #   sorted by callgraph coverage, say, keeps going down that path
+    my $childPage = sub {
+        my $link = shift;
+        $link =~ s/index\.\Q$html_ext\E$/index$bin_type.$html_ext/
+            if $bin_type ne '';
+        return sortedChildPage($rel_dir, $link, $sort_type);
+    };
 
     my @tableRows;
     if ($primary_key eq 'name') {
@@ -17004,17 +17056,9 @@ sub write_file_table(*$$$$$$)
             $br_found, $br_hit, $mcdc_found,
             $mcdc_hit, $page_link, $fileSummary,
             $fileDetails) = $primaryCb->data();
-        # a bit of a hack: if this is top-level page (such that the links
-        #   are to directory pages rather than to source code detail pages)
-        #   and this is the 'owner bin detail' (or the 'date bin detail') view,
-        #   then link to the same 'bin detail' view of the directory page
-        # This enables the user who is tracking down code written by a
-        #   particular user (or on a particular date) to go link-to-link
-        #   without having to select the 'bin' link in the destination header.
-        if ($fileview == 0 &&
-            $bin_type ne "") {
-            $page_link =~ s/index.$html_ext$/index$bin_type.$html_ext/;
-        }
+        # a directory:  its view in the same bin detail and order
+        $page_link = $childPage->($page_link)
+            if defined($fileSummary) && $fileSummary->type() eq 'directory';
 
         my @columns;
 
@@ -17095,7 +17139,8 @@ sub write_file_table(*$$$$$$)
                                     $primary_key, 0,
                                     $fileview, "fileOrDir",
                                     $page_link, $dirSummary,
-                                    $showBinDetail, $asterisk
+                                    $showBinDetail, $asterisk,
+                                    $childPage
                                    ],
                                    @columns);
         }
@@ -17131,6 +17176,8 @@ sub write_file_table(*$$$$$$)
             my $lineHit = $lineTotal - $lineMissed;
 
             my $fileInfo = $primaryCb->secondaryElementFileData($name);
+            $fileInfo->[3] = $childPage->($fileInfo->[3])
+                if $fileInfo->[1]->type() eq 'directory';
 
             my $entry_type = $lineCb->cb_type();
 
@@ -17176,6 +17223,11 @@ sub write_file_table(*$$$$$$)
                                     1 + $elide_secondary_header,
                                     $fileview,
                                     $entry_type,
+                                    undef,
+                                    undef,
+                                    undef,
+                                    undef,
+                                    $childPage
                                    ],
                                    @ownerColData);
         }
@@ -20443,7 +20495,7 @@ sub write_function_table(*$$$$$$$$$$$$)
                                    callgraph => $callgraphProportionRow);
     write_html(*HTML_HANDLE, <<END_OF_HTML);
           <center>
-          <table cellpadding=1 cellspacing=1 border=0>
+          <table id="$TABLE_ANCHOR" cellpadding=1 cellspacing=1 border=0>
             <tr><td><br></td></tr>
             <tr>
               <td class="tableHead">$func_code</td>

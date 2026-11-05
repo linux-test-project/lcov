@@ -24,12 +24,17 @@ set +x
 #   5. a differential report:  a test's empty column group has the group's
 #      TLA columns too
 #   6. the alias rows of the function table
+#   7. a table sorted by a metric:  an entry with no coverpoints of that
+#      metric ('-') is last - after the 100% entries - by rate and by missed
+#      count ('--missed')
+#   8. a sort widget leads to the table of the sorted page, not to the top of
+#      the page:  the directory, function and call site tables
 
 source ../../common.tst
 
 GENHTML_OPTS="$PARALLEL $PROFILE"
 
-rm -rf *.info *.log *.expect *.actual *.pm *.pl kinds html_*
+rm -rf *.info *.log *.expect *.actual *.pm *.pl kinds rates html_*
 
 clean_cover
 
@@ -644,6 +649,110 @@ f | 1 | 50.0 % (1 / 2) | 83.3 % (5 / 6) | 50.0 % (2 / 4)
 g | 0 | _ | _ | _
 f | 1 | _ | _ | _
 EOF
+
+# ----------------------------------------------------------------------
+echo "*** 7. sorted by a metric:  an entry without that metric ('-') is last"
+# ----------------------------------------------------------------------
+# branch coverage 0%, 50% and 100% - and none at all in 'blank.cpp', whose
+#   name sorts first among the entries with nothing missed
+mkdir rates
+rm -f rates.info
+for f in zero half full blank ; do
+    printf 'int x;\nint y;\n' > rates/$f.cpp
+    echo "TN:" >> rates.info
+    echo "SF:rates/$f.cpp" >> rates.info
+    case $f in
+        zero) HIT=(0 0) ;;
+        half) HIT=(1 0) ;;
+        full) HIT=(1 1) ;;
+        *) HIT=() ;;
+    esac
+    # a line with branches, none taken, is not hit
+    DA2=1
+    [ $f == zero ] && DA2=0
+    echo "DA:1,1" >> rates.info
+    echo "DA:2,$DA2" >> rates.info
+    echo "LF:2" >> rates.info
+    echo "LH:$((1 + DA2))" >> rates.info
+    if [ 0 != ${#HIT[@]} ] ; then
+        echo "BRDA:2,0,0,${HIT[0]}" >> rates.info
+        echo "BRDA:2,0,1,${HIT[1]}" >> rates.info
+        echo "BRF:2" >> rates.info
+        echo "BRH:$((${HIT[0]} + ${HIT[1]}))" >> rates.info
+    fi
+    echo "end_of_record" >> rates.info
+done
+for missed in '' '--missed' ; do
+    label=rates${missed:+_missed}
+    runGenhtml $label --branch-coverage --no-function-coverage $missed \
+        -o html_$label rates.info
+    perl rows.pl html_$label/rates/index-sort-b.html | cut -d' ' -f1 \
+        > $label.rows.actual
+    printf 'zero.cpp\nhalf.cpp\nfull.cpp\nblank.cpp\n' > $label.rows.expect
+    if ! diff -u $label.rows.expect $label.rows.actual ; then
+        fail $label "unexpected row order in html_$label/rates/index-sort-b.html"
+    fi
+done
+
+# ----------------------------------------------------------------------
+echo "*** 8. a sort widget leads to the table of the sorted page"
+# ----------------------------------------------------------------------
+# every page of the first report:  each sort widget link has the table anchor,
+#   and the page it leads to has exactly one element with that id.  'widgets'
+#   counts the links of each kind of page - the directory, function and call
+#   site tables
+cat >anchors.pl <<'EOF'
+use strict;
+use File::Basename;
+my %ids;
+my %kinds;
+my @targets;
+my $bad = 0;
+foreach my $page (@ARGV) {
+    local $/;
+    open(my $fh, '<', $page) or die("cannot open $page: $!");
+    my $html = <$fh>;
+    close($fh);
+    $ids{$page} = () = $html =~ /id="coverageTable"/g;
+    while ($html =~ m|<a href="([^"]*)"><img src="[^"]*updown.png"|g) {
+        my $link = $1;
+        my $kind = $page =~ /\.func/ ? 'function' :
+            $page =~ /\.(callers|callees)/ ? 'callgraph' : 'directory';
+        ++$kinds{$kind};
+        my ($target, $anchor) = split(/#/, $link, 2);
+        if (!defined($anchor) || $anchor ne 'coverageTable') {
+            print("$page: link $link has no table anchor\n");
+            ++$bad;
+            next;
+        }
+        my $path = dirname($page) . "/$target";
+        if (!-f $path) {
+            print("$page: link $link leads to no page\n");
+            ++$bad;
+            next;
+        }
+        push(@targets, $path);
+    }
+}
+foreach my $path (@targets) {
+    next if 1 == $ids{$path};
+    print("$path: " . ($ids{$path} // 0) . " table anchors\n");
+    ++$bad;
+}
+foreach my $kind ('directory', 'function', 'callgraph') {
+    print("widgets $kind\n") if $kinds{$kind};
+}
+exit($bad ? 1 : 0);
+EOF
+perl anchors.pl `find html_dflt -name '*.html'` > anchors.actual
+if [ 0 != $? ] ; then
+    cat anchors.actual
+    fail anchors "sort widget without its table anchor"
+fi
+printf 'widgets directory\nwidgets function\nwidgets callgraph\n' > anchors.expect
+if ! diff -u anchors.expect anchors.actual ; then
+    fail anchors "not every kind of table has a sort widget"
+fi
 
 # ----------------------------------------------------------------------
 if [ 0 == $STATUS ] ; then
