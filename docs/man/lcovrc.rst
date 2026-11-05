@@ -896,6 +896,18 @@ of the checks, and of the settings which control them.
 
 This option is used by genhtml, lcov, and geninfo.
 
+``fix_function_counts`` = *0|1*
+-------------------------------
+
+If set to 1, then inconsistent function coverage data in which the
+function is hit but none of its constituent lines are hit or vice versa
+(function not hit but some constituent line is hit) is updated to match
+the constituent line data.
+
+Also see ``ignore_lambda_consistency`` section of this page.
+
+Default is 1:  fix the inconsistency.
+
 ``merge_continuation_lines`` =  *0|1*
 -------------------------------------
 
@@ -945,6 +957,7 @@ matches the count of the line on which it is declared.
 This setting applies to C/C++ and Java code.
 
 See the *Data consistency* section of :manpage:`geninfo(1)` for details.
+Also see the ``fix_function_counts`` section of this page.
 
 Default is 0: check lines which hold a lambda.
 

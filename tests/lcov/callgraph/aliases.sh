@@ -486,6 +486,121 @@ FNF:2
 FNH:2
 EOF
 
+# ..with 'fix_function_counts' off, the message is printed without the repair
+#   and the alias counts are left alone
+$COVER $LCOV_TOOL $LCOV_OPTS -o nofix.info -a fix.info \
+    --rc fix_function_counts=0 \
+    --ignore-errors inconsistent,unused,source 2>&1 | tee nofix.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail nofix "lcov failed on inconsistent function data"
+fi
+if ! grep -q -F -e "is not hit but line 1 is." nofix.log ||
+    grep -q -F -e "function marked" nofix.log ; then
+    fail nofix "expected the message, without the repair:"
+    grep -F -e 'inconsistent' nofix.log
+fi
+checkFunctionRecords nofix nofix.info <<'EOF'
+FNL:0,1,4
+FNA:0,0,twice<char>
+FNA:0,0,twice<int>
+FNA:0,0,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:1
+EOF
+
+# The other repair:  a location whose aliases are hit while none of its lines
+#   are is marked 'not hit' - every alias, in every testcase
+cat >unfix.info <<'EOF'
+TN:one
+SF:proj/t.cpp
+FNL:0,1,4
+FNA:0,3,twice<int>
+FNA:0,2,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:2
+DA:1,0
+DA:3,0
+DA:8,1
+DA:10,1
+LF:4
+LH:2
+end_of_record
+TN:two
+SF:proj/t.cpp
+FNL:0,1,4
+FNA:0,5,twice<int>
+FNA:0,0,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:2
+DA:1,0
+DA:3,0
+DA:8,1
+DA:10,1
+LF:4
+LH:2
+end_of_record
+EOF
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o unfixed.info -a unfix.info \
+    --ignore-errors inconsistent,unused,source 2>&1 | tee unfix.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail unfix "lcov failed on inconsistent function data"
+fi
+if ! grep -q -F -e "is hit but no contained lines are hit: function marked 'not hit'" unfix.log ; then
+    fail unfix "no repair message for the location:"
+    grep -F -e 'inconsistent' unfix.log
+fi
+checkFunctionRecords unfix unfixed.info <<'EOF'
+FNL:0,1,4
+FNA:0,0,twice<int>
+FNA:0,0,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:1
+FNL:0,1,4
+FNA:0,0,twice<int>
+FNA:0,0,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:1
+EOF
+
+$COVER $LCOV_TOOL $LCOV_OPTS -o unfixed_off.info -a unfix.info \
+    --rc fix_function_counts=0 \
+    --ignore-errors inconsistent,unused,source 2>&1 | tee unfix_off.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail unfix_off "lcov failed on inconsistent function data"
+fi
+if ! grep -q -F -e "is hit but no contained lines are hit." unfix_off.log ||
+    grep -q -F -e "function marked" unfix_off.log ; then
+    fail unfix_off "expected the message, without the repair:"
+    grep -F -e 'inconsistent' unfix_off.log
+fi
+checkFunctionRecords unfix_off unfixed_off.info <<'EOF'
+FNL:0,1,4
+FNA:0,3,twice<int>
+FNA:0,2,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:2
+FNL:0,1,4
+FNA:0,5,twice<int>
+FNA:0,0,twice<long>
+FNL:1,8,11
+FNA:1,1,main
+FNF:2
+FNH:2
+EOF
+
 # ----------------------------------------------------------------------
 echo "*** 8. the alias table in the function view"
 # ----------------------------------------------------------------------

@@ -3,9 +3,9 @@ SF:a.cpp
 FNL:0,3,3
 FNA:0,1,NotCommon
 FNL:1,5,2
-FNA:1,5,fcn2
+FNA:1,0,fcn2
 FNF:2
-FNH:2
+FNH:1
 DA:5,5
 LF:1
 LH:1

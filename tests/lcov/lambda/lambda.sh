@@ -106,6 +106,21 @@ if [ -z "$COUNT" -o "$COUNT" == 0 ] ; then
     fail fixed "lambda count '$COUNT', expected it to be hit"
 fi
 
+# ..and if that is ignored with 'fix_function_counts' off, the lambda is
+#   reported but its count is not changed
+capture no_fix 0 --rc ignore_lambda_consistency=0 --rc fix_function_counts=0 \
+    --ignore inconsistent
+if ! grep -q -F "$LINE_HIT." no_fix.log ; then
+    fail no_fix "expected the lambda to be reported"
+fi
+if grep -q -F "$LINE_HIT: function marked" no_fix.log ; then
+    fail no_fix "the lambda was reported as marked 'hit'"
+fi
+COUNT=`fnCount no_fix.info 5`
+if [ "$COUNT" != 0 ] ; then
+    fail no_fix "lambda count '$COUNT', expected 0"
+fi
+
 # not checked:  nothing is reported, and the lambda stays 'not hit'
 capture loose 0 --rc ignore_lambda_consistency=1 -v
 if grep -q -F "$LINE_HIT" loose.log ; then
