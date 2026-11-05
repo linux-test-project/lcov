@@ -834,9 +834,9 @@ checkLine caller html/proj/c.cpp.callees.html \
 #   exactly as in the function table
 for view in callers callees ; do
     checkLine sort html/proj/c.cpp.$view.html \
-        "<a href=\"c.cpp.$view-c.html\">"
+        "<a href=\"c.cpp.$view-c.html#coverageTable\">"
     checkLine sort html/proj/c.cpp.$view-c.html \
-        "<a href=\"c.cpp.$view.html\">"
+        "<a href=\"c.cpp.$view.html#coverageTable\">"
 done
 # ..the second of them by how much of that direction the tests exercised, least
 #   first, ties by name:  'mix' made two of its four calls, 'dispatch' two of
@@ -2803,8 +2803,8 @@ bravo
 ace
 EOF
 # ..whose heading leads to that order, except on the page which is in it
-checkLine srt_r html_srt/srt/s.cpp.func.html '<a href="s.cpp.func-r.html">'
-checkNoLine srt_r html_srt/srt/s.cpp.func-r.html '<a href="s.cpp.func-r.html">'
+checkLine srt_r html_srt/srt/s.cpp.func.html '<a href="s.cpp.func-r.html#coverageTable">'
+checkNoLine srt_r html_srt/srt/s.cpp.func-r.html '<a href="s.cpp.func-r.html#coverageTable">'
 
 # The callers page.  'Rate' is the proportion of the calls which reach the
 #   function, so it is the order of the 'Callers' column of the function table
@@ -2892,9 +2892,9 @@ for order in '' -c -x -o -a ; do
         for view in callers callees ; do
             page=html_srt/srt/s.cpp.$view$order.html
             if [ "$order" == "$other" ] ; then
-                checkNoLine srt_head $page "<a href=\"s.cpp.$view$other.html\">"
+                checkNoLine srt_head $page "<a href=\"s.cpp.$view$other.html#coverageTable\">"
             else
-                checkLine srt_head $page "<a href=\"s.cpp.$view$other.html\">"
+                checkLine srt_head $page "<a href=\"s.cpp.$view$other.html#coverageTable\">"
             fi
         done
     done
@@ -3089,12 +3089,17 @@ echo "*** 20. the way up from a sorted directory page"
 #   written sorted, so the link to it leads to its page in name order.  Here
 #   the top level has two entries, 'a' and 'd', and 'd' has one, 'e' - which
 #   is a directory of its own in a hierarchical report.  Scenario 5 has the
-#   flat case:  a top level whose only entry is 'proj'
-mkdir -p back/a back/d/e
+#   flat case:  a top level whose only entry is 'proj'.  'a/b' has no call
+#   sites - for scenario 21
+mkdir -p back/a/b back/d/e
 for f in back/a/x.c back/a/y.c back/d/e/p.c back/d/e/q.c ; do
     cp solo/x.c $f
     sed -e "s|^SF:.*|SF:$f|" solo.info
 done >back.info
+for f in back/a/b/p.c back/a/b/q.c ; do
+    cp solo/x.c $f
+    sed -e "s|^SF:.*|SF:$f|" -e '/^FNC/d' solo.info
+done >>back.info
 printf -- '--- back/a/x.c\n+++ back/a/x.c\n' >back.udiff
 for layout in hier flat ; do
     flag=
@@ -3133,6 +3138,71 @@ UP_D='href="../index.html" title="Click to go to directory d"'
 if ! gzip -dc html_back_gz/d/e/index-sort-c.html | grep -q -F "$UP_D" ; then
     fail up "html_back_gz/d/e/index-sort-c.html should lead to d/index.html"
 fi
+
+# ----------------------------------------------------------------------
+echo "*** 21. the way down from a sorted directory page"
+# ----------------------------------------------------------------------
+# ..and the link from a directory table to a child directory leads to the
+#   child's view in the same order - and the same bin detail - if the child
+#   has that view:  not if it has one entry ('d'), nor if it has no column of
+#   the type the table is sorted by ('a/b' has no call sites).  Then, to its
+#   view in name order.  The hierarchical report has 'a/b' below 'a';  in the
+#   flat one, all three are entries of the top level.  From the scenario 20
+#   reports
+# downLinks page:  the child directory page links of 'page', sorted
+downLinks()
+{
+    grep -o 'href="[^"./][^"#]*/index[^"#]*' $1 | sed -e 's/^href="//' |
+        sort -u | tr '\n' ' '
+}
+# checkDown page expected-links
+checkDown()
+{
+    local got=`downLinks $1`
+    if [ "$got" != "$2" ] ; then
+        fail down "$1:  links '$got', expected '$2'"
+    fi
+}
+for v in '' -date -owner ; do
+    for s in -sort-c -sort-f -sort-l ; do
+        c=$s
+        if [ $s == -sort-c ] ; then
+            c=     # 'a/b' has no call sites
+        fi
+        checkDown $H/index$v$s.html "a/index$v$s.html d/index$v.html "
+        checkDown $H/a/index$v$s.html "b/index$v$c.html "
+        checkDown $F/index$v$s.html \
+            "a/b/index$v$c.html a/index$v$s.html d/e/index$v$s.html "
+    done
+    # ..and a page in name order leads to the pages in name order
+    checkDown $H/index$v.html "a/index$v.html d/index$v.html "
+    checkDown $F/index$v.html "a/b/index$v.html a/index$v.html d/e/index$v.html "
+done
+# ..the owner and date tables:  to the child's table in the same order
+for v in bin_date bin_owner ; do
+    for s in -sort-c -sort-l ; do
+        checkLine down $H/index-$v$s.html "href=\"a/index-$v$s.html#"
+        checkLine down $H/index-$v$s.html "href=\"d/index-$v.html#"
+    done
+done
+# ..and a link into a compressed report finds the sorted page too
+checkDown_gz()
+{
+    gzip -dc $1 >gz.html
+    checkDown gz.html "$2"
+}
+checkDown_gz html_back_gz/index-sort-f.html "a/index-sort-f.html d/index.html "
+checkDown_gz html_back_gz/a/index-sort-c.html "b/index.html "
+# ..and with 'case_insensitive':  the pages of 'Up/Sub' are written as
+#   'up/sub/' - the source files are found under their lower-case names too
+mkdir -p ci/up/sub
+for f in Up/x.c Up/Sub/p.c Up/Sub/q.c ; do
+    cp solo/x.c ci/`echo $f | tr A-Z a-z`
+    sed -e "s|^SF:.*|SF:ci/$f|" solo.info
+done >ci.info
+runGenhtml ci --callgraph -o html_ci --hierarchical --rc case_insensitive=1 \
+    ci.info
+checkDown html_ci/up/index-sort-f.html "sub/index-sort-f.html "
 
 # ----------------------------------------------------------------------
 if [ 0 == $STATUS ] ; then

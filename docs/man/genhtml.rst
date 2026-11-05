@@ -2399,9 +2399,13 @@ for details.
    page - a date or owner bin, or the bin details of the file table - leads to
    the view sorted by that metric if the corresponding page exists.
    Similarly, the links at the top of a sorted directory view which lead to
-   its parent directories go to the view of each parent sorted the same way.
-   A directory whose table has only one entry is not written sorted, so the
-   link to it goes to its page in name order.
+   its parent directories go to the view of each parent sorted the same way,
+   and the link from a row of the file table to a child directory goes to the
+   child's view sorted the same way - and with the same owner or date bin
+   details, if the page shows them.
+   A directory whose table has only one entry, or which has no data of the
+   metric, is not written sorted by it, so the link to it goes to its page in
+   name order.
 
    This option can also be configured permanently using the configuration file
    option *genhtml_sort*.
