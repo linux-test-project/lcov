@@ -3195,6 +3195,10 @@ use constant {
               # current line -> [first, last] line of the statement it is part
               #   of, for the lines of the multi-line statements
               STATEMENTS => 4,
+              # [CallgraphSite, category] of each site whose category
+              #   was rewritten by 'recategorizeTlaAsBaseline', and the value
+              #   before the rewrite - see 'restoreCallSiteTla'
+              REMAPPED_SITES => 5,
 };
 
 sub new
@@ -3605,15 +3609,35 @@ sub recategorizeTlaAsBaseline
         #   decision cannot be made in the parent - it needs the file's
         #   annotation, which is what the children are forked to do.  So a site
         #   in a file this option rewrites is 'CBC' where its own file displays
-        #   it and 'GIC' where its callee does
+        #   it and 'GIC' where its callee does.
+        # The rewrite is written through to the FunctionEntry (where
+        #   this file's call site pages also read it from) so is seen by
+        #   the callee's table if that is written later in the same process -
+        #   which it is if not run with '--parallel'.
+        #   So it is recorded, and undone when this file's pages are done
+        #   - see 'restoreCallSiteTla'
         if ($lcovutil::callgraph_coverage) {
             foreach my $site ($data->call_sites()) {
                 my $tla = $site->tla();
-                $site->set_tla($remap{$tla})
-                    if exists($remap{$tla});
+                next unless exists($remap{$tla});
+                $site->set_tla($remap{$tla});
+                push(@{$self->[REMAPPED_SITES]}, [$site, $tla]);
             }
         }
     }
+}
+
+sub restoreCallSiteTla
+{
+    # put back the category which 'recategorizeTlaAsBaseline' rewrote, which is
+    #   the one 'main::categorize_all_call_sites' computed:  the one every other
+    #   file's 'callers of this function' table shows, whatever the file order
+    my $self = shift;
+    return unless defined($self->[REMAPPED_SITES]);
+    foreach my $r (@{$self->[REMAPPED_SITES]}) {
+        $r->[0]->set_tla($r->[1]);
+    }
+    $self->[REMAPPED_SITES] = undef;
 }
 
 sub _categorize
@@ -11013,6 +11037,7 @@ sub process_file($$$$$)
     }
 
     if ($srcfile->is_empty()) {
+        $fileCovInfo->restoreCallSiteTla();
         return;
     }
     # somewhat of a hack:  we are ultimately going to merge $fileSummary
@@ -11237,6 +11262,8 @@ sub process_file($$$$$)
     $lcovutil::profileData{html}{$filename} = $elapsed;
     #info(sprintf("    HTML %0.3fs\n", $elapsed));
 
+    # this file's pages are done:  the other files' see the parent's categories
+    $fileCovInfo->restoreCallSiteTla();
     return ($testdata, $testfncdata, $testbrdata, $testcase_mcdc);
 }
 
