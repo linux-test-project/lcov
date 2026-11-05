@@ -3251,18 +3251,26 @@ for details.
         ``--version-script`` to guard against version mismatches.
 
       - Two or more ``gcov`` data files or ``lcov`` ".info" files report
-        different end lines for the same function. This is likely due either to
-        a gcc/gcov bug or to a source version mismatch.
+        different start and/or end lines for the same function.
+	This is likely due either to a gcc/gcov bug or to a source version
+	mismatch.
 
          In this context, if the *"inconsistent"* error is ignored, then the
-         tool will record the largest number as the function end line.
+         tool will record the smallest candidate start line and the largest
+	 candidate function end line.
 
-      - Two or more ``gcov`` data files or ``lcov`` ".info" files report
-        different start lines for the same function. This is likely due either
-        to a gcc/gcov bug or to a source version mismatch.
+      - Function execution data is inconsistent:  the function is hit but
+	none of its constituent lines are hit, or vice versa: the function
+	is not hit but some constituent lines are.
+	This is likely due either to a gcc/gcov bug or somewhat strangely
+	structured source code.
 
          In this context, if the *"inconsistent"* error is ignored, then the
-         tool will retain only the first function definition that it saw.
+         tool will set the function hit status to match its constituent
+	 lines (function is hit if any of its lines were, else not hit).
+
+	 If the ``fix_function_counts`` setting is not enabled, then the
+	 function hit counts are not adjusted.  See :manpage:`lcovrc(5)`.
 
       - Mismatched function declaration/alias records encountered:
 

@@ -730,7 +730,7 @@ our $parallel_parse_chunks_per_worker = 4;
 our $fail_under_lines;
 our $fail_under_branches;
 
-our $fix_inconsistency = 1;
+our $fix_function_counts = 1;
 
 sub default_info_impl(@);
 
@@ -1913,6 +1913,7 @@ my %rc_common = (
     'callgraph_partial_data'       => \$lcovutil::callgraph_partial_data,
     'strict_callee_match'          => \$lcovutil::strict_callee_match,
     "function_coverage"            => \$lcovutil::func_coverage,
+    'fix_function_counts'          => \$lcovutil::fix_function_counts,
     "lcov_excl_line"               => \$lcovutil::EXCL_LINE,
     "lcov_excl_br_line"            => \$lcovutil::EXCL_BR_LINE,
     "lcov_excl_exception_br_line"  => \$lcovutil::EXCL_EXCEPTION_LINE,
@@ -13827,10 +13828,12 @@ sub _fixFunction
     foreach my $f (@fix) {
         $f->set_hit($count);
 
-        # and mark that each alias was hit...
+        # and mark that each alias was hit - or, if marking the function
+        #   'not hit', that none was:  the alias counts are what is written
+        #   out, so they have to agree with the function's
         foreach my $alias ($f->aliasNames()) {
             my $data = $f->alias($alias);
-            $data->set_count($data->count() + $count);
+            $data->set_count($count ? $data->count() + $count : 0);
         }
     }
 }
@@ -14577,7 +14580,7 @@ sub _checkConsistency
                 #   report nor fix it
                 last if _lambdaSuppressed($traceInfo, $srcReader, $currentLine);
                 my $suffix =
-                    ($lcovutil::fix_inconsistency && lcovutil::is_ignored(
+                    ($lcovutil::fix_function_counts && lcovutil::is_ignored(
                                              $lcovutil::ERROR_INCONSISTENT_DATA)
                     ) ? ": function marked 'hit'" :
                     '';
@@ -14589,7 +14592,7 @@ sub _checkConsistency
                                $func->name() .
                                "' is not hit but line $currentLine is$suffix." .
                                _consistencySuffix());
-                if ($lcovutil::fix_inconsistency) {
+                if ($lcovutil::fix_function_counts) {
                     # if message was ignored, then mark the function and all
                     #  its aliases hit
                     $imHit    = 1;
@@ -14604,7 +14607,7 @@ sub _checkConsistency
         }
         if ($imHit && !$lineHit) {
             my $suffix =
-                ($lcovutil::fix_inconsistency &&
+                ($lcovutil::fix_function_counts &&
                  lcovutil::is_ignored($lcovutil::ERROR_INCONSISTENT_DATA)) ?
                 ": function marked 'not hit'" :
                 '';
@@ -14616,7 +14619,7 @@ sub _checkConsistency
                              $func->name() .
                              "' is hit but no contained lines are hit$suffix." .
                              _consistencySuffix());
-            if ($lcovutil::fix_inconsistency) {
+            if ($lcovutil::fix_function_counts) {
                 # if message was ignored, then mark the function and its aliases
                 #  not hit
                 $modified = 1;

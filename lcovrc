@@ -131,6 +131,10 @@ max_message_count = 100
 # if nonzero, do not check branch/line consistency on lines holding a lambda
 #ignore_lambda_consistency = 0
 
+# if nonzero, an ignored function/line inconsistency is repaired:  the
+# function count is set to match its lines.  See man lcovrc(5).
+#fix_function_counts = 1
+
 # Width of line coverage field in source code view
 genhtml_line_field_width = 12
 

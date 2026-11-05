@@ -231,6 +231,53 @@ for i in funcNoLine lineNoFunc branchNoLine lineNoBranch ; do
     fi
 done
 
+# the ignored function inconsistencies:  with 'fix_function_counts' on (the
+#   default), the function count is set to match its lines and the message
+#   says so;  with it off, the count is left as it was.  Both in the serial
+#   consistency check and in the forked one ('merge_continuation_lines')
+# "file fixed-count original-count message:suffix"
+for t in "funcNoLine 0 1 is hit but no contained lines are hit:function marked 'not hit'" \
+         "lineNoFunc 10 0 is not hit but line 22 is:function marked 'hit'" ; do
+    read -r i fixed orig msg <<< "$t"
+    suffix=${msg#*:}
+    msg=${msg%%:*}
+    for fix in 1 0 ; do
+        for fork in 0 1 ; do
+            out=${i}_fix${fix}_fork${fork}
+            $COVER $LCOV_TOOL $LCOV_OPTS -o $out.out -a $i.info \
+                --ignore inconsistent --rc fix_function_counts=$fix \
+                --rc merge_continuation_lines=$fork > $out.log 2>&1
+            if [ 0 != $? ] ; then
+                cat $out.log
+                echo "failed to ignore error $out.log"
+                status=1
+            fi
+            if [ 1 == $fix ] ; then
+                expect=$fixed
+                grep -q -F "$msg: $suffix." $out.log
+            else
+                expect=$orig
+                grep -q -F "$msg." $out.log
+            fi
+            if [ 0 != $? ] ; then
+                echo "$out: wrong or missing inconsistency message"
+                status=1
+            fi
+            if [ 1 == $fork ] && ! grep -q -F 'Apply filtering' $out.log ; then
+                echo "$out: expected the forked consistency check"
+                status=1
+            fi
+            if ! grep -q -E "^FNA:0,$expect,main$" $out.out ; then
+                echo "$out: expected main count $expect:" `grep FNA $out.out`
+                status=1
+            fi
+            if [ 0 != $status -a 0 == $KEEP_GOING ] ; then
+                exit $status
+            fi
+        done
+    done
+done
+
 # A function whose own first line has no line coverpoint, with the next one
 #   after the start of the function which follows it:  the only line left to
 #   end it on is before its start, so its end line cannot be derived - see
