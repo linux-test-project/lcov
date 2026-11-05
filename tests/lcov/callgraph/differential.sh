@@ -1633,6 +1633,28 @@ EOF
 #   processed - and the callee-side table shows what the parent computed, which
 #   is the un-rewritten category.  See the comment on the callee arm of
 #   'FileCoverageInfo::recategorizeTlaAsBaseline'
+# ..and that is so in one process too, whichever file is processed first:  the
+#   rewrite of 'c.cpp' is written through to the sites the callee-side table of
+#   'lib.cpp' reads, so it has to be undone when the pages of 'c.cpp' are done.
+#   The file order is the hash order, so fixed seeds give both orders
+declare -A nfbOrder
+for ((seed = 1 ; seed <= 20 && ${#nfbOrder[@]} < 2 ; ++seed)) ; do
+    PERL_HASH_SEED=$seed PERL_PERTURB_KEYS=0 \
+        runGenhtml nfborder --callgraph --show-proportion -o html_nfborder \
+        --baseline-file lib_only.info --diff-file c.udiff --new-file-as-baseline \
+        --annotate-script `pwd`/ann.pm curr.info --parallel 1 || continue
+    order=`grep -o 'Processing file proj/[a-z.]*' nfborder.log | sed -e 's|.*/||' |
+        tr '\n' ' '`
+    nfbOrder[$order]=1
+    for cls in tlaUBC tlaCBC ; do
+        checkNoLine nfborder html_nfborder/proj/lib.cpp.callers.html "$cls"
+    done
+    checkLine nfborder html_nfborder/proj/lib.cpp.callers.html 'class="tlaUIC"'
+    checkLine nfborder html_nfborder/proj/c.cpp.callees.html 'class="tlaUBC"'
+done
+if [ ${#nfbOrder[@]} != 2 ] ; then
+    fail nfborder "expected both file orders, saw: ${!nfbOrder[*]}"
+fi
 
 # ----------------------------------------------------------------------
 echo "*** 10. the unknown count '-' in a differential report"
