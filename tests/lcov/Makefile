@@ -28,6 +28,7 @@ TESTS := \
   stmtspan \
   gcovattach \
   lambda \
+  lambdaname \
   coverage \
   names \
   serialization \

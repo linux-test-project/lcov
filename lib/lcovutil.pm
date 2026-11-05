@@ -3299,6 +3299,28 @@ sub is_ignored($)
     return $ignore[$code] || (defined($stop_on_error) && 0 == $stop_on_error);
 }
 
+# Is 'name' the name of a function of a C++ lambda:  its call operator, or
+#   another member of its closure type (conversion to function pointer, static
+#   invoker, destructor)?  The name may be mangled - as geninfo writes it by
+#   default - or demangled by GNU c++filt ('{lambda()#1}') or llvm-cxxfilt
+#   ('lambda'()'), and the closure may be gcc's or clang's (an unnamed '$_0').
+#   A function which is only instantiated on a closure type, such as
+#   'call_if<main::{lambda()#1}>(bool, main::{lambda()#1})', is not:  in its
+#   name the closure is followed by the end of the template arguments or by
+#   the next argument, rather than by a member name.
+our $cpp_lambda_pattern = qr/
+      \{lambda\(.*?\)\#\d+\}::
+    | 'lambda\d*'\(.*?\)::
+    | \$_\d+::(?:operator[\s(]|__invoke\(|~)
+    | ^_Z.*(?:Ul\w*?E\d*_|\d\$_\d+)(?:cl[EI]|cv|4_FUN|8__invoke|D[0-2]|C[1-3])
+    /x;
+
+sub is_cpp_lambda($)
+{
+    my $name = shift;
+    return $name =~ $cpp_lambda_pattern;
+}
+
 our %explainOnce;    # append explanation to first error/warning message (only)
 
 sub explain_once
@@ -8571,7 +8593,7 @@ sub isLambda
     # only if every alias is a lambda.
     # -> this is a lambda only if there is only one alias
     return ((TraceFile::is_language(lcovutil::IS_C, $self->filename()) &&
-                 $self->name() =~ /{lambda\(/) ||
+                 lcovutil::is_cpp_lambda($self->name())) ||
                 (TraceFile::is_language(lcovutil::IS_JAVA, $self->filename()) &&
                  $self->name() =~ /\.lambda\$/));
 }
@@ -13875,7 +13897,7 @@ sub _lambdaSuppressed
         $found = $func->isLambda()
             ||
             grep({ ($lang & lcovutil::IS_C) ?
-                         ($_ =~ /\{lambda\(/ || $_ =~ /^_Z.*Ul\w*?E\d*_/) :
+                         lcovutil::is_cpp_lambda($_) :
                          $_ =~ /\.lambda\$/ } $func->aliasNames());
     }
     unless ($found) {
