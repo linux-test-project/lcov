@@ -83,6 +83,11 @@ For example:
   none of its contained branch expressions have been evaluated. (If the line
   was executed, then at least one branch condition must have been evaluated.)
 
+- A bug in ``perl/5.26`` (and possibly others) does not count the newline in a
+  regular expression replacement when the pattern and replacement are on
+  different lines - causing an off-by-one error in subsequent lines. (See
+  comment in ``genhtml``.)
+
 This can cause the various tools in the |ToolName| package to generate errors of
 type ``inconsistent``.
 
