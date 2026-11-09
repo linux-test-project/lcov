@@ -10334,8 +10334,10 @@ sub unsortParentLinks
         }
         close($in) or die("unable to close $page: $!\n");
         my $fixed = $html;
-        $fixed =~ s{href="\Q$up\E(index[^"/]*?)(?:$sorts)\.\Q$html_ext\E"}
-             {href="$up$1.$html_ext"}g;
+        # keep the 's{}{}' on one line:  perl 5.26 miscounts the line
+        #   numbers of every statement after a newline between its two parts
+        my $link = qr{href="\Q$up\E(index[^"/]*?)(?:$sorts)\.\Q$html_ext\E"};
+        $fixed =~ s{$link}{href="$up$1.$html_ext"}g;
         next if $fixed eq $html;
         if ($main::html_gzip) {
             open($out, '|-', "gzip -c > $quoted") or
@@ -13499,8 +13501,8 @@ sub escape_id($)
 #                        [ name, [filename, fileDetails, fileHref, cbdata],
 #                          activeTlaCols,
 #                          rowspan, primary_key, is_secondary, fileview,
-#                          page_type, page_link, dirSummary, showDetailCol,
-#                          asterisk, childPage ],
+#                          childPage, page_type, page_link, dirSummary,
+#                          showDetailCol, asterisk ],
 #                        ([ found, hit, med_limit, hi_limit, graph ], ..)
 #
 # Write an entry of the file table.
@@ -13512,9 +13514,9 @@ sub write_file_table_entry(*$$@)
     my ($handle, $base_dir, $data, @entries) = @_;
     my ($name, $callbackData, $activeTlaCols,
         $rowspan, $primary_key, $is_secondary,
-        $fileview, $page_type, $page_link,
-        $dirSummary, $showBinDetailColumn, $asterisk,
-        $childPage) = @$data;
+        $fileview, $childPage, $page_type,
+        $page_link, $dirSummary, $showBinDetailColumn,
+        $asterisk) = @$data;
     my ($filename, $fileSummary, $fileDetails, $file_link, $cbData) =
         @$callbackData;
     die("unexpected callback arg types: write_file_table_entry(" .
@@ -17164,10 +17166,10 @@ sub write_file_table(*$$$$$$$)
                                    [$primaryCb->name(), \@tableCallbackData,
                                     $activeTlaCols, $numRows,
                                     $primary_key, 0,
-                                    $fileview, "fileOrDir",
-                                    $page_link, $dirSummary,
-                                    $showBinDetail, $asterisk,
-                                    $childPage
+                                    $fileview, $childPage,
+                                    "fileOrDir", $page_link,
+                                    $dirSummary, $showBinDetail,
+                                    $asterisk
                                    ],
                                    @columns);
         }
@@ -17249,12 +17251,8 @@ sub write_file_table(*$$$$$$$)
                                     $primary_key,
                                     1 + $elide_secondary_header,
                                     $fileview,
-                                    $entry_type,
-                                    undef,
-                                    undef,
-                                    undef,
-                                    undef,
-                                    $childPage
+                                    $childPage,
+                                    $entry_type
                                    ],
                                    @ownerColData);
         }
