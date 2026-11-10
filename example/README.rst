@@ -7,8 +7,18 @@ To see some examples of |TOOL_NAME| generated HTML coverage reports::
 Review the 'make' log and the generated
 data, and then point a web browser into the resulting reports.
 
-The example builds with GCC by default.
-You will need to make a few changes if you want to use LLVM instead.
+The example builds with GCC by default.  To build with clang and LLVM
+source-based coverage instead::
+
+    $ make USE_LLVM=1
+
+The coverage data is then captured with ``llvm-profdata``, ``llvm-cov export``
+and ``llvm2lcov`` rather than ``lcov --capture``; the reports are generated
+the same way, regardless of toolchain.  MC/DC data is collected for
+``clang/18`` and above, and with ``gcc/14`` and above.
+LLVM does not support callgraph data.
+The LLVM tools are taken from the directory ``clang`` is found, if they are
+there, else from ``PATH``.
 
 
 - Default view:

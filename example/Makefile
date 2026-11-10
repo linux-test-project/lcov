@@ -8,10 +8,26 @@
 #                   nothing if not available.
 #   - clean:        clean up directory
 #
+# Make variables:
+#   - USE_LLVM=1:   build with clang and LLVM source-based coverage
+#                   ('-fprofile-instr-generate -fcoverage-mapping'), and
+#                   capture with 'llvm-profdata', 'llvm-cov export' and
+#                   llvm2lcov rather than 'lcov --capture'.  The reports are
+#                   generated the same way, regardless of toolchain.
+#                   'llvm-profdata' and 'llvm-cov' are taken from the
+#                   directory $(CC) is found, if they are there, else from PATH.
+#
 
+ifeq ($(USE_LLVM),)
 CC      := gcc
 CFLAGS  := -Wall -I. --coverage
 LDFLAGS  := --coverage
+else
+CC      := clang
+CXX     := clang++
+CFLAGS  := -Wall -I. -fprofile-instr-generate -fcoverage-mapping
+LDFLAGS  := -fprofile-instr-generate
+endif
 
 LCOV_FLAGS = --branch-coverage
 
@@ -20,20 +36,30 @@ export PERL_COVER_ARGS := -MDevel::Cover=-db,$(COVER_DB),-coverage,statement,bra
 EXEC_COVER := perl ${PERL_COVER_ARGS}
 endif
 
-# MC/DC enabled in gcc/14 and above.  Ask $(CC):  everything here is C, so
-#   $(CXX) does not decide what these objects can be built with.
-ENABLE_MCDC := $(shell test `$(CC) -dumpversion | cut -d. -f1` -ge 14 && echo 1 || echo 0)
-
-# callgraph-coverage also enabled in gcc/14 and above
-ENABLE_CALLEE := $(shell test `$(CC) -dumpversion | cut -d. -f1` -ge 14 && echo 1 || echo 0)
+# Ask $(CC) what it supports:  everything here is C - no C++
+CC_MAJOR := $(shell $(CC) -dumpversion | cut -d. -f1)
+ifeq ($(USE_LLVM),)
+# MC/DC and callgraph-coverage are enabled in gcc/14 and above
+ENABLE_MCDC := $(shell test $(CC_MAJOR) -ge 14 && echo 1 || echo 0)
+ENABLE_CALLGRAPH := $(ENABLE_MCDC)
+else
+# MC/DC is enabled in clang/18 and above.  LLVM does not support callgraph:
+#   'llvm-cov export' records segments, branches and MC/DC, but no edges
+ENABLE_MCDC := $(shell test $(CC_MAJOR) -ge 18 && echo 1 || echo 0)
+ENABLE_CALLGRAPH := 0
+endif
 
 ifeq ($(ENABLE_MCDC), 1)
+ifeq ($(USE_LLVM),)
 CFLAGS += -fcondition-coverage
 LDFLAGS += -fcondition-coverage
+else
+CFLAGS += -fcoverage-mcdc
+endif
 LCOV_FLAGS += --mcdc-coverage
 endif
 
-ifeq ($(ENABLE_CALLEE), 1)
+ifeq ($(ENABLE_CALLGRAPH), 1)
 CFLAGS += -fcallgraph-info=su,da
 LCOV_FLAGS += --callgraph-coverage
 endif
@@ -68,6 +94,8 @@ SCRIPTS = $(LCOV_HOME)/scripts
 #   which goes with a compiler is its sibling in the same directory;  when that
 #   agrees with the one on PATH - the usual case - this is empty and nothing
 #   about the run changes.  An explicit '--gcov-tool' still overrides it.
+#   An LLVM build is using the prodata path - so doesn't care about gcov.
+ifeq ($(USE_LLVM),)
 GCOV_TOOL_RC := $(shell                                                  \
 	CC_PATH=`command -v $(firstword $(CC)) 2>/dev/null` ;            \
 	PATH_GCOV=`command -v gcov 2>/dev/null` ;                        \
@@ -82,8 +110,10 @@ GCOV_TOOL_RC := $(shell                                                  \
 ifneq ($(GCOV_TOOL_RC),)
 $(info example: $(GCOV_TOOL_RC) - to match compiler '$(firstword $(CC))')
 endif
+endif
 
 LCOV    := $(EXEC_COVER) $(BINDIR)/lcov $(LCOV_FLAGS) $(GCOV_TOOL_RC)
+LLVM2LCOV := $(EXEC_COVER) $(BINDIR)/llvm2lcov $(LCOV_FLAGS)
 GENHTML := $(EXEC_COVER) $(BINDIR)/genhtml $(LCOV_FLAGS)
 HTML2LCOV := $(EXEC_COVER) $(BINDIR)/html2lcov $(LCOV_FLAGS)
 GENDESC := $(EXEC_COVER) $(BINDIR)/gendesc
@@ -91,6 +121,48 @@ GENPNG  := $(EXEC_COVER) $(BINDIR)/genpng
 SCRIPTDIR = $(shell if [ -d ../scripts ] ; then echo $(SCRIPTS) ; else echo $(LCOV_HOME)/share/lcov/support-scripts ; fi)
 
 GITDIFF  := $(EXEC_COVER) $(SCRIPTDIR)/gitdiff
+
+# The coverage counts of the program in the current directory:
+#   - $(ZERO_COUNTERS):  remove the counts of previous runs
+#   - $(call CAPTURE,<info file>,<options>):  write the counts collected since
+#     to <info file>.  <options> are capture options which 'lcov --capture'
+#     and llvm2lcov both accept, e.g. '--test-name', '--version-script'.
+#     They come last:  '--profile' takes an optional file name, so would take
+#     an argument which followed it.
+#   - $(NO_EXTERNAL):  leave out the code which is not in the example's
+#     sources.  'llvm-cov export' writes only the files which the program's
+#     coverage mapping names:  there is nothing to leave out.
+#   - $(HISTORY):  the '--history' callback which reads the execution profile
+#     of the baseline capture.  A variable because a comma in a '$(call)'
+#     argument would split it in two.
+HISTORY = $(SCRIPTDIR)/history.pm,baseline.info.json
+ifeq ($(USE_LLVM),)
+ZERO_COUNTERS = $(LCOV) --zerocounters --directory .
+CAPTURE = $(LCOV) --capture --directory . --output-file $(1) $(2)
+NO_EXTERNAL = --no-external
+else
+# Each process writes its own .profraw file ('%p' is the process ID), so
+#   that every run of the program is counted:  without it, each run would
+#   overwrite the 'default.profraw' of the one before.
+export LLVM_PROFILE_FILE := example-%p.profraw
+# the LLVM tools which go with $(CC):  see 'USE_LLVM' above
+llvm_tool = $(shell                                                     \
+	CC_PATH=`command -v $(firstword $(CC)) 2>/dev/null` ;           \
+	SIBLING=`dirname "$$CC_PATH"`/$(1) ;                            \
+	if [ -n "$$CC_PATH" ] && [ -x "$$SIBLING" ] ; then              \
+	  echo "$$SIBLING" ;                                            \
+	else                                                            \
+	  echo $(1) ;                                                   \
+	fi )
+LLVM_PROFDATA := $(call llvm_tool,llvm-profdata)
+LLVM_COV      := $(call llvm_tool,llvm-cov)
+ZERO_COUNTERS = $(RM) *.profraw
+CAPTURE = $(LLVM_PROFDATA) merge --sparse -o example.profdata *.profraw && \
+	$(LLVM_COV) export -format=text -instr-profile=example.profdata    \
+	  ./example > example.json &&                                      \
+	$(LLVM2LCOV) --output $(1) example.json $(2)
+NO_EXTERNAL =
+endif
 
 # ---------------------------------------------------------------------------
 # The Java/JaCoCo example.  Coverage for the Java program comes from the JaCoCo
@@ -160,12 +232,14 @@ C99 = $(shell VER=`$(CC) -dumpversion | perl -pe 's/^(\d+)\..+$$/$$1/'` ; if [ $
 #   not changed, so 'make CC=/usr/bin/gcc' after a plain 'make' rebuilds nothing
 #   and then captures the previous compiler's .gcno with this one's gcov - the
 #   same version mismatch $(GCOV_TOOL_RC) exists to prevent, arriving by a route
-#   no gcov setting can help with.  So keep the compiler in a stamp file which
-#   the objects depend on.  The stamp is considered every time (that is what the
-#   FORCE prerequisite is for) but rewritten only when $(CC) has changed, so it
-#   is newer than the objects exactly when they were built by a different
-#   compiler and the .gcno have to be made again.  The .gcda need no such care:
-#   every testcase below runs 'lcov --zerocounters' before it runs the program.
+#   no gcov setting can help with.  So keep the compiler and its flags in a
+#   stamp file which the objects depend on.  The stamp is considered every time
+#   (that is what the FORCE prerequisite is for) but rewritten only when $(CC)
+#   or $(CFLAGS) has changed, so it is newer than the objects exactly when they
+#   were built by a different compiler or for different coverage data (gcc or
+#   LLVM, with or without MC/DC) and have to be made again.
+#   Every testcase runs $(ZERO_COUNTERS) before it runs the program - so
+#   counts are always updated using current tools and current build.
 COMPILER_STAMP := .compiler
 
 .PHONY: clean output example_noargs example_2_to_2000 example_overflow \
@@ -180,8 +254,8 @@ all: output
 FORCE:
 
 $(COMPILER_STAMP): FORCE
-	@if [ "`cat $@ 2>/dev/null`" != '$(CC)' ] ; then \
-	    echo '$(CC)' > $@ ;                          \
+	@if [ "`cat $@ 2>/dev/null`" != '$(CC) $(CFLAGS)' ] ; then \
+	    echo '$(CC) $(CFLAGS)' > $@ ;                          \
 	fi
 
 example: example.o iterate.o gauss.o
@@ -233,9 +307,9 @@ example_noargs:
 	@echo '* Test case 1: running ./example without parameters'
 	@echo '*'
 	@echo
-	$(LCOV) --zerocounters --directory .
+	$(ZERO_COUNTERS)
 	./example
-	$(LCOV) --capture --directory . --output-file trace_noargs.info --test-name example_noargs --no-external
+	$(call CAPTURE,trace_noargs.info,--test-name example_noargs $(NO_EXTERNAL))
 
 example_2_to_2000:
 	@echo
@@ -243,9 +317,9 @@ example_2_to_2000:
 	@echo '* Test case 2: running ./example 2 2000'
 	@echo '*'
 	@echo
-	$(LCOV) --zerocounters --directory .
+	$(ZERO_COUNTERS)
 	./example 2 2000
-	$(LCOV) --capture --directory . --output-file trace_args.info --test-name example_2_to_2000 --no-external $(EXTRA_IGNORE)
+	$(call CAPTURE,trace_args.info,--test-name example_2_to_2000 $(NO_EXTERNAL) $(EXTRA_IGNORE))
 
 example_overflow:
 	@echo
@@ -253,9 +327,9 @@ example_overflow:
 	@echo '* Test case 3: running ./example 0 100000 (causes an overflow)'
 	@echo '*'
 	@echo
-	$(LCOV) --zerocounters --directory .
+	$(ZERO_COUNTERS)
 	./example 0 100000 || true
-	$(LCOV) --capture --directory . --output-file trace_overflow.info --test-name "example_overflow" --no-external $(EXTRA_IGNORE)
+	$(call CAPTURE,trace_overflow.info,--test-name "example_overflow" $(NO_EXTERNAL) $(EXTRA_IGNORE))
 
 # The example repo, shared by the testcases below which need revision control.
 #   Every source any of them wants is checked in when the repo is made, so that
@@ -305,7 +379,7 @@ example_differential: $(REPO_STAMP)
 	git restore --source=baseline --staged --worktree -- . ;  \
 	git tag -d current > /dev/null 2>&1 ;                     \
 	git reset -q --soft baseline ;                            \
-	find . \( -name '*.gcda' -o -name '*.gcno' \) -delete )
+	find . \( -name '*.gcda' -o -name '*.gcno' -o -name '*.profraw' \) -delete )
 	@echo "Build example and run some tests"
 	(cd $(REPO) ; \
 	$(CC) -o example $(CFLAGS) $(C99) -I. example.c methods/gauss.c methods/iterate.c ; \
@@ -315,8 +389,8 @@ example_differential: $(REPO_STAMP)
 
 	@echo "Step 2: Capture initial coverage"
 	(cd $(REPO) ; \
-	$(LCOV) --capture -o baseline.info -d . \
-		--version-script $(SCRIPTDIR)/gitversion.pm --profile )
+	$(call CAPTURE,baseline.info,                         \
+		--version-script $(SCRIPTDIR)/gitversion.pm --profile) )
 
 	@echo "Step 3: Modify source code"
 	@(cd $(REPO) ; \
@@ -328,7 +402,7 @@ example_differential: $(REPO_STAMP)
 
 	@echo "Step 4: Rebuild and run tests (fewer tests this time)"
 	( cd $(REPO) ; \
-	find . \( -name '*.gcda' -o -name '*.gcno' \) -delete ; \
+	find . \( -name '*.gcda' -o -name '*.gcno' -o -name '*.profraw' \) -delete ; \
 	$(CC) -o example $(CFLAGS) $(C99) -I. example.c methods/gauss.c methods/iterate.c ; \
 	./example )
 
@@ -336,10 +410,10 @@ example_differential: $(REPO_STAMP)
 	@echo "   (note that this example is too tiny for history reuse"
 	@echo "   to affect runtime performance)"
 	(cd $(REPO) ; \
-	$(LCOV) --capture -o current.info -d .              \
+	$(call CAPTURE,current.info,                        \
 		--version-script $(SCRIPTDIR)/gitversion.pm \
 		--profile                                   \
-		--history $(SCRIPTDIR)/history.pm,baseline.info.json )
+		--history $(HISTORY)) )
 	@echo "Compute source diffs"
 	(cd $(REPO) ;                                          \
 	$(GITDIFF) -b . `git rev-list -n 1 baseline` \
@@ -424,7 +498,7 @@ example_html2lcov:
 
 	@echo "Step 2: Capture initial coverage and generate coverage report"
 	(cd $(HTML_example_dir) ;                                    \
-	$(LCOV) --capture -o baseline.info --profile -d . )
+	$(call CAPTURE,baseline.info,--profile) )
 
 	@echo "generate coverage report"
 	@echo "  Note that we have to '--save' the coverage .info file."
@@ -446,15 +520,14 @@ example_html2lcov:
 
 	@echo "Step 5: Rebuild and run tests (fewer tests this time)"
 	( cd $(HTML_example_dir) ;                              \
-	find . \( -name '*.gcda' -o -name '*.gcno' \) -delete ; \
+	find . \( -name '*.gcda' -o -name '*.gcno' -o -name '*.profraw' \) -delete ; \
 	$(CC) -o example $(CFLAGS) $(C99) -I.                   \
 	example.c methods/gauss.c methods/iterate.c ;           \
 	./example )
 
 	@echo "Step 4: Capture new coverage (after source changes)"
 	(cd $(HTML_example_dir) ;                                    \
-	$(LCOV) --capture -o current.info -d . --profile             \
-		--history $(SCRIPTDIR)/history.pm,baseline.info.json )
+	$(call CAPTURE,current.info,--profile --history $(HISTORY)) )
 
 	@echo "Step 5: Compute source diffs from baseline coverage report"
 	@echo "  '-o recovered' names a base:  the universal diff lands in"
@@ -581,4 +654,5 @@ endif
 clean:
 	$(call echocmd,"  CLEAN   lcov/example")
 	rm -rf *.o *.bb *.bbg *.da *.gcno *.gcda *.ci *.info output example descriptions \
+	  *.profraw *.profdata example.json \
 	  $(REPO) $(HTML_example_dir) hierarchical $(COMPILER_STAMP)

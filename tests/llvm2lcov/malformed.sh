@@ -37,6 +37,8 @@ set +x
 #   14. MC/DC records in the format before llvm-cov 3.0.1:  per file, and
 #       a decision which spans two lines
 #   15. MC/DC records in the 3.0.1 format:  per function
+#   16. '--profile' writes <output>.json, which a later '--history-script'
+#       reads, or the file it names
 # ============================================================================
 
 if [[ "x" == ${LCOV_HOME}x ]] ; then
@@ -52,9 +54,10 @@ source ../common.tst
 #   export that test just captured from llvm-cov, out from under it
 for stem in nofiles scalarfiles nofilename hashsegments nofunctions noname \
     nofilenames noregions multiregion expansion noexpr nomcdc blankexpr \
-    oldmcdc newmcdc ; do
+    oldmcdc newmcdc profile history ; do
     rm -f $stem.json $stem.info $stem.log
 done
+rm -f profile.info.json named.json named.info
 for stem in nofilename noname nofilenames ; do
     rm -f ${stem}_ign.info ${stem}_ign.log
 done
@@ -480,6 +483,36 @@ MCDC:3,2,t,1,1,'b > 0' in 'a > 0 &&        b > 0'
 MCDC:3,2,f,1,1,'b > 0' in 'a > 0 &&        b > 0'
 EOF
     fail newmcdc "unexpected MC/DC data from the 3.0.1 format"
+fi
+
+# ----------------------------------------------------------------------
+echo "*** 16. '--profile' and '--history-script'"
+# ----------------------------------------------------------------------
+cat >profile.json <<EOF
+{ "version": "2.0.1", "data": [ { $FILES,
+  "functions": [ { "name": "f", "count": 1, "filenames": [ "src.c" ],
+                   "regions": [ [1,1,6,2,1,0,0,0] ],
+                   "branches": [] } ] } ] }
+EOF
+$COVER $LLVM2LCOV_TOOL -o profile.info profile.json --profile 2>&1 |
+    tee profile.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail profile "llvm2lcov --profile failed"
+fi
+if ! grep -q '"tool" *: *"llvm2lcov"' profile.info.json ; then
+    fail profile "no llvm2lcov profile in profile.info.json"
+fi
+# the history the example's differential capture reads
+$COVER $LLVM2LCOV_TOOL -o history.info profile.json \
+    --history-script $SCRIPT_DIR/history.pm,profile.info.json 2>&1 |
+    tee history.log
+if [ 0 != ${PIPESTATUS[0]} ] ; then
+    fail history "llvm2lcov did not accept its own profile as history"
+fi
+$COVER $LLVM2LCOV_TOOL -o named.info --profile named.json profile.json 2>&1 |
+    tee -a profile.log
+if [ 0 != ${PIPESTATUS[0]} ] || [ ! -f named.json ] ; then
+    fail profile "llvm2lcov --profile named.json did not write named.json"
 fi
 
 # ----------------------------------------------------------------------

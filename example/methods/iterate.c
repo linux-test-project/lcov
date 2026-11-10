@@ -32,9 +32,12 @@ int iterate_get_sum (int min, int max)
         for (i = min; i <= max; i++)
         {
                 /* We can detect an overflow by checking whether the new
-                   sum would exceed the maximum integer value. */
+                   sum would exceed the maximum integer value.  Only a
+                   positive number can make it do so - and 'INT_MAX - i'
+                   would itself overflow for a negative one.  The two
+                   conditions make this a decision for MC/DC coverage. */
 
-                if (total > INT_MAX - i)
+                if (i > 0 && total > INT_MAX - i)
                 {
                         printf ("Error: sum too large!\n");
                         exit (1);

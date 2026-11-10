@@ -380,7 +380,7 @@ if you are using an lcov source version).
 
 The example demonstrates:
 
-- Compiling C/C++ code with coverage instrumentation
+- Compiling C/C++ code with coverage instrumentation using either GCC or LLVM
 - Running tests and capturing coverage data
 - Generating HTML coverage reports
 - Using differential coverage analysis
