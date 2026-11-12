@@ -2619,12 +2619,36 @@ use base 'ReadCurrentSource';
 
 sub new
 {
-    my ($class, $diffData) = @_;
+    my ($class, $diffData, $currentData) = @_;
 
     my $self = $class->SUPER::new();
-    push(@$self, $diffData);
+    # the baseline file names corresponding to 'current' file names (files may
+    #   have moved) and their basenames - see 'isUnreported'
+    my (%names, %basenames);
+    foreach my $f ($currentData->files()) {
+        my $name = $diffData->baseline_file_name($f);
+        $name         = lc($name) if $lcovutil::case_insensitive;
+        $names{$name} = 1;
+        $basenames{File::Basename::basename($name)} = 1;
+    }
+    push(@$self, $diffData, [\%names, \%basenames]);
 
     return $self;
+}
+
+sub isUnreported
+{
+    # a baseline file which does not appear in the 'current' report (not
+    #   present and not renamed) is simply entirely dropped from the HTML
+    #   report.  There is no need to look for it, to filter coverpoints, etc.
+    # The lookup ('TraceFile::data') falls back to a unique basename match -
+    #   so a file is unreported only if neither its name nor its basename
+    #   appears.
+    my ($self, $filename) = @_;
+    my $wanted = $self->[2];
+    my $name   = $lcovutil::case_insensitive ? lc($filename) : $filename;
+    return !(exists($wanted->[0]->{$name}) ||
+             exists($wanted->[1]->{File::Basename::basename($name)}));
 }
 
 sub isRecoveredBaselineFile
@@ -4937,6 +4961,9 @@ use constant {
               #   entries indexed by basename - see 'baselineSource'
               CURRENT   => 9,
               BASENAMES => 10,
+              # build directory->{source directory}:  where the soft links
+              #   in each build directory point - see '_directoryAlias'
+              DIRALIASES => 11,
 
               OLD  => 0,
               NEW  => 1,
@@ -4968,7 +4995,8 @@ sub new
                              #   has run
                 {},          # renamed: old_filename->new_filename
                 {},          # current: the names the 'current' data uses
-                {}           # basenames: basename->[diff entry, ..]
+                {},          # basenames: basename->[diff entry, ..]
+                {}           # directory aliases
     ];
     bless $self, $class;
     return $self;
@@ -5017,6 +5045,8 @@ sub load
                     next if (!-e $l || TraceFile::skipCurrentFile($l));
                     # may need to turn $l into relative path??
                     $self->[ALIASES]->{$path} = $l if (-f $l);
+                    $self->[DIRALIASES]->{$dir}->{File::Basename::dirname($l)}
+                        = 1;
                     #lcovutil::info("add alias '$path' -> '$l'\n");
                     # really, this should be a file...
                     die("unexpected soft link $path to directory")
@@ -5040,7 +5070,12 @@ sub findName
 {
     my ($self, $file) = @_;
     my $f = $lcovutil::case_insensitive ? lc($file) : $file;
-    $f = $self->[ALIASES]->{$f} if exists($self->[ALIASES]->{$f});
+    if (exists($self->[ALIASES]->{$f})) {
+        $f = $self->[ALIASES]->{$f};
+    } else {
+        my $alias = $self->_directoryAlias($f);
+        $f = $alias if defined($alias);
+    }
 
     if (File::Spec->file_name_is_absolute($f) &&
         !exists($self->[LINEMAP]->{$f})) {
@@ -5061,6 +5096,25 @@ sub findName
         }
     }
     return $f;
+}
+
+sub _directoryAlias
+{
+    # a file which the diff renames or deletes is gone from the build
+    #   directory - so it has no soft link there, and no alias.  Its siblings'
+    #   links still show where the sources of that directory live:  the file is
+    #   the one which has that name in one of those directories - if the diff
+    #   contains the file and there is only one such match.
+    #   (A directory such as 'include' may collect links from many source
+    #   directories.)
+    my ($self, $file) = @_;
+    my $targets = $self->[DIRALIASES]->{File::Basename::dirname($file)};
+    return undef unless defined($targets);
+    my $base = File::Basename::basename($file);
+    my @found = grep(
+            { exists($self->[LINEMAP]->{$_}) || exists($self->[RENAMED]->{$_}) }
+            map({ File::Spec->catfile($_, $base) } keys(%$targets)));
+    return 1 == scalar(@found) ? $found[0] : undef;
 }
 
 sub containsFile
@@ -10023,7 +10077,7 @@ sub gen_html()
     # Read and apply baseline data if specified
     if (@base_filenames) {
         $now = Time::HiRes::gettimeofday();
-        my $readBaseSource = ReadBaselineSource->new($diff_data);
+        my $readBaseSource = ReadBaselineSource->new($diff_data, $current_data);
         $then = Time::HiRes::gettimeofday();
         $lcovutil::profileData{parse_source} = $then - $now;
         # Read baseline file

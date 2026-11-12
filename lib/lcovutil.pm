@@ -11581,6 +11581,14 @@ sub isRecoveredBaselineFile
     return undef;
 }
 
+# true if '$filename' is data we will never report - so there is no point
+#   reading its source to filter it or to check its consistency.
+#   see 'ReadBaselineSource::isUnreported' in genhtml.
+sub isUnreported
+{
+    return 0;    # current data is always reported
+}
+
 sub open
 {
     my ($self, $filename, $version) = @_;
@@ -15880,6 +15888,12 @@ sub applyFilters
             $self->remove($source_file);
             next;
         }
+        if ($srcReader->isUnreported($source_file)) {
+            # keep the data:  its call sites may be wanted by some other file
+            lcovutil::info(1,
+                         "not filtering '$source_file':  it is not reported\n");
+            next;
+        }
         # derive function end line for C/C++ and java code if requested
         # (not trying to handle python nested functions, etc.)
         # However, see indent handling in the py2lcov script.  Arguably, that
@@ -18032,7 +18046,8 @@ sub _read_info
                 #   open a new one.  If that happened, then we would be looking
                 #   at the source for some previous file.
                 $readSourceCallback->close();
-                if (is_language(lcovutil::IS_C, $filename)) {
+                if (is_language(lcovutil::IS_C, $filename) &&
+                    !$readSourceCallback->isUnreported($filename)) {
                     $readSourceCallback->open($filename);
                 }
             }

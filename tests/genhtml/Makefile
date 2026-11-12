@@ -26,6 +26,7 @@ TESTS := \
   shellquote \
   selectscript \
   diffread \
+  baseonly \
   lcovrc \
   htmlgen \
   columns

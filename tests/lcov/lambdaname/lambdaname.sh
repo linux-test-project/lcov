@@ -44,6 +44,13 @@ fi
 ${CXX} -std=c++11 --coverage -O0 -o one_line one_line.cpp ||
     fail one_line 'compile'
 ./one_line
+# gcov before gcc/9 reports no function end lines, and lcov does not derive
+#   one for a lambda - so its record has no end line, and nothing to check
+IFS='.' read -r -a VER <<< `${CXX} -dumpversion`
+LAMBDA_FNL='^FNL:[0-9]+,5,5$'
+if [ "${VER[0]}" -lt 9 ] ; then
+    LAMBDA_FNL='^FNL:[0-9]+,5$'
+fi
 
 for DEMANGLE in '' --demangle-cpp ; do
     label=one_line${DEMANGLE:+_demangled}
@@ -57,7 +64,7 @@ for DEMANGLE in '' --demangle-cpp ; do
         fail $label "the lambda's first line was checked"
     fi
     # the lambda (at line 5) is still not hit
-    if ! grep -q -E '^FNL:[0-9]+,5,5$' $label.info ||
+    if ! grep -q -E "$LAMBDA_FNL" $label.info ||
         [ 0 != `awk -F'[:,]' '/^FNL:/ && $3 == 5 { idx[$2] = 1 }
                 /^FNA:/ && ($2 in idx) { print $3; exit }' $label.info` ] ; then
         fail $label "expected the lambda at line 5, not hit"

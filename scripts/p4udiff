@@ -449,7 +449,7 @@ foreach my $f (sort keys %union) {
         }
         my $closed = close(HANDLE);
         check_close($closed, $?, "'$print_cmd' pipe");
-        printf("@@ 1,%d 0,0 @@\n", scalar(@lines));
+        printf("@@ -1,%d +0,0 @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
     } elsif ($union{$f} == 2) {
         # added
@@ -489,7 +489,7 @@ foreach my $f (sort keys %union) {
             #   used to be here could fail for a local file which read fine
             die("unable to close $err: $!\n") unless $closed;
         }
-        printf("@@ 0,0 1,%d @@\n", scalar(@lines));
+        printf("@@ -0,0 +1,%d @@\n", scalar(@lines));
         printf("%s\n", join("\n", @lines));
     }
 }
