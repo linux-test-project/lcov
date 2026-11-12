@@ -6,7 +6,8 @@
 #   'call_if' with the second lambda too.  With the check enabled, that is an
 #   inconsistency;  with it disabled, the line's count need not be the
 #   lambda's, and the lambda is left 'not hit'.  The same with mangled and
-#   with demangled function names
+#   with demangled function names.  Before gcc/9 the lambda has no end line,
+#   so it is not checked at all
 set +x
 
 source ../../common.tst
@@ -101,63 +102,87 @@ ${CXX} -std=c++11 --coverage -O0 -o call_if call_if.cpp || fail call_if 'compile
 LINE_HIT="is not hit but line 6 is"
 SUPPRESSED='call_if.cpp":6: lambda detected, consistency check suppressed'
 
-for DEMANGLE in '' --demangle-cpp ; do
-    # label suffix
-    S=${DEMANGLE:+_demangled}
+# gcov before gcc/9 reports no function end lines, and lcov does not derive
+#   one for a lambda (see '_deriveFunctionEndLines') - so the check, which
+#   needs the lambda's extent, does not apply:  the lambda has no end line, is
+#   not reported, and is left 'not hit'
+IFS='.' read -r -a VER <<< `${CXX} -dumpversion`
+if [ "${VER[0]}" -lt 9 ] ; then
+    NAMES=old
+    for DEMANGLE in '' --demangle-cpp ; do
+        S=${DEMANGLE:+_demangled}
+        capture old$S 0 --rc ignore_lambda_consistency=0 $DEMANGLE
+        if grep -q -F "is not hit but line" old$S.log ; then
+            fail old$S "lambda was checked"
+        fi
+        if ! grep -q -E '^FNL:[0-9]+,5$' old$S.info ; then
+            fail old$S "expected the lambda at line 5, with no end line"
+        fi
+        COUNT=`fnCount old$S.info 5`
+        if [ "$COUNT" != 0 ] ; then
+            fail old$S "lambda count '$COUNT', expected 0"
+        fi
+    done
+else
+    NAMES=loose
+    for DEMANGLE in '' --demangle-cpp ; do
+        # label suffix
+        S=${DEMANGLE:+_demangled}
 
-    # checked:  the line is hit, the lambda is not
-    capture strict$S 1 --rc ignore_lambda_consistency=0 $DEMANGLE
-    if ! grep -q -F "$LINE_HIT." strict$S.log ; then
-        fail strict$S "expected the lambda to be reported"
-    fi
+        # checked:  the line is hit, the lambda is not
+        capture strict$S 1 --rc ignore_lambda_consistency=0 $DEMANGLE
+        if ! grep -q -F "$LINE_HIT." strict$S.log ; then
+            fail strict$S "expected the lambda to be reported"
+        fi
 
-    # ..and if that is ignored, the lambda is marked 'hit'
-    capture fixed$S 0 --rc ignore_lambda_consistency=0 --ignore inconsistent \
-        $DEMANGLE
-    if ! grep -q -F "$LINE_HIT: function marked 'hit'" fixed$S.log ; then
-        fail fixed$S "expected the lambda to be marked 'hit'"
-    fi
-    COUNT=`fnCount fixed$S.info 5`
-    if [ -z "$COUNT" -o "$COUNT" == 0 ] ; then
-        fail fixed$S "lambda count '$COUNT', expected it to be hit"
-    fi
+        # ..and if that is ignored, the lambda is marked 'hit'
+        capture fixed$S 0 --rc ignore_lambda_consistency=0 --ignore inconsistent \
+            $DEMANGLE
+        if ! grep -q -F "$LINE_HIT: function marked 'hit'" fixed$S.log ; then
+            fail fixed$S "expected the lambda to be marked 'hit'"
+        fi
+        COUNT=`fnCount fixed$S.info 5`
+        if [ -z "$COUNT" -o "$COUNT" == 0 ] ; then
+            fail fixed$S "lambda count '$COUNT', expected it to be hit"
+        fi
 
-    # ..and if that is ignored with 'fix_function_counts' off, the lambda is
-    #   reported but its count is not changed
-    capture no_fix$S 0 --rc ignore_lambda_consistency=0 \
-        --rc fix_function_counts=0 --ignore inconsistent $DEMANGLE
-    if ! grep -q -F "$LINE_HIT." no_fix$S.log ; then
-        fail no_fix$S "expected the lambda to be reported"
-    fi
-    if grep -q -F "$LINE_HIT: function marked" no_fix$S.log ; then
-        fail no_fix$S "the lambda was reported as marked 'hit'"
-    fi
-    COUNT=`fnCount no_fix$S.info 5`
-    if [ "$COUNT" != 0 ] ; then
-        fail no_fix$S "lambda count '$COUNT', expected 0"
-    fi
+        # ..and if that is ignored with 'fix_function_counts' off, the lambda is
+        #   reported but its count is not changed
+        capture no_fix$S 0 --rc ignore_lambda_consistency=0 \
+            --rc fix_function_counts=0 --ignore inconsistent $DEMANGLE
+        if ! grep -q -F "$LINE_HIT." no_fix$S.log ; then
+            fail no_fix$S "expected the lambda to be reported"
+        fi
+        if grep -q -F "$LINE_HIT: function marked" no_fix$S.log ; then
+            fail no_fix$S "the lambda was reported as marked 'hit'"
+        fi
+        COUNT=`fnCount no_fix$S.info 5`
+        if [ "$COUNT" != 0 ] ; then
+            fail no_fix$S "lambda count '$COUNT', expected 0"
+        fi
 
-    # not checked:  nothing is reported, and the lambda stays 'not hit'
-    capture loose$S 0 --rc ignore_lambda_consistency=1 -v $DEMANGLE
-    if grep -q -F "$LINE_HIT" loose$S.log ; then
-        fail loose$S "lambda was reported"
-    fi
-    if ! grep -q -F "$SUPPRESSED" loose$S.log ; then
-        fail loose$S "expected the check to be suppressed"
-    fi
-    COUNT=`fnCount loose$S.info 5`
-    if [ "$COUNT" != 0 ] ; then
-        fail loose$S "lambda count '$COUNT', expected 0"
-    fi
-    if ! grep -q -E '^DA:6,[1-9]' loose$S.info ; then
-        fail loose$S "expected line 6 to be hit"
-    fi
-done
+        # not checked:  nothing is reported, and the lambda stays 'not hit'
+        capture loose$S 0 --rc ignore_lambda_consistency=1 -v $DEMANGLE
+        if grep -q -F "$LINE_HIT" loose$S.log ; then
+            fail loose$S "lambda was reported"
+        fi
+        if ! grep -q -F "$SUPPRESSED" loose$S.log ; then
+            fail loose$S "expected the check to be suppressed"
+        fi
+        COUNT=`fnCount loose$S.info 5`
+        if [ "$COUNT" != 0 ] ; then
+            fail loose$S "lambda count '$COUNT', expected 0"
+        fi
+        if ! grep -q -E '^DA:6,[1-9]' loose$S.info ; then
+            fail loose$S "expected line 6 to be hit"
+        fi
+    done
+fi
 # ..and the two runs did see the lambda's name spelled differently
-MANGLED=`fnName loose.info 5`
-DEMANGLED=`fnName loose_demangled.info 5`
+MANGLED=`fnName $NAMES.info 5`
+DEMANGLED=`fnName ${NAMES}_demangled.info 5`
 if [[ ! "$MANGLED" =~ ^_Z ]] || [[ "$DEMANGLED" =~ ^_Z ]] ; then
-    fail loose "expected a mangled and a demangled name: '$MANGLED', '$DEMANGLED'"
+    fail $NAMES "expected a mangled and a demangled name: '$MANGLED', '$DEMANGLED'"
 fi
 
 if [ 0 != $STATUS ] ; then

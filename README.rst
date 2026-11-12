@@ -23,7 +23,7 @@ functionality:
   list of all source files in the project, or a three-level detail view:
   directory, file and source code view.
 
-- **Support for multiple languages** - including C/C++, Perl, and Python.
+- **Support for multiple languages** - including C/C++, Perl, Python, and Java.
 
 LCOV was initially designed to support Linux kernel coverage measurements,
 but works as well for coverage measurements on standard user space applications.

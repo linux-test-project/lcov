@@ -374,7 +374,7 @@ else
     OK=1
     echo "$OUTPUT" | grep -qF -- "--- $TOPDIR/gone.c"  || OK=0
     echo "$OUTPUT" | grep -qF -- "+++ /dev/null"        || OK=0
-    echo "$OUTPUT" | grep -qF -- "@@ 1,2 0,0 @@"       || OK=0
+    echo "$OUTPUT" | grep -qF -- "@@ -1,2 +0,0 @@"      || OK=0
     echo "$OUTPUT" | grep -qF -- "-line one"            || OK=0
     echo "$OUTPUT" | grep -qF -- "-line two"            || OK=0
     [ $OK -eq 1 ] && pass "Test 8: deleted file emits --- file +++ /dev/null with - prefixed content" ||
@@ -421,7 +421,7 @@ else
     echo "$OUTPUT" | grep -qF -- "new file mode"                  || OK=0
     echo "$OUTPUT" | grep -qF -- "--- /dev/null"                  || OK=0
     echo "$OUTPUT" | grep -qF -- "+++ $TOPDIR/new.c"              || OK=0
-    echo "$OUTPUT" | grep -qF -- "@@ 0,0 1,1 @@"                 || OK=0
+    echo "$OUTPUT" | grep -qF -- "@@ -0,0 +1,1 @@"                || OK=0
     echo "$OUTPUT" | grep -qF -- "+int main(void) { return 0; }" || OK=0
     [ $OK -eq 1 ] && pass "Test 9: added file emits new-file-mode + p4-print content" ||
         fail "Test 9 added-p4print: unexpected output:
