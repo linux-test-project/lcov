@@ -9,6 +9,8 @@
 #     asked for, in both directions
 #   - the fallback to pure Perl stays silent (exit 0, nothing on stderr) when
 #     the extension cannot be loaded at all, but records the reason
+#   - when the extension is not built, lcovutil.pm is not loaded a second time
+#     as 'LcovUtil.pm' on a case-insensitive filesystem
 #   - an older C++ runtime ahead of the real one on LD_LIBRARY_PATH does not
 #     stop the extension from loading
 #
@@ -123,6 +125,32 @@ else
     echo "recorded load error: $ERR"
 fi
 check_silent iso.err "ERROR: fallback to pure Perl should be silent"
+
+# --------------------------------------------------------------------------
+# extension not built, on a case-insensitive filesystem (macOS APFS, Windows
+# NTFS) - expect the same silent fallback, and lcovutil.pm loaded only once.
+# There, the @INC search for 'LcovUtil.pm' finds 'lcovutil.pm' itself, so an
+# unconditional 'require LcovUtil' loaded this file a second time:  one
+# "Subroutine ... redefined" warning per sub, on every lcov/genhtml run of a
+# release tarball (which does not build the extension).  A symlink gives the
+# same lookup result on a case-sensitive filesystem.  Not run under
+# $PERL_COVER_ARGS, for the reason given above.
+# --------------------------------------------------------------------------
+mkdir -p ci
+cp "$LCOVUTIL_PM" ci/lcovutil.pm
+ln -sf lcovutil.pm ci/LcovUtil.pm
+OUT=`(unset PERL5LIB ; perl -I ci -e "$PROBE") 2> ci.err`
+RC=$?
+if [ 0 != $RC ] ; then
+    cat ci.err
+    fail "ERROR: case-insensitive lookup should fall back, not fail (rc=$RC)"
+fi
+case "$OUT" in
+    '0|XS extension not built'*) ;;
+    *) fail "ERROR: expected 'not built' pure-Perl fallback, got '$OUT'" ;;
+esac
+check_silent ci.err \
+    "ERROR: lcovutil.pm reloaded as LcovUtil.pm (case-insensitive lookup)"
 
 # --------------------------------------------------------------------------
 # an older C++ runtime earlier on the library search path must not stop the

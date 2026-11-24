@@ -20350,21 +20350,28 @@ lcovutil::init_filters();
         my $self_dir = File::Basename::dirname(__FILE__);
         my $xs_blib  = File::Spec->catdir($self_dir, 'LcovUtil', 'blib', 'lib');
         my $xs_arch = File::Spec->catdir($self_dir, 'LcovUtil', 'blib', 'arch');
-        # Add blib paths to @INC so XSLoader can find the .so
+        # Try the extension only if it was built.  On a case-insensitive
+        # filesystem (macOS APFS, Windows NTFS), the @INC search for
+        # 'LcovUtil' finds 'lib/lcovutil.pm' - which is then loaded again,
+        # generating a boatload of warnings as every subroutine is redefined.
         if (-d $xs_blib && -d $xs_arch) {
+            # Add blib paths to @INC so XSLoader can find the .so
             unshift @INC, $xs_blib, $xs_arch;
+            eval {
+                no warnings 'once';
+                require LcovUtil;
+                $lcovutil::XS_LOADED     = $LcovUtil::XS_LOADED;
+                $lcovutil::XS_LOAD_ERROR = $LcovUtil::XS_LOAD_ERROR;
+            };
+            # Silently fall back to pure Perl on any load error.  $@ is set
+            # only when 'require LcovUtil' itself failed; if the .pm loaded but
+            # its XSLoader::load did not, LcovUtil.pm has already recorded the
+            # reason and $@ is empty.
+            $lcovutil::XS_LOAD_ERROR ||= $@;
+        } else {
+            $lcovutil::XS_LOAD_ERROR =
+                "XS extension not built (no $xs_blib or $xs_arch)";
         }
-        eval {
-            no warnings 'once';
-            require LcovUtil;
-            $lcovutil::XS_LOADED     = $LcovUtil::XS_LOADED;
-            $lcovutil::XS_LOAD_ERROR = $LcovUtil::XS_LOAD_ERROR;
-        };
-        # Silently fall back to pure Perl on any load error.  $@ is set only
-        # when 'require LcovUtil' itself failed (the extension was never built);
-        # if the .pm loaded but its XSLoader::load did not, LcovUtil.pm has
-        # already recorded the reason and $@ is empty.
-        $lcovutil::XS_LOAD_ERROR ||= $@;
     }
 }
 
