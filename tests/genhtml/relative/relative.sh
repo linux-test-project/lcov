@@ -5,7 +5,8 @@ set +x
 
 source ../../common.tst
 
-rm -rf *.txt* *.json dumper* relative
+rm -rf *.txt* *.json dumper* relative prefix prefix_test.cc prefix.info \
+    prefix.log
 
 clean_cover
 
@@ -81,6 +82,42 @@ for sort in f b ; do
         fi
     fi
 done
+
+# a relative source file name, with '--prefix' naming the directory it is
+#   relative to - genhtml run from the directory which holds the source.  The
+#   prefix names a directory which holds a source file, so genhtml moves it up
+#   one level - see 'layout_name' in genhtml.
+# This runs in the test directory rather than in one made for it so that,
+#   under --coverage, the data goes to the same (relative) database
+printf 'int main() {\n  return 0;\n}\n' > prefix_test.cc
+cat > prefix.info <<EOF
+SF:prefix_test.cc
+FNL:0,1
+FNA:0,1,main
+FNF:1
+FNH:1
+DA:2,1
+LH:1
+LF:1
+end_of_record
+EOF
+$COVER $GENHTML_TOOL -o prefix --prefix "`pwd -P`" prefix.info \
+    --ignore unsupported > prefix.log 2>&1
+if [ 0 != $? ] ; then
+    cat prefix.log
+    echo "Error:  genhtml failed with a relative name and '--prefix' of its directory"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
+# the prefix moved up one level, so the page is under this directory's name
+PAGE=prefix/$(basename "$(pwd -P)")/prefix_test.cc.gcov.html
+if [ ! -e "$PAGE" ] ; then
+    echo "Error: can't find '$PAGE'"
+    if [ $KEEP_GOING == 0 ] ; then
+        exit 1
+    fi
+fi
 
 echo "Tests passed"
 

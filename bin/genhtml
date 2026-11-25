@@ -392,6 +392,7 @@ sub gen_html();
 sub html_create($$);
 sub process_file($$$$$);
 sub compute_title($$);
+sub layout_name($);
 sub get_prefix($@);
 sub shorten_prefix($);
 sub get_relative_base_path($);
@@ -10162,21 +10163,27 @@ sub gen_html()
             $no_prefix = 1;
         }
     } else {
-        my $msg  = "Using user-specified filename prefix ";
-        my $dirs = $current_data->directories();
-        my $i    = 0;
+        my $msg = "Using user-specified filename prefix ";
+        my $i   = 0;
         # somewhat of a hack:  the layout code doesn't react well when
         #  the 'prefix' directory contains source files (as opposed to
         #  containing a directory which contains source files).
         # Rather than trying to handle that special case, just munge the
         #  prefix to be something we like better.
+        # The directories are the names the layout is built from - see
+        #  'layout_name':  a relative name in the data ('SF:test.cc') is in
+        #  the current directory, so a prefix naming that directory must be
+        #  moved up too.
+        my %dirs;
+        $dirs{File::Basename::dirname(layout_name($_))} = 1
+            foreach $current_data->files();
         while ($i <= $#dir_prefix) {
             my $p = $dir_prefix[$i];
             # remove redundant /'s
             $p =~ s/$lcovutil::dirseparator_re+$//;
             $p = substr($p, 0, -1)
                 if $lcovutil::dirseparator eq substr($p, -1);
-            while (exists($dirs->{$p}) && $p) {
+            while (exists($dirs{$p}) && $p) {
                 $p = File::Basename::dirname($p);
             }
             unless ($p) {
@@ -11390,6 +11397,27 @@ sub compute_title($$)
 }
 
 #
+# layout_name(filename)
+#
+# Return the name the report layout is built from for the source file which the
+# coverage data calls FILENAME:  the resolved name, in this platform's format,
+# and anchored at the current directory if it is relative - see
+# 'MergeManager::new'.  A '--prefix' is removed from this name, so
+# anything which decides what the prefix should be has to look at it too, not
+# at the name as read.
+#
+
+sub layout_name($)
+{
+    my $name = lcovutil::native_path(ReadCurrentSource::resolve_path(shift));
+    return $name if File::Spec->file_name_is_absolute($name);
+    my ($vol, $parentDir, $file) = File::Spec->splitpath($name);
+    $parentDir =
+        $parentDir ? File::Spec->catfile($main::cwd, $parentDir) : $main::cwd;
+    return File::Spec->catfile($parentDir, $file);
+}
+
+#
 # get_prefix(min_dir, filename_list)
 #
 # Search FILENAME_LIST for a directory prefix which is common to as many
@@ -11409,19 +11437,7 @@ sub get_prefix($@)
     foreach (@filename_list) {
         # Need explicit assignment to get a copy of $_ so that
         # shortening the contained prefix does not affect the list
-        # the prefix is a directory to remove from an output path, so this is
-        #   the same name 'MergeManager::new' derives the layout from
-        my $current =
-            lcovutil::native_path(ReadCurrentSource::resolve_path($_));
-        my ($vol, $parentDir, $file) = File::Spec->splitpath($current);
-        if (!File::Spec->file_name_is_absolute($current)) {
-            if ($parentDir) {
-                $parentDir = File::Spec->catfile($main::cwd, $parentDir);
-            } else {
-                $parentDir = $main::cwd;
-            }
-            $current = File::Spec->catfile($parentDir, $file);
-        }
+        my $current = layout_name($_);
         push(@munged, $current);
         while ($current = shorten_prefix($current)) {
             # Skip rest if the remaining prefix has already been
