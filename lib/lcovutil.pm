@@ -12913,25 +12913,6 @@ sub checkTestcaseData
     }
 }
 
-sub directories
-{
-    my $self = shift;
-    # return hash of directories which contain source files
-    # This answers a layout question - genhtml asks it to find out whether a
-    #   '--prefix' names a directory which holds sources rather than one which
-    #   holds directories - so the directory is the one the report will build,
-    #   which is not the leading part of a name spelled for the other platform.
-    #   See 'lcovutil::native_path';  the file names in the lists are the names
-    #   as read, which is what the data is keyed by
-    my %dirs;
-    foreach my $f ($self->files()) {
-        my $d = File::Basename::dirname(lcovutil::native_path($f));
-        $dirs{$d} = [] unless exists($dirs{$d});
-        push(@{$dirs{$d}}, $f);
-    }
-    return \%dirs;
-}
-
 sub file_exists
 {
     my ($self, $name) = @_;
