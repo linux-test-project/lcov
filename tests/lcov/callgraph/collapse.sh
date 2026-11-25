@@ -1487,6 +1487,87 @@ if [ -f html_grp_conflict/proj/grp.c.callees.html ] &&
 fi
 
 # ----------------------------------------------------------------------
+echo "*** 10. a row of merged sites is in a category none of them has"
+# ----------------------------------------------------------------------
+# 'f<char>' and 'f<long>' of 'grp.c' each call 'h' from 6:10, and are merged:
+#   the two sites are one row of the callees page, and that row is counted.
+#   The baseline has the site of 'f<char>', not taken - 'UBC' - and not that
+#   of 'f<long>', which is taken - 'GIC'.  Together:  in the baseline and not
+#   taken there, taken now - 'GBC', which neither site is.  The links of the
+#   summary tables to the first 'GBC' callee - of the file, of its date bin
+#   and of its owner - lead to the line of the row
+cat > ugrp.info <<'EOF'
+TN:
+SF:proj/grp.c
+FNL:0,1,1
+FNA:0,3,g
+FNL:1,2,2
+FNA:1,2,h
+FNL:2,3,7
+FNA:2,2,f<int>
+FNA:2,3,f<char>
+FNA:2,2,f<long>
+FNC:2#0,5,27,0,3,g
+FNC:2#1,6,10,0,0,h
+FNC:2#2,6,10,1,2,h
+FNF:5
+FNH:5
+FNCF:3
+FNCH:2
+DA:1,3
+DA:2,2
+DA:3,5
+DA:5,5
+DA:6,2
+LF:5
+LH:5
+end_of_record
+EOF
+grep -v '^FNC:2#2,' ugrp.info |
+    sed -e 's/^FNCF:3/FNCF:2/' -e 's/^FNCH:2/FNCH:1/' \
+        -e 's/^FNA:1,2,h/FNA:1,0,h/' -e 's/^DA:2,2/DA:2,0/' > ugrp_base.info
+# one owner and one date for every line
+cat > ugrp_ann.pm <<'EOF'
+package ugrp_ann;
+
+use strict;
+
+sub new
+{
+    my $class = shift;
+    return bless [], $class;
+}
+
+sub annotate
+{
+    my ($self, $file) = @_;
+    open(my $fh, '<', $file) or return (1, []);
+    my @lines;
+    while (my $line = <$fh>) {
+        chomp($line);
+        push(@lines,
+             [$line, 'bertie', 'bertie.wooster@jeeves.co.uk',
+              '2020-01-01T00:00:00-00:00', 'CL1']);
+    }
+    close($fh);
+    return (0, \@lines);
+}
+
+1;
+EOF
+runGenhtmlNames -o html_ugrp --baseline-file ugrp_base.info \
+    --annotate-script `pwd`/ugrp_ann.pm --date-bins 1,7 --show-owners all \
+    ugrp.info
+if grep -q 'ERROR' html_names.log ; then
+    fail html_ugrp "genhtml failed:" `grep -E 'ERROR' html_names.log`
+fi
+checkLog html_ugrp html_names.log '    callgraph: GBC:1 CBC:1'
+for page in index index-bin_date index-bin_owner ; do
+    checkLog html_ugrp html_ugrp/proj/$page.html \
+        'href="grp.c.gcov.html#L6" title="Go to first GBC callee in '
+done
+
+# ----------------------------------------------------------------------
 if [ 0 == $STATUS ] ; then
     echo "Tests passed"
 else
