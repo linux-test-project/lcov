@@ -1350,6 +1350,10 @@ runGenhtml pick --validate --callgraph --show-proportion -o html_pick \
 checkLine pick html_pick/proj/c.cpp.gcov.html \
     '<a href="#L16" title="goto first GNC line">1</a>'
 checkNoLine pick html_pick/proj/c.cpp.gcov.html '<span id="L15"'
+# ..and so is that of a call site row on a line it leaves out:  the row is
+#   counted on the definition of its function - 11:15 on that of 'dispatch'
+checkLine pick html_pick/proj/c.cpp.gcov.html \
+    '<a href="#L9" title="goto first UBC callee">1</a>'
 # the sites on line 7 are in the body of 'mix', which the filter took out of the
 #   tables:  each still says what it calls, and leads nowhere.  Those on line 16
 #   belong to 'main', which is in them

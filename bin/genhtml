@@ -461,7 +461,7 @@ sub _aliasGroupSites($$);
 sub _aliasGroupMetrics($$$);
 sub _aliasGroupLeadCells($$$$$$$);
 sub _aliasGroupsInOrder($$$@);
-sub _countedCallSites($$);
+sub _countedCallSites($$$);
 sub _callgraphTotals(@);
 sub _callgraphGroupHref($$$);
 sub _callgraphCountCell($$$$);
@@ -885,7 +885,7 @@ sub recountCallgraphSites
 {
     # The callgraph numbers of this file summary, counted again from the call
     #   sites the call site pages show rather than from the records:  '$sites'
-    #   is [category, {age, owner} or undef] of each of them - see
+    #   is [category, {age, owner} or undef, line] of each of them - see
     #   main::_countedCallSites.  A page shows one row for the records of
     #   one location which lead to one function.  How a particular function's
     #   alias groups are counted depends on 'show_callgraph_summary' (see
@@ -920,7 +920,7 @@ sub recountCallgraphSites
             $o->{$_} += $n foreach @keys;
         }
     }
-    $self->countCallgraphDestination(@$_) foreach @$sites;
+    $self->countCallgraphDestination(@{$_}[0, 1]) foreach @$sites;
 }
 
 # deserialization:  copy the coverage portion of the undumped data
@@ -6883,6 +6883,46 @@ sub _countMcdcTlaData
     return $displaced;
 }
 
+sub locateCallgraphSites
+{
+    # The locations of the callgraph categories of this file - which the links
+    #   of the summary tables lead to - taken from the call site rows '$sites'
+    #   the callgraph numbers of the file are counted from:  [category,
+    #   {age, owner} or undef, line] each - see
+    #   SummaryInfo::recountCallgraphSites.  A row which merges several sites
+    #   is in a category of its own (see _unionSiteTla) and may not match
+    #   the category of any of those sites:  a site in the baseline which
+    #   was not taken and a new one which is are one 'GBC' row.  A site of
+    #   in baseline which has no row retains the location where it was found
+    #   as it keeps its count
+    my ($self, $sites) = @_;
+    my %kept =
+        map({ ($_ => 1) } keys(%SummaryInfo::deletedTla), 'EUB', 'ECB');
+    my $categories = $self->[CALLGRAPH_CATEGORIES];
+    my $owners     = $self->[CALLGRAPH_OWNERS];
+    foreach my $lists ($categories, values(%$owners)) {
+        delete(@{$lists}{grep({ !$kept{$_} && 'lines' ne $_ } keys(%$lists))});
+    }
+    my %touched;
+    foreach my $site (@$sites) {
+        my ($tla, $annot, $line) = @$site;
+        my @lists = ($categories->{$tla} //= []);
+        if (defined($annot) && defined($annot->{owner})) {
+            my $owner = $owners->{$annot->{owner}} //= {lines => []};
+            push(@lists, $owner->{$tla} //= []);
+        }
+        foreach my $l (@lists) {
+            push(@$l, $line);
+            $touched{$l} = $l;
+        }
+    }
+    # ..in the order and with the uniqueness binarySearchLine expects
+    foreach my $l (values(%touched)) {
+        my %seen;
+        @$l = sort({ $a <=> $b } grep({ !$seen{$_}++ } @$l));
+    }
+}
+
 sub _countCallgraphTlaData
 {
     # The per-line accumulator for call sites.
@@ -11057,12 +11097,17 @@ sub process_file($$$$$)
     }
     # ..and the callgraph numbers of the file are computed from the rows shown
     #   on the page - see SummaryInfo::recountCallgraphSites - whether or not
-    #   the pages are written (so that the numbers do not depend on it)
-    $fileSummary->recountCallgraphSites(
-                    [map({ _countedCallSites($_, $srcfile) } @callgraphDetail)])
-        if $lcovutil::callgraph_coverage  &&
+    #   the pages are written (so that the numbers do not depend on it).  The
+    #   links of the summary tables lead to the locations of those rows
+    if ($lcovutil::callgraph_coverage &&
         defined($differentialFunctionMap) &&
-        !$srcfile->is_empty();
+        !$srcfile->is_empty()) {
+        my @counted =
+            map({ _countedCallSites($_, $srcfile, $fileCovInfo) }
+                @callgraphDetail);
+        $fileSummary->recountCallgraphSites(\@counted);
+        $srcfile->locateCallgraphSites(\@counted);
+    }
     ($callgraph_found, $callgraph_hit) =
         ($fileSummary->callgraph_found(), $fileSummary->callgraph_hit());
     my $r = "  lines=$lines_found hit=$lines_hit";
@@ -19431,20 +19476,26 @@ sub _aliasGroupsInOrder($$$@)
         } @groups);
 }
 
-sub _countedCallSites($$)
+sub _countedCallSites($$$)
 {
     # The call sites of function '$entry' - see callgraphDetailEntries - which
     #   the callgraph numbers of the report count, as [category, {age, owner}
-    #   or undef] each:  the rows its callees page shows, and of a function
-    #   shown as alias groups, the rows of its summary block, or where there is
-    #   none, the rows of every group (see 'show_callgraph_summary' in
+    #   or undef, line] each:  the rows its callees page shows, and of a
+    #   function shown as alias groups, the rows of its summary block, or where
+    #   there is none, the rows of every group (see 'show_callgraph_summary' in
     #   lcovrc(5)).  A site several groups share is then counted by each of
     #   them, as the page lists it in each.  Every row has a category:  genhtml
     #   categorizes every site, differential report or not
-    # The date and owner are those of the line of '$srcfile' which the site
-    #   is counted on - see SourceFile::_countCallgraphTlaData - which for a
-    #   site written in another file is the line its function starts on
-    my ($entry, $srcfile) = @_;
+    # The line is that of '$srcfile' which the site is counted on - see
+    #   SourceFile::_countCallgraphTlaData:  the first line of the statement
+    #   the site is written in (see FileCoverageInfo::statement).  For a site
+    #   written in another file it is the line its function starts on, as it
+    #   is for a site on a line '--select-script' leaves out of the source
+    #   view:  one which is not in the line data of '$fileCovInfo'.  The
+    #   definition of a function which is listed is shown.  The date and
+    #   owner come from that line
+    my ($entry, $srcfile, $fileCovInfo) = @_;
+    my $lineMap = $fileCovInfo->lineMap();
     my @groups =
         defined($entry->{summarySites}) ? @{$entry->{summarySites}} :
         defined($entry->{aliasGroups}) ?
@@ -19454,7 +19505,13 @@ sub _countedCallSites($$)
     my @sites;
     foreach my $group (@groups) {
         my ($line, undef, $rows, $siteFile) = @$group;
-        $line = $entry->{entry}->line() if defined($siteFile);
+        if (!defined($siteFile)) {
+            my ($first) = $fileCovInfo->statement($line);
+            $line = $first if defined($first);
+        }
+        $line = $entry->{entry}->line()
+            if (defined($siteFile) ||
+                ($SummaryInfo::selectCallback && !exists($lineMap->{$line})));
         my $annot;
         my $who =
             ($annotate && $line > 0 && $line <= $srcfile->num_lines()) ?
@@ -19465,7 +19522,7 @@ sub _countedCallSites($$)
                   owner => $who->owner()
             }
             if defined($who) && defined($who->age());
-        push(@sites, map({ [$_->[2], $annot] } @$rows));
+        push(@sites, map({ [$_->[2], $annot, $line] } @$rows));
     }
     return @sites;
 }
